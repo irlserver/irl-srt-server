@@ -86,6 +86,10 @@ void httpWorker(int bindPort)
     svr.listen("::", bindPort);
 }
 
+bool file_exists(const char *path) {
+    return access(path, R_OK) == 0;
+}
+
 int main(int argc, char *argv[])
 {
     struct sigaction sigIntHandler;
@@ -156,10 +160,24 @@ int main(int argc, char *argv[])
     // parse conf file
     if (strlen(sls_opt.conf_file_name) == 0)
     {
-        ret = snprintf(sls_opt.conf_file_name, sizeof(sls_opt.conf_file_name), "./sls.conf");
-        if (ret < 0 || (unsigned)ret >= sizeof(sls_opt.conf_file_name))
-        {
-            spdlog::critical("INTERNAL BUG! Conf file name is too long.");
+        const char *search_paths[] = {
+            "/etc/sls/sls.conf",
+            "/usr/local/etc/sls/sls.conf",
+            "/usr/etc/sls/sls.conf",
+            "./sls.conf"
+        };
+
+        bool found = false;
+        for (auto &path : search_paths) {
+            if (file_exists(path)) {
+                snprintf(sls_opt.conf_file_name, sizeof(sls_opt.conf_file_name), "%s", path);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            spdlog::critical("No configuration file found in standard paths.");
             goto EXIT_PROC;
         }
     }
