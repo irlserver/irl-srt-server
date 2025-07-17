@@ -45,6 +45,7 @@ static bool b_exit = 0;
 static void ctrl_c_handler(int s)
 {
     spdlog::warn("caught signal {:d}, exit.", s);
+    sls_remove_pid();
     b_exit = true;
 }
 
