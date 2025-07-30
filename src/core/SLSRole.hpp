@@ -95,6 +95,8 @@ public:
     int get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
     int get_bitrate();
     int get_uptime();
+    int get_latency() { return m_latency; }
+    void set_latency(int latency) { m_latency = latency; }
     int check_http_client();
     int check_http_passed();
 

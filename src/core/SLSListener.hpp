@@ -42,8 +42,11 @@ SLS_CONF_DYNAMIC_DECLARE_BEGIN(server)
 char domain_player[URL_MAX_LEN];
 char domain_publisher[URL_MAX_LEN];
 int listen;
+int listen_publisher;
+int listen_player;
 int backlog;
-int latency;
+int latency_min;
+int latency_max;
 int idle_streams_timeout; //unit s; -1: unlimited
 char on_event_url[URL_MAX_LEN];
 char default_sid[STR_MAX_LEN];
@@ -59,7 +62,8 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, listen_publisher, "publisher listen port", 1, 65535),
     SLS_SET_CONF(server, int, listen_player, "player listen port", 1, 65535),
     SLS_SET_CONF(server, int, backlog, "how many sockets may be allowed to wait until they are accepted", 1, 1024),
-    SLS_SET_CONF(server, int, latency, "latency.", 1, 5000),
+    SLS_SET_CONF(server, int, latency_min, "minimum allowed latency (ms) - enforced on publisher listeners only", 0, 5000),
+    SLS_SET_CONF(server, int, latency_max, "maximum allowed latency (ms) - enforced on all connections", 0, 10000),
     SLS_SET_CONF(server, int, idle_streams_timeout, "players idle timeout when no publisher", -1, 86400),
     SLS_SET_CONF(server, string, on_event_url, "on connect/close http url", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, string, default_sid, "default sid to use when no streamid is given", 1, STR_MAX_LEN - 1),
