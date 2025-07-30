@@ -55,7 +55,9 @@ SLS_CONF_DYNAMIC_DECLARE_END
 SLS_CONF_CMD_DYNAMIC_DECLARE_BEGIN(server)
 SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, string, domain_publisher, "", 1, URL_MAX_LEN - 1),
-    SLS_SET_CONF(server, int, listen, "listen port", 1, 65535),
+    SLS_SET_CONF(server, int, listen, "listen port (legacy, use listen_publisher/listen_player)", 1, 65535),
+    SLS_SET_CONF(server, int, listen_publisher, "publisher listen port", 1, 65535),
+    SLS_SET_CONF(server, int, listen_player, "player listen port", 1, 65535),
     SLS_SET_CONF(server, int, backlog, "how many sockets may be allowed to wait until they are accepted", 1, 1024),
     SLS_SET_CONF(server, int, latency, "latency.", 1, 5000),
     SLS_SET_CONF(server, int, idle_streams_timeout, "players idle timeout when no publisher", -1, 86400),
@@ -85,6 +87,9 @@ public:
     void set_map_puller(CSLSMapRelay *map_puller);
     void set_map_pusher(CSLSMapRelay *map_puller);
     void set_record_hls_path_prefix(char *path);
+    void set_listener_type(bool is_publisher);
+    void set_legacy_mode(bool is_legacy);
+    bool should_handle_app(const std::string& app_name, bool is_publisher_connection);
 
     virtual stat_info_t get_stat_info();
 
@@ -93,6 +98,8 @@ private:
     CSLSMapPublisher *m_map_publisher;
     CSLSMapRelay *m_map_puller;
     CSLSMapRelay *m_map_pusher;
+    bool m_is_publisher_listener;
+    bool m_is_legacy_listener;
 
     CSLSMutex m_mutex;
 

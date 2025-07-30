@@ -28,11 +28,8 @@
 #include "spdlog/spdlog.h"
 
 #include "SLSListener.hpp"
-#include "SLSLog.hpp"
 #include "SLSPublisher.hpp"
 #include "SLSPlayer.hpp"
-#include "SLSPullerManager.hpp"
-#include "SLSPusherManager.hpp"
 #include "util.hpp"
 
 /**
@@ -54,6 +51,9 @@ CSLSListener::CSLSListener()
     m_list_role = NULL;
     m_map_publisher = NULL;
     m_map_puller = NULL;
+    m_map_pusher = NULL;
+    m_is_publisher_listener = false;
+    m_is_legacy_listener = false;
     m_idle_streams_timeout = UNLIMITED_TIMEOUT;
     m_idle_streams_timeout_role = 0;
     m_stat_info = {};
@@ -107,6 +107,71 @@ void CSLSListener::set_record_hls_path_prefix(char *path)
         strlcpy(m_record_hls_path_prefix, path, sizeof(m_record_hls_path_prefix));
     }
 }
+
+
+void CSLSListener::set_listener_type(bool is_publisher)
+{
+    m_is_publisher_listener = is_publisher;
+    if (is_publisher) {
+        sprintf(m_role_name, "listener-publisher");
+    } else {
+        sprintf(m_role_name, "listener-player");
+    }
+}
+
+void CSLSListener::set_legacy_mode(bool is_legacy)
+{
+    m_is_legacy_listener = is_legacy;
+    if (is_legacy) {
+        if (m_is_publisher_listener) {
+            sprintf(m_role_name, "listener-legacy");
+        } else {
+            sprintf(m_role_name, "listener-legacy-player");
+        }
+    }
+}
+
+bool CSLSListener::should_handle_app(const std::string& app_name, bool is_publisher_connection)
+{
+    if (!m_conf) {
+        return true; // Default to allowing if no config
+    }
+    
+    sls_conf_server_t *conf_server = (sls_conf_server_t *)m_conf;
+    sls_conf_app_t *conf_app = (sls_conf_app_t *)conf_server->child;
+    
+    if (!conf_app) {
+        return true; // Default to allowing if no app config
+    }
+    
+    // Legacy listeners accept everything for backwards compatibility
+    if (m_is_legacy_listener) {
+        return true;
+    }
+    
+    // Check if the app name matches any of the configured app names for this listener type
+    int app_count = sls_conf_get_conf_count((sls_conf_base_t *)conf_app);
+    sls_conf_app_t *ca = conf_app;
+    
+    for (int i = 0; i < app_count; i++) {
+        if (is_publisher_connection) {
+            // For publisher connections, check against app_publisher
+            if (app_name == std::string(ca->app_publisher)) {
+                return m_is_publisher_listener; // Publisher listeners should handle publisher apps
+            }
+        } else {
+            // For player connections, check against app_player
+            if (app_name == std::string(ca->app_player)) {
+                return !m_is_publisher_listener; // Player listeners should handle player apps
+            }
+        }
+        ca = (sls_conf_app_t *)ca->sibling;
+    }
+    
+    // Dedicated listeners are strict - no backwards compatibility
+    return false;
+}
+
 
 int CSLSListener::init_conf_app()
 {
@@ -289,14 +354,37 @@ int CSLSListener::start()
         m_srt->libsrt_set_latency(latency);
     }
 
-    m_port = ((sls_conf_server_t *)m_conf)->listen;
+    // Use different ports for publisher and player listeners
+    sls_conf_server_t* server_conf = (sls_conf_server_t*)m_conf;
+    if (m_is_publisher_listener) {
+        m_port = server_conf->listen_publisher;
+        // Fallback to legacy listen port if publisher port not configured
+        if (m_port <= 0) {
+            m_port = server_conf->listen;
+        }
+    } else {
+        m_port = server_conf->listen_player;
+        // Fallback to legacy listen port if player port not configured (for backwards compatibility)
+        if (m_port <= 0) {
+            m_port = server_conf->listen;
+        }
+    }
+    
+    if (m_port <= 0) {
+        spdlog::error("[{}] CSLSListener::start, invalid port %d for %s listener.", 
+                fmt::ptr(this), m_port, m_is_publisher_listener ? "publisher" : "player");
+        return SLS_ERROR;
+    }
+
     ret = m_srt->libsrt_setup(m_port);
     if (SLS_OK != ret)
     {
         spdlog::error("[{}] CSLSListener::start, libsrt_setup failure.", fmt::ptr(this));
         return ret;
     }
-    spdlog::info("[{}] CSLSListener::start, libsrt_setup ok.", fmt::ptr(this));
+
+    spdlog::info("[{}] CSLSListener::start, libsrt_setup ok on port %d for %s.", 
+        fmt::ptr(this), m_port, m_is_publisher_listener ? "publisher" : "player");
 
     ret = m_srt->libsrt_listen(m_back_log);
     if (SLS_OK != ret)
@@ -378,14 +466,12 @@ int CSLSListener::handler()
         return client_count;
     }
 
+    // If the stream ID is empty, close the connection
     if (strlen(sid) == 0) {
-        strcpy(sid, "uplive.sls.com/live/test");
-        if (strlen(m_default_sid) != 0) {
-            strlcpy(sid, m_default_sid, sizeof(sid));
-        }
-        else {
-            strlcpy(sid, "uplive.sls.com/live/test", sizeof(sid));
-        }
+        spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], fd={:d}, empty stream ID not allowed.", fmt::ptr(this), peer_name, peer_port, srt->libsrt_get_fd());
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
     }
 
     sid_kv = srt->libsrt_parse_sid(sid);
@@ -427,8 +513,43 @@ int CSLSListener::handler()
     char cur_time[STR_DATE_TIME_LEN] = {0};
     sls_gettime_default_string(cur_time, sizeof(cur_time));
 
-    // 3.is player?
+    // Check if this connection type matches this listener type (with backwards compatibility)
     app_uplive = m_map_publisher->get_uplive(key_app);
+    bool is_player_connection = (app_uplive.length() > 0);
+    bool connection_allowed = true;
+    
+    // Enhanced logic: strict mode for dedicated listeners, backwards compatibility only for legacy listeners
+    if (m_is_legacy_listener) {
+        // Legacy listener: accepts both publishers and players (backwards compatible)
+        spdlog::debug("[{}] CSLSListener::handler, {} connection with app '{}' accepted on legacy listener (port {}) - backwards compatible.",
+                      fmt::ptr(this), is_player_connection ? "player" : "publisher", app_name, m_port);
+    } else {
+        // Dedicated listeners: strict type checking
+        if (!m_is_publisher_listener && !is_player_connection) {
+            // Player listener receiving publisher connection - STRICT REJECTION
+            spdlog::warn("[{}] CSLSListener::handler, refused, new role[{}:{:d}], publisher connection with app '{}' attempted on dedicated player listener (port {}).",
+                         fmt::ptr(this), peer_name, peer_port, app_name, m_port);
+            connection_allowed = false;
+        } else if (m_is_publisher_listener && is_player_connection) {
+            // Publisher listener receiving player connection - STRICT REJECTION
+            spdlog::warn("[{}] CSLSListener::handler, refused, new role[{}:{:d}], player connection with app '{}' attempted on dedicated publisher listener (port {}).",
+                         fmt::ptr(this), peer_name, peer_port, app_name, m_port);
+            connection_allowed = false;
+        } else {
+            // Connection matches expected type for dedicated listener
+            spdlog::debug("[{}] CSLSListener::handler, {} connection with app '{}' matches dedicated {} listener (port {}), proceeding normally.",
+                          fmt::ptr(this), is_player_connection ? "player" : "publisher", app_name, 
+                          m_is_publisher_listener ? "publisher" : "player", m_port);
+        }
+    }
+    
+    if (!connection_allowed) {
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    }
+
+    // 3.is player?
     if (app_uplive.length() > 0)
     {
         snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", app_uplive.c_str(), stream_name);
