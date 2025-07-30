@@ -7,11 +7,11 @@ WORKDIR /tmp
 COPY . /tmp/srt-live-server/
 RUN git clone https://github.com/irlserver/srt.git
 WORKDIR /tmp/srt
-RUN git checkout belabox && ./configure && make -j8 && make install
+RUN git checkout belabox && ./configure && make -j$(nproc) && make install
 WORKDIR /tmp/srt-live-server
 RUN git submodule update --init
 RUN cmake . -DCMAKE_BUILD_TYPE=Release
-RUN make -j8
+RUN make -j$(nproc)
 
 # final stage
 FROM alpine:latest
