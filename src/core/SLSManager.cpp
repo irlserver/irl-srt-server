@@ -92,6 +92,8 @@ int CSLSManager::start()
         return SLS_ERROR;
     }
     m_server_count = sls_conf_get_conf_count((sls_conf_base_t *)conf_server);
+    spdlog::info("[{}] CSLSManager::start, detected {} server configuration(s)", fmt::ptr(this), m_server_count);
+    
     sls_conf_server_t *conf = conf_server;
     m_map_data = new CSLSMapData[m_server_count];
     m_map_publisher = new CSLSMapPublisher[m_server_count];
@@ -105,6 +107,7 @@ int CSLSManager::start()
     //create listeners according config, delete by groups
     for (i = 0; i < m_server_count; i++)
     {
+        spdlog::info("[{}] CSLSManager::start, creating listeners for server {} of {}", fmt::ptr(this), i + 1, m_server_count);
         std::vector<std::string> created_listeners;
         
         // 1. Create publisher listener if configured
@@ -163,8 +166,11 @@ int CSLSManager::start()
         
         // 3. Create legacy listener if listen port is different from listen_publisher
         //    (If they're the same, listen_publisher takes precedence)
+        spdlog::info("[{}] CSLSManager::start, checking legacy listener: listen={}, listen_publisher={}", 
+                     fmt::ptr(this), conf->listen, conf->listen_publisher);
         if (conf->listen > 0 && conf->listen != conf->listen_publisher)
         {
+            spdlog::info("[{}] CSLSManager::start, creating legacy listener on port {}", fmt::ptr(this), conf->listen);
             CSLSListener *legacy_listener = new CSLSListener(); //deleted by groups
             legacy_listener->set_role_list(m_list_role);
             legacy_listener->set_conf((sls_conf_base_t *)conf);
@@ -184,11 +190,14 @@ int CSLSManager::start()
             }
             if (legacy_listener->start() != SLS_OK)
             {
-                spdlog::error("[{}] CSLSManager::start, legacy listener start failed.", fmt::ptr(this));
-                return SLS_ERROR;
+                spdlog::warn("[{}] CSLSManager::start, legacy listener start failed on port {} - might already be bound, continuing...", fmt::ptr(this), conf->listen);
+                delete legacy_listener; // Clean up failed listener
+                // Don't return error - continue with existing listeners
+            } else {
+                spdlog::info("[{}] CSLSManager::start, legacy listener started successfully on port {}", fmt::ptr(this), conf->listen);
+                m_servers.push_back(legacy_listener);
+                created_listeners.push_back("legacy (port " + std::to_string(conf->listen) + ", accepts both)");
             }
-            m_servers.push_back(legacy_listener);
-            created_listeners.push_back("legacy (port " + std::to_string(conf->listen) + ", accepts both)");
         }
         
         // 4. Fallback: if no listeners were created, create a legacy one
