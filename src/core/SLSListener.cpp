@@ -399,8 +399,10 @@ int CSLSListener::start()
         spdlog::info("[{}] CSLSListener::start, player listener - latency determined by network, not configured.", fmt::ptr(this));
     }
 
-    // Use different ports for publisher and player listeners
-    if (m_is_publisher_listener) {
+    // Use different ports for legacy, publisher and player listeners
+    if (m_is_legacy_listener) {
+        m_port = server_conf->listen;
+    } else if (m_is_publisher_listener) {
         m_port = server_conf->listen_publisher;
         // Fallback to legacy listen port if publisher port not configured
         if (m_port <= 0) {
