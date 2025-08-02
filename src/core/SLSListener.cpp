@@ -501,7 +501,10 @@ int CSLSListener::handler()
         delete srt;
         return client_count;
     }
-    spdlog::info("[{}] CSLSListener::handler, new client[{}:{:d}], fd={:d}.", fmt::ptr(this), peer_name, peer_port, fd_client);
+    spdlog::info("[{}] CSLSListener::handler, new client[{}:{:d}], fd={:d}, listener_type={}, legacy={}, port={}.", 
+                 fmt::ptr(this), peer_name, peer_port, fd_client, 
+                 m_is_publisher_listener ? "publisher" : "player", 
+                 m_is_legacy_listener ? "true" : "false", m_port);
 
     // Read the negotiated latency after accept
     sls_conf_server_t* conf_server = (sls_conf_server_t*)m_conf;
@@ -541,6 +544,9 @@ int CSLSListener::handler()
         delete srt;
         return client_count;
     }
+    
+    spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], received stream_id: '{}'", 
+                 fmt::ptr(this), peer_name, peer_port, sid);
 
     // If the stream ID is empty, close the connection
     if (strlen(sid) == 0) {
@@ -627,9 +633,12 @@ int CSLSListener::handler()
     }
     
     if (!connection_allowed) {
+        spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], connection REJECTED by validation logic", fmt::ptr(this), peer_name, peer_port);
         srt->libsrt_close();
         delete srt;
         return client_count;
+    } else {
+        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], connection ACCEPTED by validation logic, proceeding to create role", fmt::ptr(this), peer_name, peer_port);
     }
 
     // 3.is player?
