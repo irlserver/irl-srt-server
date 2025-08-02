@@ -242,14 +242,28 @@ int CSLSListener::init_conf_app()
         }
         strUplive = strUpliveDomain + "/" + strUplive;
         // If we cannot add publisher to the map, we have a duplicate publisher
+        // This can happen when multiple listeners share the same publisher map
         if (m_map_publisher->set_conf(strUplive, (sls_conf_base_t *)ca) != SLS_OK)
         {
-            spdlog::error("[{}] SLSListener::init_conf_app, duplicate app_publisher='{}'",
-                          fmt::ptr(this), strUplive);
-            return SLS_ERROR;
+            // Check if this is a duplicate due to multiple listeners sharing the same map
+            // If the configuration already exists, we can safely skip this initialization
+            if (m_map_publisher->get_ca(strUplive) != NULL)
+            {
+                spdlog::info("[{}] CSLSListener::init_conf_app, app_publisher='{}' already initialized, skipping.",
+                             fmt::ptr(this), strUplive);
+            }
+            else
+            {
+                spdlog::error("[{}] SLSListener::init_conf_app, duplicate app_publisher='{}'",
+                              fmt::ptr(this), strUplive);
+                return SLS_ERROR;
+            }
         }
-        spdlog::info("[{}] CSLSListener::init_conf_app, add app push '{}'.",
-                     fmt::ptr(this), strUplive);
+        else
+        {
+            spdlog::info("[{}] CSLSListener::init_conf_app, add app push '{}'.",
+                         fmt::ptr(this), strUplive);
+        }
 
         strLive = ca->app_player;
         if (strLive.length() == 0)
@@ -274,16 +288,29 @@ int CSLSListener::init_conf_app()
             }
             // m_map_live_2_uplive[strTemp]  = strUplive;
             //  If we cannot add player to the map, we have a duplicate player
+            // This can happen when multiple listeners share the same publisher map
             if (m_map_publisher->set_live_2_uplive(strTemp, strUplive) != SLS_OK)
             {
-                spdlog::error("[{}] CSLSListener::init_conf_app, duplicate app_player='{}'",
-                              fmt::ptr(this), strTemp);
-                return SLS_ERROR;
+                // Check if this is a duplicate due to multiple listeners sharing the same map
+                // If the mapping already exists, we can safely skip this initialization
+                std::string existing_uplive = m_map_publisher->get_uplive(strTemp);
+                if (!existing_uplive.empty() && existing_uplive == strUplive)
+                {
+                    spdlog::info("[{}] CSLSListener::init_conf_app, app_player='{}' already mapped to '{}', skipping.",
+                                 fmt::ptr(this), strTemp, strUplive);
+                }
+                else
+                {
+                    spdlog::error("[{}] CSLSListener::init_conf_app, duplicate app_player='{}'",
+                                  fmt::ptr(this), strTemp);
+                    return SLS_ERROR;
+                }
             }
-            m_map_publisher->set_live_2_uplive(strTemp, strUplive);
-
-            spdlog::info("[{}] CSLSListener::init_conf_app, add app live='{}', app push='{}'.",
-                         fmt::ptr(this), strTemp.c_str(), strUplive.c_str());
+            else
+            {
+                spdlog::info("[{}] CSLSListener::init_conf_app, add app live='{}', app push='{}'.",
+                             fmt::ptr(this), strTemp.c_str(), strUplive.c_str());
+            }
         }
 
         if (NULL != ca->child)
