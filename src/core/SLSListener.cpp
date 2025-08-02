@@ -594,6 +594,10 @@ int CSLSListener::handler()
     bool is_player_connection = (app_uplive.length() > 0);
     bool connection_allowed = true;
     
+    spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], connection analysis: key_app='{}', app_uplive='{}', is_player_connection={}, listener_type={}, legacy={}", 
+                 fmt::ptr(this), peer_name, peer_port, key_app, app_uplive, is_player_connection ? "true" : "false", 
+                 m_is_publisher_listener ? "publisher" : "player", m_is_legacy_listener ? "true" : "false");
+    
     // Enhanced logic: strict mode for dedicated listeners, backwards compatibility only for legacy listeners
     if (m_is_legacy_listener) {
         // Legacy listener: accepts both publishers and players (backwards compatible)
@@ -601,6 +605,9 @@ int CSLSListener::handler()
                       fmt::ptr(this), is_player_connection ? "player" : "publisher", app_name, m_port);
     } else {
         // Dedicated listeners: strict type checking
+        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], validation check: is_publisher_listener={}, is_player_connection={}", 
+                     fmt::ptr(this), peer_name, peer_port, m_is_publisher_listener ? "true" : "false", is_player_connection ? "true" : "false");
+        
         if (!m_is_publisher_listener && !is_player_connection) {
             // Player listener receiving publisher connection - STRICT REJECTION
             spdlog::warn("[{}] CSLSListener::handler, refused, new role[{}:{:d}], publisher connection with app '{}' attempted on dedicated player listener (port {}).",
@@ -613,7 +620,7 @@ int CSLSListener::handler()
             connection_allowed = false;
         } else {
             // Connection matches expected type for dedicated listener
-            spdlog::debug("[{}] CSLSListener::handler, {} connection with app '{}' matches dedicated {} listener (port {}), proceeding normally.",
+            spdlog::info("[{}] CSLSListener::handler, {} connection with app '{}' matches dedicated {} listener (port {}), proceeding normally.",
                           fmt::ptr(this), is_player_connection ? "player" : "publisher", app_name, 
                           m_is_publisher_listener ? "publisher" : "player", m_port);
         }
