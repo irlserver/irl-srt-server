@@ -86,3 +86,26 @@ int CSLSRoleList::size()
     CSLSLock lock(&m_mutex);
     return m_list_role.size();
 }
+
+int CSLSRoleList::count_players_for_stream(const char *stream_key)
+{
+    CSLSLock lock(&m_mutex);
+    int player_count = 0;
+    
+    for (std::list<CSLSRole *>::iterator it = m_list_role.begin(); it != m_list_role.end(); ++it)
+    {
+        CSLSRole *role = *it;
+        if (role && strcmp(role->get_role_name(), "player") == 0)
+        {
+            // Check if this player is connected to the specified stream
+            if (strcmp(role->get_map_data_key(), stream_key) == 0)
+            {
+                player_count++;
+            }
+        }
+    }
+    
+    spdlog::debug("[{}] CSLSRoleList::count_players_for_stream, stream='{}', player_count={:d}", 
+                  fmt::ptr(this), stream_key, player_count);
+    return player_count;
+}

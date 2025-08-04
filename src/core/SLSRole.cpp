@@ -248,16 +248,12 @@ char *CSLSRole::get_role_name()
 
 char *CSLSRole::get_streamid()
 {
-    if (strlen(m_streamid) != 0)
-    {
-        return m_streamid;
-    }
-    int sid_size = sizeof(m_streamid);
-    if (m_srt)
-    {
-        m_srt->libsrt_getsockopt(SRTO_STREAMID, "SRTO_STREAMID", m_streamid, &sid_size);
-    }
     return m_streamid;
+}
+
+char *CSLSRole::get_map_data_key()
+{
+    return m_map_data_key;
 }
 
 bool CSLSRole::is_reconnect()
