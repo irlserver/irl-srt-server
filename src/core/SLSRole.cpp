@@ -806,7 +806,7 @@ int CSLSRole::check_http_passed()
     }
 }
 
-int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps)
+int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds)
 {
     cleanup_bitrate_limiter();
     
@@ -822,7 +822,7 @@ int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps)
         return SLS_ERROR;
     }
     
-    int ret = m_bitrate_limiter->init(max_bitrate_kbps);
+    int ret = m_bitrate_limiter->init(max_bitrate_kbps, violation_timeout_seconds);
     if (ret != SLS_OK) {
         spdlog::error("[{}] CSLSRole::init_bitrate_limiter, failed to initialize bitrate limiter", fmt::ptr(this));
         delete m_bitrate_limiter;
@@ -830,8 +830,8 @@ int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps)
         return ret;
     }
     
-    spdlog::info("[{}] CSLSRole::init_bitrate_limiter, initialized with max_bitrate={:d}kbps", 
-                fmt::ptr(this), max_bitrate_kbps);
+    spdlog::info("[{}] CSLSRole::init_bitrate_limiter, initialized with max_bitrate={:d}kbps, violation_timeout={:d}s", 
+                fmt::ptr(this), max_bitrate_kbps, violation_timeout_seconds);
     return SLS_OK;
 }
 

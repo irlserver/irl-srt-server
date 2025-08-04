@@ -39,10 +39,11 @@ public:
     /**
      * Initialize the bitrate limiter
      * @param max_bitrate_kbps Maximum average bitrate in kilobits per second (0 = unlimited)
+     * @param violation_timeout_seconds Timeout in seconds before disconnecting violating streams (default: 30s)
      * @param window_ms Time window for averaging in milliseconds (default: 5000ms = 5 seconds)
      * @param spike_tolerance Multiplier for spike tolerance (default: 2.0 = allow 2x spikes)
      */
-    int init(int max_bitrate_kbps, int window_ms = 5000, float spike_tolerance = 2.0f);
+    int init(int max_bitrate_kbps, int violation_timeout_seconds = 30, int window_ms = 5000, float spike_tolerance = 2.0f);
 
     enum BitrateCheckResult {
         BITRATE_OK = 0,           // Data is within limits

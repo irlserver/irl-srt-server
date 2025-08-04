@@ -30,7 +30,7 @@ CSLSBitrateLimit::CSLSBitrateLimit()
     m_max_bitrate_kbps = 0;
     m_window_ms = 5000;
     m_spike_tolerance = 2.0f;
-    m_violation_threshold_ms = 10000; // 10 seconds of sustained violations = disconnect
+    m_violation_threshold_ms = 30000; // 30 seconds of sustained violations = disconnect (default)
     m_total_bytes_in_window = 0;
     
     // Violation tracking
@@ -52,15 +52,16 @@ CSLSBitrateLimit::~CSLSBitrateLimit()
     }
 }
 
-int CSLSBitrateLimit::init(int max_bitrate_kbps, int window_ms, float spike_tolerance)
+int CSLSBitrateLimit::init(int max_bitrate_kbps, int violation_timeout_seconds, int window_ms, float spike_tolerance)
 {
-    if (max_bitrate_kbps < 0 || window_ms <= 0 || spike_tolerance < 1.0f) {
-        spdlog::error("[{}] CSLSBitrateLimit::init, invalid parameters: max_bitrate_kbps={:d}, window_ms={:d}, spike_tolerance={:.2f}",
-                     fmt::ptr(this), max_bitrate_kbps, window_ms, spike_tolerance);
+    if (max_bitrate_kbps < 0 || violation_timeout_seconds <= 0 || window_ms <= 0 || spike_tolerance < 1.0f) {
+        spdlog::error("[{}] CSLSBitrateLimit::init, invalid parameters: max_bitrate_kbps={:d}, violation_timeout_seconds={:d}, window_ms={:d}, spike_tolerance={:.2f}",
+                     fmt::ptr(this), max_bitrate_kbps, violation_timeout_seconds, window_ms, spike_tolerance);
         return SLS_ERROR;
     }
 
     m_max_bitrate_kbps = max_bitrate_kbps;
+    m_violation_threshold_ms = violation_timeout_seconds * 1000; // Convert seconds to milliseconds
     m_window_ms = window_ms;
     m_spike_tolerance = spike_tolerance;
     
@@ -72,8 +73,8 @@ int CSLSBitrateLimit::init(int max_bitrate_kbps, int window_ms, float spike_tole
     m_total_bytes_in_window = 0;
     reset_stats();
     
-    spdlog::info("[{}] CSLSBitrateLimit::init, initialized with max_bitrate={:d}kbps, window={:d}ms, spike_tolerance={:.2f}",
-                fmt::ptr(this), max_bitrate_kbps, window_ms, spike_tolerance);
+    spdlog::info("[{}] CSLSBitrateLimit::init, initialized with max_bitrate={:d}kbps, violation_timeout={:d}s, window={:d}ms, spike_tolerance={:.2f}",
+                fmt::ptr(this), max_bitrate_kbps, violation_timeout_seconds, window_ms, spike_tolerance);
     
     return SLS_OK;
 }

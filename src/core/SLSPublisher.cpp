@@ -65,7 +65,11 @@ int CSLSPublisher::init()
         
         // Initialize bitrate limiter if configured
         if (app_conf->max_input_bitrate_kbps > 0) {
-            ret = init_bitrate_limiter(app_conf->max_input_bitrate_kbps);
+            int violation_timeout = app_conf->max_input_bitrate_violation_timeout;
+            if (violation_timeout <= 0) {
+                violation_timeout = 30; // Default to 30 seconds if not configured
+            }
+            ret = init_bitrate_limiter(app_conf->max_input_bitrate_kbps, violation_timeout);
             if (ret != SLS_OK) {
                 spdlog::error("[{}] CSLSPublisher::init, failed to initialize bitrate limiter", fmt::ptr(this));
                 return ret;
