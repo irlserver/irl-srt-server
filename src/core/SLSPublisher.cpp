@@ -62,6 +62,15 @@ int CSLSPublisher::init()
         //m_exit_delay = ((sls_conf_app_t *)m_conf)->publisher_exit_delay;
         strlcpy(m_record_hls, app_conf->record_hls, sizeof(m_record_hls));
         m_record_hls_segment_duration = app_conf->record_hls_segment_duration;
+        
+        // Initialize bitrate limiter if configured
+        if (app_conf->max_input_bitrate_kbps > 0) {
+            ret = init_bitrate_limiter(app_conf->max_input_bitrate_kbps);
+            if (ret != SLS_OK) {
+                spdlog::error("[{}] CSLSPublisher::init, failed to initialize bitrate limiter", fmt::ptr(this));
+                return ret;
+            }
+        }
     }
 
     return ret;

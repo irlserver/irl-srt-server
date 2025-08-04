@@ -102,6 +102,11 @@ public:
 
     void set_record_hls_path(const char *hls_path);
 
+    // Bitrate limiting methods
+    int init_bitrate_limiter(int max_bitrate_kbps);
+    void cleanup_bitrate_limiter();
+    CSLSBitrateLimit::BitrateStats get_bitrate_stats() const;
+
 protected:
     CSLSSrt *m_srt;
     bool m_is_write;                //listener: 0, publisher: 0, player: 1
@@ -145,6 +150,9 @@ protected:
     int64_t m_record_hls_begin_tm_ms;
     int m_record_hls_segment_duration;
     float m_record_hls_target_duration;
+
+    // Bitrate limiting
+    CSLSBitrateLimit *m_bitrate_limiter;
 
     int handler_write_data();
     int handler_read_data(int64_t *last_read_time = NULL);
