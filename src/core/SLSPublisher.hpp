@@ -52,7 +52,7 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(app, int, publisher_exit_delay, "delay exit time, unit second.", 1, 300),
     SLS_SET_CONF(app, string, record_hls, "record_hls switch", 1, SHORT_STR_MAX_LEN - 1),
     SLS_SET_CONF(app, int, record_hls_segment_duration, "record_hls_segment_duration", 1, 3600),
-    SLS_SET_CONF(app, int, max_input_bitrate_kbps, "max_input_bitrate_kbps", 1, 1000000),
+    SLS_SET_CONF(app, int, max_input_bitrate_kbps, "Maximum input bitrate in kbps (0=unlimited, stream disconnected after 10s violation)", 0, 1000000),
     SLS_SET_CONF2(app, ipset, ip_actions, allow, "allow address(es) to play/publish a stream", 1, 256),
     SLS_SET_CONF2(app, ipset, ip_actions, deny, "deny address(es) from playing/publishing a stream", 1, 256),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END

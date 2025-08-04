@@ -526,19 +526,15 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
     m_invalid_begin_tm = sls_gettime_ms();
     
     // Check bitrate limiting if enabled
-    bool data_allowed = true;
     if (m_bitrate_limiter) {
-        data_allowed = m_bitrate_limiter->check_data_allowed(n, m_invalid_begin_tm);
-        if (!data_allowed) {
-            // Data was dropped by bitrate limiter, but we still update timing
-            int d = m_invalid_begin_tm - m_stat_bitrate_last_tm;
-            if (d >= m_stat_bitrate_interval) {
-                m_kbitrate = m_stat_bitrate_datacount * 8 / d;
-                m_stat_bitrate_datacount = 0;
-                m_stat_bitrate_last_tm = m_invalid_begin_tm;
-            }
-            return SLS_OK; // Return OK but don't process the data
+        CSLSBitrateLimit::BitrateCheckResult result = m_bitrate_limiter->check_data_bitrate(n, m_invalid_begin_tm);
+        if (result == CSLSBitrateLimit::BITRATE_DISCONNECT) {
+            // Stream should be disconnected due to sustained bitrate violations
+            spdlog::error("[{}] CSLSRole::handler_read_data, disconnecting stream due to bitrate limit violation", fmt::ptr(this));
+            invalid_srt();
+            return SLS_ERROR;
         }
+        // For BITRATE_VIOLATION and BITRATE_OK, we continue processing the data
     }
 
     m_stat_bitrate_datacount += n;

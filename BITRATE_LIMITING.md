@@ -1,18 +1,19 @@
 # Maximum Average Input Bitrate Limiting
 
-This feature implements configurable maximum average input bitrate limiting for SRT streams with spike tolerance.
+This feature implements configurable maximum average input bitrate limiting for SRT streams with automatic stream disconnection for sustained violations.
 
 ## Overview
 
-The bitrate limiting feature allows you to set a maximum average input bitrate per stream while still allowing temporary spikes above the limit. This helps prevent streams from consuming excessive bandwidth while maintaining flexibility for variable bitrate content.
+The bitrate limiting feature allows you to set a maximum average input bitrate per stream. When streams exceed the limit for a sustained period (10 seconds), they are automatically disconnected. This helps prevent streams from consuming excessive bandwidth while allowing temporary spikes for variable bitrate content.
 
 ## Key Features
 
 - **Sliding Window Averaging**: Uses a 5-second sliding window to calculate average bitrate
-- **Spike Tolerance**: Allows temporary spikes up to 2x the configured limit
+- **Spike Tolerance**: Allows temporary spikes up to 2x the configured limit for short periods
 - **Per-Stream Limiting**: Each publisher stream can have its own bitrate limit
-- **Graceful Degradation**: Drops packets when limits are exceeded, logs violations
-- **Statistics**: Tracks total bytes received, dropped, and current bitrate
+- **Automatic Disconnection**: Disconnects streams after 10 seconds of sustained violations
+- **Violation Tracking**: Monitors violation duration and logs detailed information
+- **Statistics**: Tracks total bytes received, violation status, and current bitrate
 
 ## Configuration
 
@@ -24,8 +25,8 @@ app {
     app_publisher live;
     
     # Maximum input bitrate per stream in kilobits per second (0 = unlimited)
-    # Allows temporary spikes up to 2x the limit while maintaining average
-    max_input_bitrate_kbps 5000; # 5 Mbps limit
+    # Stream will be disconnected after 10 seconds of sustained violations
+    max_input_bitrate_kbps 20000; # 20 Mbps limit
     
     # ... other app configurations
 }
@@ -36,28 +37,28 @@ app {
 - `max_input_bitrate_kbps`: Maximum average bitrate in kilobits per second
   - `0`: Unlimited (default)
   - `> 0`: Specific limit in kbps
-  - Example: `5000` = 5 Mbps limit
+  - Example: `20000` = 20 Mbps limit
 
 ## How It Works
 
 1. **Sliding Window**: Maintains a 5-second sliding window of received data
 2. **Spike Detection**: Allows bursts up to 2x the configured limit for short periods
-3. **Average Enforcement**: Ensures the average bitrate over the window stays within limits
-4. **Packet Dropping**: When limits are exceeded, new packets are dropped (not queued)
+3. **Violation Tracking**: Monitors when streams exceed the spike limit continuously
+4. **Automatic Disconnection**: Disconnects streams after 10 seconds of sustained violations
 
 ## Example Scenarios
 
 ### Scenario 1: Normal Operation
-- Configured limit: 1000 kbps (1 Mbps)
-- Stream sends steady 800 kbps → All packets allowed
-- Brief spike to 1500 kbps → Spike allowed due to tolerance
-- Extended period at 1500 kbps → Packets dropped to maintain 1000 kbps average
+- Configured limit: 20000 kbps (20 Mbps)
+- Stream sends steady 15000 kbps → Stream continues normally
+- Brief spike to 35000 kbps → Spike allowed due to 2x tolerance (40 Mbps)
+- Extended period at 35000 kbps → Stream disconnected after 10 seconds
 
 ### Scenario 2: Variable Bitrate Content
-- Configured limit: 2000 kbps (2 Mbps)
-- Scene with low motion: 500 kbps → All packets allowed
-- Action scene spike: 3000 kbps → Allowed temporarily
-- Continuous action: 2500 kbps → Some packets dropped to maintain average
+- Configured limit: 10000 kbps (10 Mbps)
+- Scene with low motion: 5000 kbps → Stream continues normally
+- Action scene spike: 18000 kbps → Allowed temporarily (under 20 Mbps spike limit)
+- Sustained high action: 25000 kbps → Stream disconnected after 10 seconds
 
 ## Implementation Details
 
@@ -87,9 +88,10 @@ app {
 ### Data Flow
 
 ```
-SRT Data → handler_read_data() → check_data_allowed() → Allow/Drop → Process/Discard
-                                      ↓
-                              Update sliding window
+SRT Data → handler_read_data() → check_data_bitrate() → OK/Violation/Disconnect
+                                      ↓                        ↓
+                              Update sliding window    → Stream Disconnect
+                              Track violations              (invalid_srt())
                               Calculate current bitrate
                               Apply spike tolerance
 ```
@@ -101,16 +103,20 @@ SRT Data → handler_read_data() → check_data_allowed() → Allow/Drop → Pro
 The system logs the following events:
 
 ```
-[INFO] CSLSBitrateLimit::init, initialized with max_bitrate=5000kbps, window=5000ms, spike_tolerance=2.00
-[WARN] CSLSBitrateLimit::check_data_allowed, dropping 1316 bytes. Projected bitrate: 5500kbps, spike limit: 10000kbps, window: 5000ms
+[INFO] CSLSBitrateLimit::init, initialized with max_bitrate=20000kbps, window=5000ms, spike_tolerance=2.00
+[WARN] CSLSBitrateLimit::check_data_bitrate, bitrate violation started. Current bitrate: 35000kbps, spike limit: 40000kbps, max: 20000kbps
+[WARN] CSLSBitrateLimit::check_data_bitrate, sustained violation for 8000ms. Current bitrate: 38000kbps, limit: 40000kbps
+[ERROR] CSLSBitrateLimit::check_data_bitrate, disconnecting stream due to sustained bitrate violation. Duration: 10000ms, current bitrate: 37000kbps, limit: 40000kbps
+[INFO] CSLSBitrateLimit::check_data_bitrate, bitrate violation ended after 3000ms. Current bitrate: 15000kbps
 ```
 
 ### Statistics Available
 
 - Total bytes received
-- Total bytes dropped
 - Current bitrate (kbps)
 - Whether limiting is currently active
+- Whether stream is currently in violation
+- Current violation duration (if applicable)
 
 ## Performance Considerations
 
@@ -130,8 +136,8 @@ These parameters are hardcoded but could be made configurable if needed.
 
 ## Limitations
 
-1. **Packet-Level Dropping**: Drops complete packets, not partial data
-2. **No Buffering**: Excess data is dropped, not delayed
+1. **Stream Disconnection**: Streams are disconnected entirely, not throttled
+2. **Fixed Thresholds**: 10-second violation period and 2x spike tolerance are hardcoded
 3. **Per-Stream Only**: Limits apply per publisher, not globally
 4. **SRT-Specific**: Currently integrated only with SRT data flow
 
@@ -140,7 +146,8 @@ These parameters are hardcoded but could be made configurable if needed.
 Potential improvements for future versions:
 
 - Global bandwidth limits across all streams
-- Configurable window size and spike tolerance
-- Quality-based dropping (drop lower priority data first)
-- Rate limiting with queuing instead of dropping
+- Configurable violation threshold and spike tolerance
+- Throttling/rate limiting instead of disconnection
+- Warning notifications before disconnection
 - Integration with adaptive bitrate streaming
+- Quality-based violation handling (consider stream importance)

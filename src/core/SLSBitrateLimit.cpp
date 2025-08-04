@@ -30,7 +30,15 @@ CSLSBitrateLimit::CSLSBitrateLimit()
     m_max_bitrate_kbps = 0;
     m_window_ms = 5000;
     m_spike_tolerance = 2.0f;
+    m_violation_threshold_ms = 10000; // 10 seconds of sustained violations = disconnect
     m_total_bytes_in_window = 0;
+    
+    // Violation tracking
+    m_in_violation = false;
+    m_violation_start_time = 0;
+    m_last_violation_log_time = 0;
+    
+    // Statistics
     m_total_bytes_received = 0;
     m_total_bytes_dropped = 0;
     m_last_cleanup_time = 0;
@@ -70,18 +78,19 @@ int CSLSBitrateLimit::init(int max_bitrate_kbps, int window_ms, float spike_tole
     return SLS_OK;
 }
 
-bool CSLSBitrateLimit::check_data_allowed(int data_bytes, int64_t current_time_ms)
+CSLSBitrateLimit::BitrateCheckResult CSLSBitrateLimit::check_data_bitrate(int data_bytes, int64_t current_time_ms)
 {
     m_total_bytes_received += data_bytes;
     
-    // If no limit is set, allow all data
+    // Always add data to window for statistics (we don't drop packets anymore)
+    DataPoint point = {current_time_ms, data_bytes};
+    m_data_window.push(point);
+    m_total_bytes_in_window += data_bytes;
+    
+    // If no limit is set, always return OK
     if (m_max_bitrate_kbps == 0) {
-        // Still add to window for statistics
-        DataPoint point = {current_time_ms, data_bytes};
-        m_data_window.push(point);
-        m_total_bytes_in_window += data_bytes;
         cleanup_old_data(current_time_ms);
-        return true;
+        return BITRATE_OK;
     }
     
     // Clean up old data periodically (every second)
@@ -90,11 +99,8 @@ bool CSLSBitrateLimit::check_data_allowed(int data_bytes, int64_t current_time_m
         m_last_cleanup_time = current_time_ms;
     }
     
-    // Calculate what the bitrate would be if we allow this data
-    int64_t projected_bytes = m_total_bytes_in_window + data_bytes;
+    // Calculate current bitrate
     int64_t effective_window_ms = m_window_ms;
-    
-    // If we don't have a full window of data yet, adjust the calculation
     if (!m_data_window.empty()) {
         int64_t actual_window_ms = current_time_ms - m_data_window.front().timestamp_ms;
         if (actual_window_ms < m_window_ms) {
@@ -102,30 +108,61 @@ bool CSLSBitrateLimit::check_data_allowed(int data_bytes, int64_t current_time_m
         }
     }
     
-    // Calculate projected bitrate in kbps
-    int projected_bitrate_kbps = (int)(projected_bytes * 8 * 1000 / effective_window_ms / 1000);
+    // Calculate current bitrate in kbps
+    int current_bitrate_kbps = (int)(m_total_bytes_in_window * 8 * 1000 / effective_window_ms / 1000);
     
     // Allow spikes up to spike_tolerance * max_bitrate
     int spike_limit_kbps = (int)(m_max_bitrate_kbps * m_spike_tolerance);
     
-    // Check if this would exceed our limits
-    bool allow_data = (projected_bitrate_kbps <= spike_limit_kbps);
+    // Check if we're in violation
+    bool exceeds_spike_limit = (current_bitrate_kbps > spike_limit_kbps);
     
-    if (allow_data) {
-        // Add to sliding window
-        DataPoint point = {current_time_ms, data_bytes};
-        m_data_window.push(point);
-        m_total_bytes_in_window += data_bytes;
-    } else {
-        // Drop the data
-        m_total_bytes_dropped += data_bytes;
+    if (exceeds_spike_limit) {
+        // We're exceeding the spike limit
+        if (!m_in_violation) {
+            // Starting a new violation period
+            m_in_violation = true;
+            m_violation_start_time = current_time_ms;
+            m_last_violation_log_time = current_time_ms;
+            
+            spdlog::warn("[{}] CSLSBitrateLimit::check_data_bitrate, bitrate violation started. "
+                        "Current bitrate: {:d}kbps, spike limit: {:d}kbps, max: {:d}kbps",
+                        fmt::ptr(this), current_bitrate_kbps, spike_limit_kbps, m_max_bitrate_kbps);
+        } else {
+            // Continuing violation - log periodically (every 2 seconds)
+            if (current_time_ms - m_last_violation_log_time > 2000) {
+                int64_t violation_duration = current_time_ms - m_violation_start_time;
+                spdlog::warn("[{}] CSLSBitrateLimit::check_data_bitrate, sustained violation for {:d}ms. "
+                            "Current bitrate: {:d}kbps, limit: {:d}kbps",
+                            fmt::ptr(this), (int)violation_duration, current_bitrate_kbps, spike_limit_kbps);
+                m_last_violation_log_time = current_time_ms;
+            }
+        }
         
-        spdlog::warn("[{}] CSLSBitrateLimit::check_data_allowed, dropping {:d} bytes. "
-                    "Projected bitrate: {:d}kbps, spike limit: {:d}kbps, window: {:d}ms",
-                    fmt::ptr(this), data_bytes, projected_bitrate_kbps, spike_limit_kbps, (int)effective_window_ms);
+        // Check if we should disconnect
+        int64_t violation_duration = current_time_ms - m_violation_start_time;
+        if (violation_duration >= m_violation_threshold_ms) {
+            spdlog::error("[{}] CSLSBitrateLimit::check_data_bitrate, disconnecting stream due to sustained bitrate violation. "
+                         "Duration: {:d}ms, current bitrate: {:d}kbps, limit: {:d}kbps",
+                         fmt::ptr(this), (int)violation_duration, current_bitrate_kbps, spike_limit_kbps);
+            return BITRATE_DISCONNECT;
+        }
+        
+        return BITRATE_VIOLATION;
+    } else {
+        // We're within limits
+        if (m_in_violation) {
+            // Violation period ended
+            int64_t violation_duration = current_time_ms - m_violation_start_time;
+            spdlog::info("[{}] CSLSBitrateLimit::check_data_bitrate, bitrate violation ended after {:d}ms. "
+                        "Current bitrate: {:d}kbps",
+                        fmt::ptr(this), (int)violation_duration, current_bitrate_kbps);
+            m_in_violation = false;
+            m_violation_start_time = 0;
+        }
+        
+        return BITRATE_OK;
     }
-    
-    return allow_data;
 }
 
 void CSLSBitrateLimit::cleanup_old_data(int64_t current_time_ms)
@@ -171,6 +208,8 @@ CSLSBitrateLimit::BitrateStats CSLSBitrateLimit::get_stats() const
     stats.current_bitrate_kbps = calculate_current_bitrate_kbps(current_time);
     stats.average_bitrate_kbps = stats.current_bitrate_kbps; // In sliding window, current = average
     stats.is_limiting_active = (m_max_bitrate_kbps > 0) && (stats.current_bitrate_kbps > m_max_bitrate_kbps);
+    stats.is_in_violation = m_in_violation;
+    stats.violation_duration_ms = m_in_violation ? (current_time - m_violation_start_time) : 0;
     
     return stats;
 }
@@ -179,5 +218,8 @@ void CSLSBitrateLimit::reset_stats()
 {
     m_total_bytes_received = 0;
     m_total_bytes_dropped = 0;
+    m_in_violation = false;
+    m_violation_start_time = 0;
+    m_last_violation_log_time = 0;
     m_last_cleanup_time = sls_gettime_ms();
 }

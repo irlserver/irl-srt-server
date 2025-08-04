@@ -44,13 +44,19 @@ public:
      */
     int init(int max_bitrate_kbps, int window_ms = 5000, float spike_tolerance = 2.0f);
 
+    enum BitrateCheckResult {
+        BITRATE_OK = 0,           // Data is within limits
+        BITRATE_VIOLATION = 1,    // Data exceeds limits but stream continues
+        BITRATE_DISCONNECT = 2    // Stream should be disconnected due to sustained violations
+    };
+
     /**
-     * Check if incoming data should be allowed
+     * Check incoming data against bitrate limits
      * @param data_bytes Number of bytes being received
      * @param current_time_ms Current timestamp in milliseconds
-     * @return true if data should be allowed, false if it should be dropped
+     * @return BitrateCheckResult indicating action to take
      */
-    bool check_data_allowed(int data_bytes, int64_t current_time_ms);
+    BitrateCheckResult check_data_bitrate(int data_bytes, int64_t current_time_ms);
 
     /**
      * Get current average bitrate in kbps
@@ -60,13 +66,15 @@ public:
     /**
      * Get statistics about dropped data
      */
-    struct BitrateStats {
-        int64_t total_bytes_received;
-        int64_t total_bytes_dropped;
-        int current_bitrate_kbps;
-        int average_bitrate_kbps;
-        bool is_limiting_active;
-    };
+         struct BitrateStats {
+         int64_t total_bytes_received;
+         int64_t total_bytes_dropped;
+         int current_bitrate_kbps;
+         int average_bitrate_kbps;
+         bool is_limiting_active;
+         bool is_in_violation;
+         int64_t violation_duration_ms;
+     };
     
     BitrateStats get_stats() const;
 
@@ -81,17 +89,23 @@ private:
         int bytes;
     };
 
-    int m_max_bitrate_kbps;
-    int m_window_ms;
-    float m_spike_tolerance;
-    
-    std::queue<DataPoint> m_data_window;
-    int64_t m_total_bytes_in_window;
-    
-    // Statistics
-    int64_t m_total_bytes_received;
-    int64_t m_total_bytes_dropped;
-    int64_t m_last_cleanup_time;
+         int m_max_bitrate_kbps;
+     int m_window_ms;
+     float m_spike_tolerance;
+     int m_violation_threshold_ms;  // Time limit for sustained violations before disconnect
+     
+     std::queue<DataPoint> m_data_window;
+     int64_t m_total_bytes_in_window;
+     
+     // Violation tracking
+     bool m_in_violation;
+     int64_t m_violation_start_time;
+     int64_t m_last_violation_log_time;
+     
+     // Statistics
+     int64_t m_total_bytes_received;
+     int64_t m_total_bytes_dropped;
+     int64_t m_last_cleanup_time;
     
     void cleanup_old_data(int64_t current_time_ms);
     int calculate_current_bitrate_kbps(int64_t current_time_ms) const;
