@@ -41,6 +41,7 @@ char record_hls[SHORT_STR_MAX_LEN];
 int record_hls_segment_duration;
 int max_input_bitrate_kbps;
 int max_input_bitrate_violation_timeout;
+int max_players_per_stream;
 sls_ip_acl_t ip_actions;
 SLS_CONF_DYNAMIC_DECLARE_END
 
@@ -55,6 +56,7 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(app, int, record_hls_segment_duration, "record_hls_segment_duration", 1, 3600),
     SLS_SET_CONF(app, int, max_input_bitrate_kbps, "Maximum input bitrate in kbps (0=unlimited)", 0, 1000000),
     SLS_SET_CONF(app, int, max_input_bitrate_violation_timeout, "Timeout in seconds before disconnecting violating streams", 1, 300),
+    SLS_SET_CONF(app, int, max_players_per_stream, "maximum number of players per stream", -1, 10000),
     SLS_SET_CONF2(app, ipset, ip_actions, allow, "allow address(es) to play/publish a stream", 1, 256),
     SLS_SET_CONF2(app, ipset, ip_actions, deny, "deny address(es) from playing/publishing a stream", 1, 256),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END

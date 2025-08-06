@@ -82,6 +82,7 @@ public:
 
     char *get_streamid();
     bool is_reconnect();
+    char *get_map_data_key();
 
     void set_stat_info_base(stat_info_t &v);
     virtual stat_info_t get_stat_info();

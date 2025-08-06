@@ -767,6 +767,22 @@ int CSLSListener::handler()
             return client_count;
         }
 
+        // Check player limit per stream
+        if (ca->max_players_per_stream > 0)
+        {
+            int current_player_count = m_list_role->count_players_for_stream(key_stream_name);
+            if (current_player_count >= ca->max_players_per_stream)
+            {
+                spdlog::warn("[{}] CSLSListener::handler, refused, new player[{}:{:d}], stream={}, player limit reached ({:d}/{:d}).",
+                             fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, ca->max_players_per_stream);
+                srt->libsrt_close();
+                delete srt;
+                return client_count;
+            }
+            spdlog::debug("[{}] CSLSListener::handler, new player[{}:{:d}], stream={}, player count ({:d}/{:d}).",
+                          fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, ca->max_players_per_stream);
+        }
+
         // new player
         if (srt->libsrt_socket_nonblock(0) < 0)
             spdlog::warn("[{}] CSLSListener::handler, new player[{}:{:d}], libsrt_socket_nonblock failed.",

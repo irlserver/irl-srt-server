@@ -260,6 +260,11 @@ char *CSLSRole::get_streamid()
     return m_streamid;
 }
 
+char *CSLSRole::get_map_data_key()
+{
+    return m_map_data_key;
+}
+
 bool CSLSRole::is_reconnect()
 {
     return m_need_reconnect;
