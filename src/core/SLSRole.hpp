@@ -33,6 +33,7 @@
 #include "SLSLock.hpp"
 #include "common.hpp"
 #include "HttpClient.hpp"
+#include "SLSBitrateLimit.hpp"
 
 enum SLS_ROLE_STATE
 {
