@@ -199,7 +199,13 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
 
     // Build the API URL with player key parameter
     char auth_url[URL_MAX_LEN * 2] = {0};
-    int ret = snprintf(auth_url, sizeof(auth_url), "%s?player_key=%s", 
+    // Ensure base URL leaves room for parameters
+    if (strlen(m_player_key_auth_url) > URL_MAX_LEN - 100) {
+        spdlog::error("[{}] CSLSListener::validate_player_key, base auth URL too long.", fmt::ptr(this));
+        delete http_client;
+        return SLS_ERROR;
+    }
+    int ret = snprintf(auth_url, sizeof(auth_url), "%s?player_key=%s",
                        m_player_key_auth_url, url_encode(player_key).c_str());
     if (ret < 0 || (unsigned)ret >= sizeof(auth_url))
     {
