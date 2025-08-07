@@ -2,7 +2,7 @@
 
 ## Overview
 
-This implementation introduces separate player keys for the SRT Live Server using the traditional stream ID format (`play/live/playerkey`), allowing you to control access to streams using player-specific keys that are validated through an API endpoint.
+This implementation introduces separate player keys for the SRT Live Server using the configured stream ID format (`domain_player/app_player/playerkey`), allowing you to control access to streams using player-specific keys that are validated through an API endpoint.
 
 ## Features
 
@@ -11,20 +11,20 @@ This implementation introduces separate player keys for the SRT Live Server usin
 - **Purpose**: Specifies the API endpoint to validate player keys
 - **Format**: HTTP URL that accepts GET requests with `player_key` parameter
 
-### 2. Traditional Stream ID Format
-Player connections use the standard SRT stream ID format where the stream name is the player key:
+### 2. Configured Stream ID Format
+Player connections use the configured domain and app names from the SLS configuration:
 
 ```
-srt://host:port?streamid=play/live/playerkey
+srt://host:port?streamid=<domain_player>/<app_player>/playerkey
 ```
 
 When player key authentication is enabled:
-- `play` = domain (indicates player connection)
-- `live` = application name
+- `domain_player` = configured domain for players (e.g., "play")
+- `app_player` = configured application name for players (e.g., "live")
 - `playerkey` = the player key to validate
 
 ### 3. API Integration
-When a player connects with format `play/live/playerkey`, the server makes an HTTP GET request to:
+When a player connects with format `<domain_player>/<app_player>/playerkey`, the server makes an HTTP GET request to:
 ```
 <player_key_auth_url>?player_key=playerkey
 ```
@@ -40,6 +40,9 @@ Expected API response (JSON only):
 server {
     listen_player 4000;
     listen_publisher 4001;
+    
+    domain_player play;
+    domain_publisher publish;
     
     # Enable player key authentication
     player_key_auth_url http://127.0.0.1:8000/sls/validate_player_key;
@@ -66,7 +69,7 @@ ffplay "srt://host:4000?streamid=play/live/abc123"
 ```
 
 In this example:
-- The player provides stream ID `play/live/abc123`
+- The player provides stream ID `play/live/abc123` (using configured `domain_player=play` and `app_player=live`)
 - Server extracts player key `abc123` from the stream ID
 - Server calls: `http://127.0.0.1:8000/sls/validate_player_key?player_key=abc123`
 - API returns: `{"stream_id": "publish/live/mystream"}`
@@ -80,24 +83,60 @@ In this example:
    - Added `player_key_auth_url` configuration parameter
    - Added `m_player_key_auth_url` member variable
    - Added `validate_player_key()` method declaration
+   - Added member variables for storing configured domains and apps
 
 2. **src/core/SLSListener.cpp**
    - Added `#include <nlohmann/json.hpp>` for JSON parsing
    - Implemented `validate_player_key()` method with HTTP client and JSON parsing
-   - Added traditional stream ID parsing (`play/live/playerkey`)
+   - Added stream ID parsing using configured `domain_player` and `app_player` values
+   - Store configuration values in member variables during initialization
    - Integrated player key validation into connection handling
 
 3. **src/sls.conf**
-   - Added configuration examples with traditional format
+   - Added configuration examples showing usage with configured values
    - Updated documentation for JSON-only API responses
 
 ### Key Implementation Features
 
-1. **Traditional Format**: Uses standard SRT stream ID format `play/live/playerkey`
-2. **JSON Only**: API responses must be valid JSON with `stream_id` field
-3. **Backward Compatibility**: Only applies to `play/live/*` format when auth URL is configured
-4. **Stream ID Replacement**: Validated stream ID replaces the original for processing
-5. **Robust JSON Parsing**: Uses nlohmann/json library with proper error handling
+1. **Uses Configuration**: Respects configured `domain_player` and `app_player` values
+2. **Multiple Domains/Apps**: Supports multiple configured player domains and apps
+3. **JSON Only**: API responses must be valid JSON with `stream_id` field
+4. **Backward Compatibility**: Only applies to configured player formats when auth URL is configured
+5. **Stream ID Replacement**: Validated stream ID replaces the original for processing
+6. **Robust JSON Parsing**: Uses nlohmann/json library with proper error handling
+
+## Stream ID Flow
+
+1. **Player connects**: `srt://host:4000?streamid=play/live/playerkey123`
+2. **Server detects**: Configured format with matching `domain_player` and `app_player`
+3. **Extract key**: `playerkey123` from the third part
+4. **API call**: `GET /validate_player_key?player_key=playerkey123`
+5. **API response**: `{"stream_id": "publish/live/actualstream"}`
+6. **Stream replacement**: Original `play/live/playerkey123` becomes `publish/live/actualstream`
+7. **Normal processing**: Continue with standard SRT Live Server logic
+
+## Configuration Flexibility
+
+The implementation works with any configured domain and app names:
+
+```conf
+# Example 1: Standard configuration
+domain_player play;
+app_player live;
+# Player connects: srt://host:port?streamid=play/live/playerkey
+
+# Example 2: Custom configuration  
+domain_player viewer;
+app_player stream;
+# Player connects: srt://host:port?streamid=viewer/stream/playerkey
+
+# Example 3: Multiple domains
+domain_player "play watch";
+app_player live;
+# Player can connect with either:
+# srt://host:port?streamid=play/live/playerkey
+# srt://host:port?streamid=watch/live/playerkey
+```
 
 ## API Endpoint Implementation Example
 
@@ -142,16 +181,6 @@ The implementation includes comprehensive error handling:
 4. **Invalid Player Key**: If API returns non-200 status, connection is rejected
 5. **API Unavailable**: If HTTP request fails, connection is rejected
 6. **Network Timeouts**: Built-in timeout handling via existing HTTP client
-
-## Stream ID Flow
-
-1. **Player connects**: `srt://host:4000?streamid=play/live/playerkey123`
-2. **Server detects**: Traditional format with `play` domain
-3. **Extract key**: `playerkey123` from the third part
-4. **API call**: `GET /validate_player_key?player_key=playerkey123`
-5. **API response**: `{"stream_id": "publish/live/actualstream"}`
-6. **Stream replacement**: Original `play/live/playerkey123` becomes `publish/live/actualstream`
-7. **Normal processing**: Continue with standard SRT Live Server logic
 
 ## Testing
 

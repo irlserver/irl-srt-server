@@ -63,6 +63,11 @@ CSLSListener::CSLSListener()
     memset(m_http_url_role, 0, URL_MAX_LEN);
     memset(m_player_key_auth_url, 0, URL_MAX_LEN);
     memset(m_record_hls_path_prefix, 0, URL_MAX_LEN);
+    
+    // Initialize player key validation configuration
+    m_domain_players.clear();
+    m_domain_publisher.clear();
+    m_app_players.clear();
 
     sprintf(m_role_name, "listener");
 }
@@ -347,6 +352,11 @@ int CSLSListener::init_conf_app()
         spdlog::error("[{}] CSLSListener::init_conf_app, wrong domain_publisher='{}'.", fmt::ptr(this), conf_server->domain_publisher);
         return SLS_ERROR;
     }
+    
+    // Store configuration in member variables for player key validation
+    m_domain_players = domain_players;
+    m_domain_publisher = strUpliveDomain;
+
     sls_conf_app_t *conf_app = (sls_conf_app_t *)conf_server->child;
     if (!conf_app)
     {
@@ -397,6 +407,9 @@ int CSLSListener::init_conf_app()
                           fmt::ptr(this), strLive, strUpliveDomain);
             return SLS_ERROR;
         }
+        
+        // Store app_player configuration for player key validation
+        m_app_players.push_back(strLive);
 
         // Setup mapping between player endpoints and publishing endpoints
         // Each player endpoint has a corresponding (not necessarily unique)
@@ -798,14 +811,33 @@ int CSLSListener::handler()
     }
     free(sid_copy);
     
-    // Check if we have the traditional 3-part format and if this is a player connection
-    if (part_count == 3 && strcmp(domain, "play") == 0 && strlen(m_player_key_auth_url) > 0) {
+    // Check if we have the traditional 3-part format and if this is a configured player connection
+    bool is_player_domain = false;
+    bool is_player_app = false;
+    
+    // Check if domain matches any configured player domain
+    for (const auto& player_domain : m_domain_players) {
+        if (strcmp(domain, player_domain.c_str()) == 0) {
+            is_player_domain = true;
+            break;
+        }
+    }
+    
+    // Check if app matches any configured player app
+    for (const auto& player_app : m_app_players) {
+        if (strcmp(app, player_app.c_str()) == 0) {
+            is_player_app = true;
+            break;
+        }
+    }
+    
+    if (part_count == 3 && is_player_domain && is_player_app && strlen(m_player_key_auth_url) > 0) {
         // Use stream_part as player key
         strlcpy(player_key, stream_part, sizeof(player_key));
         player_key_validation_required = true;
         
-        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], detected player connection with traditional format, player_key='{}', validating...", 
-                     fmt::ptr(this), peer_name, peer_port, player_key);
+        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], detected player connection with configured format '{}/{}', player_key='{}', validating...", 
+                     fmt::ptr(this), peer_name, peer_port, domain, app, player_key);
         
         // Validate the player key and get the resolved stream ID
         int validation_result = validate_player_key(player_key, validated_stream_id, sizeof(validated_stream_id));

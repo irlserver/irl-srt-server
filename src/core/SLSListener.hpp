@@ -118,6 +118,11 @@ private:
     char m_http_url_role[URL_MAX_LEN];
     char m_player_key_auth_url[URL_MAX_LEN];
     char m_record_hls_path_prefix[URL_MAX_LEN];
+    
+    // Configuration for player key validation
+    std::vector<std::string> m_domain_players;
+    std::string m_domain_publisher;
+    std::vector<std::string> m_app_players;
 
     int init_conf_app();
 };
