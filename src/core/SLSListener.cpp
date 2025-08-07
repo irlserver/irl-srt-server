@@ -73,7 +73,7 @@ CSLSListener::CSLSListener()
     m_rate_limit_map.clear();
     m_player_key_auth_timeout = 2000; // 2 seconds default
     m_player_key_cache_duration = 60000; // 1 minute default
-    m_player_key_rate_limit_requests = 10; // 10 requests per window default
+    m_player_key_rate_limit_requests = -1; // No rate limit by default
     m_player_key_rate_limit_window = 60000; // 1 minute window default
     m_player_key_max_length = 64; // 64 characters max default
     m_player_key_min_length = 8; // 8 characters min default
@@ -223,6 +223,11 @@ bool CSLSListener::validate_player_key_format(const char* player_key)
 
 bool CSLSListener::is_rate_limited(const char* client_ip)
 {
+    // Check if rate limiting is disabled
+    if (m_player_key_rate_limit_requests == -1) {
+        return false; // Rate limiting disabled
+    }
+    
     if (!client_ip || strlen(client_ip) == 0) {
         return false; // No IP means no rate limiting
     }
@@ -258,6 +263,11 @@ bool CSLSListener::is_rate_limited(const char* client_ip)
 
 void CSLSListener::update_rate_limit(const char* client_ip)
 {
+    // Skip tracking if rate limiting is disabled
+    if (m_player_key_rate_limit_requests == -1) {
+        return;
+    }
+    
     if (!client_ip || strlen(client_ip) == 0) {
         return;
     }

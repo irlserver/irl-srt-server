@@ -50,7 +50,7 @@ server {
     player_key_cache_duration 60000;      # Cache duration in milliseconds
     
     # Security features
-    player_key_rate_limit_requests 10;    # Max requests per IP per window
+    player_key_rate_limit_requests -1;    # No rate limiting by default (-1 = unlimited)
     player_key_rate_limit_window 60000;   # Rate limit window in milliseconds
     player_key_min_length 8;              # Minimum player key length
     player_key_max_length 64;             # Maximum player key length
@@ -139,25 +139,50 @@ player_key_auth_timeout 2000;         # HTTP timeout in milliseconds
 player_key_cache_duration 60000;      # Cache duration in milliseconds
 ```
 
-**Recommended Settings:**
-- **Standard Server**: 2000ms timeout, 60000ms cache (1 minute)
-- **Low-Latency Server**: 1000ms timeout, 30000ms cache (30 seconds)
-- **High-Load Server**: 1500ms timeout, 120000ms cache (2 minutes)
+**Recommended Settings by Use Case:**
+
+**Standard Server** (Default - no rate limiting):
+```conf
+player_key_rate_limit_requests -1;    # Unlimited (default)
+player_key_min_length 8;
+player_key_max_length 64;
+```
+
+**High-Security Server** (Enable strict rate limiting):
+```conf
+player_key_rate_limit_requests 5;     # Enable strict rate limiting
+player_key_min_length 12;
+player_key_max_length 32;
+```
+
+**Low-Latency Server** (Moderate rate limiting):
+```conf
+player_key_rate_limit_requests 15;    # Enable moderate rate limiting
+player_key_min_length 6;
+player_key_max_length 32;
+```
 
 ## Security Features
 
 ### 1. Rate Limiting per IP Address
 Prevents abuse by limiting validation requests per IP address:
 
-- **Configurable Limits**: `player_key_rate_limit_requests` (default: 10 requests)
+- **Configurable Limits**: `player_key_rate_limit_requests` (default: -1, unlimited)
 - **Sliding Window**: `player_key_rate_limit_window` (default: 60000ms)
 - **Automatic Cleanup**: Expired rate limit entries are automatically removed
 - **Per-IP Tracking**: Each client IP is tracked independently
+- **Disabled by Default**: Set to -1 for unlimited requests (default behavior)
 
 **Configuration:**
 ```conf
-player_key_rate_limit_requests 10;    # Max requests per IP per window
+player_key_rate_limit_requests -1;    # -1 = unlimited (default), >0 = max requests per window
 player_key_rate_limit_window 60000;   # Rate limit window in milliseconds
+```
+
+**To enable rate limiting:**
+```conf
+player_key_rate_limit_requests 10;    # Enable: max 10 requests per IP per window
+player_key_rate_limit_window 60000;   # 60 second window
 ```
 
 ### 2. Player Key Format Validation
