@@ -30,6 +30,7 @@
 #include "SLSListener.hpp"
 #include "SLSPublisher.hpp"
 #include "SLSPlayer.hpp"
+#include "HttpClient.hpp"
 #include "util.hpp"
 
 /**
@@ -59,6 +60,7 @@ CSLSListener::CSLSListener()
     m_stat_info = {};
     memset(m_default_sid, 0, STR_MAX_LEN);
     memset(m_http_url_role, 0, URL_MAX_LEN);
+    memset(m_player_key_auth_url, 0, URL_MAX_LEN);
     memset(m_record_hls_path_prefix, 0, URL_MAX_LEN);
 
     sprintf(m_role_name, "listener");
@@ -172,6 +174,139 @@ bool CSLSListener::should_handle_app(const std::string& app_name, bool is_publis
     return false;
 }
 
+int CSLSListener::validate_player_key(const char* player_key, char* resolved_stream_id, size_t resolved_stream_id_size)
+{
+    // Check if player key authentication is enabled
+    if (strlen(m_player_key_auth_url) == 0)
+    {
+        spdlog::debug("[{}] CSLSListener::validate_player_key, player key authentication disabled.", fmt::ptr(this));
+        return SLS_ERROR; // No auth URL configured, reject
+    }
+
+    // Create HTTP client for the API call
+    CHttpClient *http_client = new CHttpClient;
+    if (!http_client)
+    {
+        spdlog::error("[{}] CSLSListener::validate_player_key, failed to create HTTP client.", fmt::ptr(this));
+        return SLS_ERROR;
+    }
+
+    // Build the API URL with player key parameter
+    char auth_url[URL_MAX_LEN * 2] = {0};
+    int ret = snprintf(auth_url, sizeof(auth_url), "%s?player_key=%s", 
+                       m_player_key_auth_url, url_encode(player_key).c_str());
+    if (ret < 0 || (unsigned)ret >= sizeof(auth_url))
+    {
+        spdlog::error("[{}] CSLSListener::validate_player_key, auth URL too long, ret={:d}.", fmt::ptr(this), ret);
+        delete http_client;
+        return SLS_ERROR;
+    }
+
+    spdlog::info("[{}] CSLSListener::validate_player_key, validating player_key='{}' at URL='{}'.", 
+                 fmt::ptr(this), player_key, auth_url);
+
+    // Make the HTTP request
+    ret = http_client->open(auth_url);
+    if (ret != SLS_OK)
+    {
+        spdlog::error("[{}] CSLSListener::validate_player_key, failed to open HTTP request, ret={:d}.", fmt::ptr(this), ret);
+        delete http_client;
+        return SLS_ERROR;
+    }
+
+    // Process the HTTP request (synchronous for simplicity)
+    http_client->handler();
+
+    // Check if request is finished
+    if (SLS_OK != http_client->check_finished())
+    {
+        spdlog::error("[{}] CSLSListener::validate_player_key, HTTP request not finished or failed.", fmt::ptr(this));
+        http_client->close();
+        delete http_client;
+        return SLS_ERROR;
+    }
+
+    // Get response info
+    HTTP_RESPONSE_INFO *response = http_client->get_response_info();
+    if (!response)
+    {
+        spdlog::error("[{}] CSLSListener::validate_player_key, failed to get HTTP response.", fmt::ptr(this));
+        http_client->close();
+        delete http_client;
+        return SLS_ERROR;
+    }
+
+    // Check response code
+    if (response->m_response_code != HTTP_RESPONSE_CODE_200)
+    {
+        spdlog::error("[{}] CSLSListener::validate_player_key, API returned error code: {}, response: '{}'.", 
+                     fmt::ptr(this), response->m_response_code.c_str(), response->m_response_content.c_str());
+        http_client->close();
+        delete http_client;
+        return SLS_ERROR;
+    }
+
+    // Parse the response content to extract the stream ID
+    // Expected response format: {"stream_id": "publish/live/streamname"} or just the stream ID as plain text
+    std::string response_content = response->m_response_content;
+    spdlog::info("[{}] CSLSListener::validate_player_key, API response: '{}'.", fmt::ptr(this), response_content.c_str());
+
+    // Simple parsing - check if response contains JSON or plain text
+    std::string stream_id;
+    if (response_content.find("{") != std::string::npos && response_content.find("stream_id") != std::string::npos)
+    {
+        // JSON response format - extract stream_id field
+        size_t start = response_content.find("\"stream_id\"");
+        if (start != std::string::npos)
+        {
+            start = response_content.find(":", start);
+            if (start != std::string::npos)
+            {
+                start = response_content.find("\"", start);
+                if (start != std::string::npos)
+                {
+                    start++; // Move past opening quote
+                    size_t end = response_content.find("\"", start);
+                    if (end != std::string::npos)
+                    {
+                        stream_id = response_content.substr(start, end - start);
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        // Plain text response - trim whitespace
+        stream_id = response_content;
+        // Remove leading/trailing whitespace
+        size_t start = stream_id.find_first_not_of(" \t\n\r");
+        if (start != std::string::npos)
+        {
+            size_t end = stream_id.find_last_not_of(" \t\n\r");
+            stream_id = stream_id.substr(start, end - start + 1);
+        }
+    }
+
+    // Clean up HTTP client
+    http_client->close();
+    delete http_client;
+
+    // Validate the resolved stream ID
+    if (stream_id.empty() || stream_id.length() >= resolved_stream_id_size)
+    {
+        spdlog::error("[{}] CSLSListener::validate_player_key, invalid or empty stream_id returned: '{}'.", 
+                     fmt::ptr(this), stream_id.c_str());
+        return SLS_ERROR;
+    }
+
+    // Copy the resolved stream ID to output buffer
+    strlcpy(resolved_stream_id, stream_id.c_str(), resolved_stream_id_size);
+    spdlog::info("[{}] CSLSListener::validate_player_key, player_key='{}' validated successfully, resolved to stream_id='{}'.", 
+                 fmt::ptr(this), player_key, resolved_stream_id);
+
+    return SLS_OK;
+}
 
 int CSLSListener::init_conf_app()
 {
@@ -205,6 +340,7 @@ int CSLSListener::init_conf_app()
     m_back_log = conf_server->backlog;
     m_idle_streams_timeout_role = conf_server->idle_streams_timeout;
     strlcpy(m_http_url_role, conf_server->on_event_url, sizeof(m_http_url_role));
+    strlcpy(m_player_key_auth_url, conf_server->player_key_auth_url, sizeof(m_player_key_auth_url));
     strlcpy(m_default_sid, conf_server->default_sid, sizeof(m_default_sid));
     spdlog::info("[{}] CSLSListener::init_conf_app, m_back_log={:d}, m_idle_streams_timeout={:d}.",
                  fmt::ptr(this), m_back_log, m_idle_streams_timeout_role);
@@ -641,9 +777,65 @@ int CSLSListener::handler()
         spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], connection ACCEPTED by validation logic, proceeding to create role", fmt::ptr(this), peer_name, peer_port);
     }
 
+    // Player key validation for player connections
+    char validated_stream_id[URL_MAX_LEN] = {0};
+    char player_key[URL_MAX_LEN] = {0};
+    bool player_key_validation_required = false;
+    
+    // Check if player key authentication is enabled and extract player_key from stream ID if present
+    if (strlen(m_player_key_auth_url) > 0 && sid_kv.count("player_key")) {
+        strlcpy(player_key, sid_kv.at("player_key").c_str(), sizeof(player_key));
+        player_key_validation_required = true;
+        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], found player_key='{}', validating...", 
+                     fmt::ptr(this), peer_name, peer_port, player_key);
+        
+        // Validate the player key and get the resolved stream ID
+        int validation_result = validate_player_key(player_key, validated_stream_id, sizeof(validated_stream_id));
+        if (validation_result != SLS_OK) {
+            spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], player key validation FAILED for key='{}'", 
+                         fmt::ptr(this), peer_name, peer_port, player_key);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+        
+        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], player key validation SUCCESS, resolved to stream_id='{}'", 
+                     fmt::ptr(this), peer_name, peer_port, validated_stream_id);
+                     
+        // Parse the validated stream ID to update host, app, and stream name
+        std::map<std::string, std::string> validated_sid_kv = srt->libsrt_parse_sid(validated_stream_id);
+        
+        // Update the parsed values with the validated stream ID
+        if (validated_sid_kv.count("h")) {
+            strlcpy(host_name, validated_sid_kv.at("h").c_str(), sizeof(host_name));
+        }
+        if (validated_sid_kv.count("sls_app")) {
+            strlcpy(app_name, validated_sid_kv.at("sls_app").c_str(), sizeof(app_name));
+        }
+        if (validated_sid_kv.count("r")) {
+            strlcpy(stream_name, validated_sid_kv.at("r").c_str(), sizeof(stream_name));
+        }
+        
+        // Update key_app with validated values
+        snprintf(key_app, sizeof(key_app), "%s/%s", host_name, app_name);
+        
+        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], updated to validated stream: '{}/{}/{}'",
+                     fmt::ptr(this), peer_name, peer_port, host_name, app_name, stream_name);
+    }
+
     // 3.is player?
     if (app_uplive.length() > 0)
     {
+        // Check if player key validation is required for player connections
+        if (strlen(m_player_key_auth_url) > 0 && !player_key_validation_required) {
+            // Player key authentication is enabled but no player_key was provided
+            spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], player key authentication is enabled but no player_key provided in stream ID for player connection", 
+                         fmt::ptr(this), peer_name, peer_port);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+        
         snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", app_uplive.c_str(), stream_name);
         CSLSRole *pub = m_map_publisher->get_publisher(key_stream_name);
         if (NULL == pub)

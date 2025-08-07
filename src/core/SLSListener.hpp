@@ -49,6 +49,7 @@ int latency_min;
 int latency_max;
 int idle_streams_timeout; //unit s; -1: unlimited
 char on_event_url[URL_MAX_LEN];
+char player_key_auth_url[URL_MAX_LEN];
 char default_sid[STR_MAX_LEN];
 SLS_CONF_DYNAMIC_DECLARE_END
 
@@ -66,6 +67,7 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, latency_max, "maximum allowed latency (ms) - enforced on all connections", 0, 10000),
     SLS_SET_CONF(server, int, idle_streams_timeout, "players idle timeout when no publisher", -1, 86400),
     SLS_SET_CONF(server, string, on_event_url, "on connect/close http url", 1, URL_MAX_LEN - 1),
+    SLS_SET_CONF(server, string, player_key_auth_url, "player key authentication API endpoint", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, string, default_sid, "default sid to use when no streamid is given", 1, STR_MAX_LEN - 1),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
@@ -97,6 +99,9 @@ public:
 
     virtual stat_info_t get_stat_info();
 
+protected:
+    int validate_player_key(const char* player_key, char* resolved_stream_id, size_t resolved_stream_id_size);
+
 private:
     CSLSRoleList *m_list_role;
     CSLSMapPublisher *m_map_publisher;
@@ -111,6 +116,7 @@ private:
     stat_info_t m_stat_info;
     char m_default_sid[1024];
     char m_http_url_role[URL_MAX_LEN];
+    char m_player_key_auth_url[URL_MAX_LEN];
     char m_record_hls_path_prefix[URL_MAX_LEN];
 
     int init_conf_app();
