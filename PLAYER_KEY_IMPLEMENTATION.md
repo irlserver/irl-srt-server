@@ -46,6 +46,8 @@ server {
     
     # Enable player key authentication
     player_key_auth_url http://127.0.0.1:8000/sls/validate_player_key;
+    player_key_auth_timeout 2000;         # HTTP timeout in milliseconds
+    player_key_cache_duration 60000;      # Cache duration in milliseconds
     
     app {
         app_player live;
@@ -104,6 +106,36 @@ In this example:
 4. **Backward Compatibility**: Only applies to configured player formats when auth URL is configured
 5. **Stream ID Replacement**: Validated stream ID replaces the original for processing
 6. **Robust JSON Parsing**: Uses nlohmann/json library with proper error handling
+
+## Performance Optimizations
+
+### 1. Non-Blocking HTTP Requests
+The implementation uses non-blocking HTTP requests with configurable timeouts to prevent blocking the listener thread:
+
+- **Timeout Control**: Configurable `player_key_auth_timeout` (default: 2000ms)
+- **Non-Blocking Loop**: Uses polling with microsecond sleeps to avoid busy waiting
+- **Graceful Timeouts**: Proper cleanup on timeout with detailed error logging
+
+### 2. Player Key Caching
+To reduce API calls and improve responsiveness, the server caches successful validations:
+
+- **Configurable Duration**: `player_key_cache_duration` (default: 60000ms)
+- **Automatic Expiry**: Cache entries automatically expire after the configured duration
+- **Cache Cleanup**: Expired entries are removed when accessed
+- **Memory Efficient**: Uses STL map for fast lookups and automatic memory management
+
+### 3. Configuration Options
+New configuration parameters for performance tuning:
+
+```conf
+player_key_auth_timeout 2000;         # HTTP timeout in milliseconds
+player_key_cache_duration 60000;      # Cache duration in milliseconds
+```
+
+**Recommended Settings:**
+- **Standard Server**: 2000ms timeout, 60000ms cache (1 minute)
+- **Low-Latency Server**: 1000ms timeout, 30000ms cache (30 seconds)
+- **High-Load Server**: 1500ms timeout, 120000ms cache (2 minutes)
 
 ## Stream ID Flow
 
@@ -181,6 +213,8 @@ The implementation includes comprehensive error handling:
 4. **Invalid Player Key**: If API returns non-200 status, connection is rejected
 5. **API Unavailable**: If HTTP request fails, connection is rejected
 6. **Network Timeouts**: Built-in timeout handling via existing HTTP client
+7. **HTTP Request Timeout**: Configurable timeout prevents blocking listener thread
+8. **Cache Management**: Automatic cleanup of expired cache entries
 
 ## Testing
 

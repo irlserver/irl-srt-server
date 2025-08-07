@@ -34,6 +34,9 @@
 #include "SLSRecycleArray.hpp"
 #include "SLSMapPublisher.hpp"
 #include "SLSMapRelay.hpp"
+#include "SLSSrt.hpp"
+#include <map>
+#include <chrono>
 
 /**
  * server conf
@@ -50,6 +53,8 @@ int latency_max;
 int idle_streams_timeout; //unit s; -1: unlimited
 char on_event_url[URL_MAX_LEN];
 char player_key_auth_url[URL_MAX_LEN];
+int player_key_auth_timeout;
+int player_key_cache_duration;
 char default_sid[STR_MAX_LEN];
 SLS_CONF_DYNAMIC_DECLARE_END
 
@@ -68,6 +73,8 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, idle_streams_timeout, "players idle timeout when no publisher", -1, 86400),
     SLS_SET_CONF(server, string, on_event_url, "on connect/close http url", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, string, player_key_auth_url, "player key authentication API endpoint", 1, URL_MAX_LEN - 1),
+    SLS_SET_CONF(server, int, player_key_auth_timeout, "player key authentication timeout (ms)", 1, 30000),
+    SLS_SET_CONF(server, int, player_key_cache_duration, "player key cache duration (ms)", 1, 300000),
     SLS_SET_CONF(server, string, default_sid, "default sid to use when no streamid is given", 1, STR_MAX_LEN - 1),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
@@ -123,6 +130,15 @@ private:
     std::vector<std::string> m_domain_players;
     std::string m_domain_publisher;
     std::vector<std::string> m_app_players;
+    
+    // Player key cache structure
+    struct PlayerKeyCacheEntry {
+        std::string resolved_stream_id;
+        std::chrono::steady_clock::time_point expiry_time;
+    };
+    std::map<std::string, PlayerKeyCacheEntry> m_player_key_cache;
+    int m_player_key_auth_timeout;
+    int m_player_key_cache_duration;
 
     int init_conf_app();
 };

@@ -33,6 +33,7 @@
 #include "HttpClient.hpp"
 #include "util.hpp"
 #include <nlohmann/json.hpp>
+#include <chrono>
 
 /**
  * server conf
@@ -68,6 +69,9 @@ CSLSListener::CSLSListener()
     m_domain_players.clear();
     m_domain_publisher.clear();
     m_app_players.clear();
+    m_player_key_cache.clear();
+    m_player_key_auth_timeout = 2000; // 2 seconds default
+    m_player_key_cache_duration = 60000; // 1 minute default
 
     sprintf(m_role_name, "listener");
 }
@@ -189,6 +193,29 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         return SLS_ERROR; // No auth URL configured, reject
     }
 
+    std::string key_str(player_key);
+    auto now = std::chrono::steady_clock::now();
+    
+    // Check cache first
+    auto cache_it = m_player_key_cache.find(key_str);
+    if (cache_it != m_player_key_cache.end())
+    {
+        if (now < cache_it->second.expiry_time)
+        {
+            // Cache hit - return cached result
+            strlcpy(resolved_stream_id, cache_it->second.resolved_stream_id.c_str(), resolved_stream_id_size);
+            spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit for player_key='{}', resolved to: '{}'.", 
+                         fmt::ptr(this), player_key, resolved_stream_id);
+            return SLS_OK;
+        }
+        else
+        {
+            // Cache expired - remove entry
+            m_player_key_cache.erase(cache_it);
+            spdlog::debug("[{}] CSLSListener::validate_player_key, cache expired for player_key='{}'.", fmt::ptr(this), player_key);
+        }
+    }
+
     // Create HTTP client for the API call
     CHttpClient *http_client = new CHttpClient;
     if (!http_client)
@@ -196,6 +223,9 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         spdlog::error("[{}] CSLSListener::validate_player_key, failed to create HTTP client.", fmt::ptr(this));
         return SLS_ERROR;
     }
+
+    // Set timeout for the HTTP request (convert ms to seconds)
+    http_client->set_timeout(m_player_key_auth_timeout / 1000);
 
     // Build the API URL with player key parameter
     char auth_url[URL_MAX_LEN * 2] = {0};
@@ -214,11 +244,11 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         return SLS_ERROR;
     }
 
-    spdlog::info("[{}] CSLSListener::validate_player_key, validating player_key='{}' at URL='{}'.", 
-                 fmt::ptr(this), player_key, auth_url);
+    spdlog::info("[{}] CSLSListener::validate_player_key, validating player_key='{}' at URL='{}', timeout={}ms.", 
+                 fmt::ptr(this), player_key, auth_url, m_player_key_auth_timeout);
 
     // Make the HTTP request
-    ret = http_client->open(auth_url);
+    ret = http_client->open(auth_url, "GET");
     if (ret != SLS_OK)
     {
         spdlog::error("[{}] CSLSListener::validate_player_key, failed to open HTTP request, ret={:d}.", fmt::ptr(this), ret);
@@ -226,16 +256,46 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         return SLS_ERROR;
     }
 
-    // Process the HTTP request (synchronous for simplicity)
-    http_client->handler();
-
-    // Check if request is finished
-    if (SLS_OK != http_client->check_finished())
+    // Non-blocking request processing with timeout
+    int64_t start_time = sls_gettime_ms();
+    int64_t timeout_ms = m_player_key_auth_timeout;
+    bool request_completed = false;
+    
+    while (!request_completed)
     {
-        spdlog::error("[{}] CSLSListener::validate_player_key, HTTP request not finished or failed.", fmt::ptr(this));
-        http_client->close();
-        delete http_client;
-        return SLS_ERROR;
+        // Process HTTP data
+        http_client->handler();
+        
+        // Check if request is complete
+        if (SLS_OK == http_client->check_finished())
+        {
+            request_completed = true;
+            break;
+        }
+        
+        // Check timeout
+        int64_t current_time = sls_gettime_ms();
+        if (current_time - start_time >= timeout_ms)
+        {
+            spdlog::error("[{}] CSLSListener::validate_player_key, HTTP request timeout after {}ms for player_key='{}'.", 
+                         fmt::ptr(this), timeout_ms, player_key);
+            http_client->close();
+            delete http_client;
+            return SLS_ERROR;
+        }
+        
+        // Check for timeout on HTTP client side
+        if (SLS_OK == http_client->check_timeout(current_time))
+        {
+            spdlog::error("[{}] CSLSListener::validate_player_key, HTTP client timeout for player_key='{}'.", 
+                         fmt::ptr(this), player_key);
+            http_client->close();
+            delete http_client;
+            return SLS_ERROR;
+        }
+        
+        // Small sleep to prevent busy waiting (1ms)
+        usleep(1000);
     }
 
     // Get response info
@@ -300,6 +360,15 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         return SLS_ERROR;
     }
 
+    // Cache the successful result
+    PlayerKeyCacheEntry cache_entry;
+    cache_entry.resolved_stream_id = stream_id;
+    cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration);
+    m_player_key_cache[key_str] = cache_entry;
+    
+    spdlog::debug("[{}] CSLSListener::validate_player_key, cached result for player_key='{}', expires in {}ms.", 
+                 fmt::ptr(this), player_key, m_player_key_cache_duration);
+
     // Copy the resolved stream ID to output buffer
     strlcpy(resolved_stream_id, stream_id.c_str(), resolved_stream_id_size);
     spdlog::info("[{}] CSLSListener::validate_player_key, player_key='{}' validated successfully, resolved to stream_id='{}'.", 
@@ -341,6 +410,8 @@ int CSLSListener::init_conf_app()
     m_idle_streams_timeout_role = conf_server->idle_streams_timeout;
     strlcpy(m_http_url_role, conf_server->on_event_url, sizeof(m_http_url_role));
     strlcpy(m_player_key_auth_url, conf_server->player_key_auth_url, sizeof(m_player_key_auth_url));
+    m_player_key_auth_timeout = conf_server->player_key_auth_timeout;
+    m_player_key_cache_duration = conf_server->player_key_cache_duration;
     strlcpy(m_default_sid, conf_server->default_sid, sizeof(m_default_sid));
     spdlog::info("[{}] CSLSListener::init_conf_app, m_back_log={:d}, m_idle_streams_timeout={:d}.",
                  fmt::ptr(this), m_back_log, m_idle_streams_timeout_role);
