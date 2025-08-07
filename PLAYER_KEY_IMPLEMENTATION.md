@@ -49,6 +49,12 @@ server {
     player_key_auth_timeout 2000;         # HTTP timeout in milliseconds
     player_key_cache_duration 60000;      # Cache duration in milliseconds
     
+    # Security features
+    player_key_rate_limit_requests 10;    # Max requests per IP per window
+    player_key_rate_limit_window 60000;   # Rate limit window in milliseconds
+    player_key_min_length 8;              # Minimum player key length
+    player_key_max_length 64;             # Maximum player key length
+    
     app {
         app_player live;
         app_publisher live;
@@ -123,6 +129,7 @@ To reduce API calls and improve responsiveness, the server caches successful val
 - **Automatic Expiry**: Cache entries automatically expire after the configured duration
 - **Cache Cleanup**: Expired entries are removed when accessed
 - **Memory Efficient**: Uses STL map for fast lookups and automatic memory management
+- **Negative Caching**: Failed validations are cached briefly to prevent repeated API abuse
 
 ### 3. Configuration Options
 New configuration parameters for performance tuning:
@@ -136,6 +143,61 @@ player_key_cache_duration 60000;      # Cache duration in milliseconds
 - **Standard Server**: 2000ms timeout, 60000ms cache (1 minute)
 - **Low-Latency Server**: 1000ms timeout, 30000ms cache (30 seconds)
 - **High-Load Server**: 1500ms timeout, 120000ms cache (2 minutes)
+
+## Security Features
+
+### 1. Rate Limiting per IP Address
+Prevents abuse by limiting validation requests per IP address:
+
+- **Configurable Limits**: `player_key_rate_limit_requests` (default: 10 requests)
+- **Sliding Window**: `player_key_rate_limit_window` (default: 60000ms)
+- **Automatic Cleanup**: Expired rate limit entries are automatically removed
+- **Per-IP Tracking**: Each client IP is tracked independently
+
+**Configuration:**
+```conf
+player_key_rate_limit_requests 10;    # Max requests per IP per window
+player_key_rate_limit_window 60000;   # Rate limit window in milliseconds
+```
+
+### 2. Player Key Format Validation
+Input validation ensures player keys meet security requirements:
+
+- **Length Constraints**: Configurable minimum and maximum length
+- **Character Validation**: Regex-based format validation
+- **Fast Rejection**: Invalid formats are rejected before API calls
+- **Secure Defaults**: Alphanumeric, hyphens, and underscores only
+
+**Configuration:**
+```conf
+player_key_min_length 8;              # Minimum player key length
+player_key_max_length 64;             # Maximum player key length
+# Valid pattern: ^[a-zA-Z0-9_-]{min,max}$
+```
+
+### 3. Negative Caching
+Failed validations are cached to prevent repeated API abuse:
+
+- **Shorter Duration**: Failed keys cached for 1/4 of normal cache time
+- **Prevents Brute Force**: Reduces load on authentication API
+- **Automatic Expiry**: Expired negative entries are cleaned up
+- **Security Logging**: Failed attempts are logged for monitoring
+
+### 4. Multi-Layer Security
+The implementation provides defense in depth:
+
+1. **Format Validation** - Fast client-side checks
+2. **Rate Limiting** - Per-IP request throttling  
+3. **Negative Caching** - Prevents repeated invalid attempts
+4. **Timeout Protection** - Prevents hanging connections
+5. **Comprehensive Logging** - Security event monitoring
+
+**Security Event Logging:**
+- Invalid format attempts
+- Rate limit violations
+- Failed authentication attempts
+- Timeout events
+- Cache hits/misses
 
 ## Stream ID Flow
 
@@ -215,6 +277,10 @@ The implementation includes comprehensive error handling:
 6. **Network Timeouts**: Built-in timeout handling via existing HTTP client
 7. **HTTP Request Timeout**: Configurable timeout prevents blocking listener thread
 8. **Cache Management**: Automatic cleanup of expired cache entries
+9. **Invalid Key Format**: Player keys that don't match regex pattern are rejected
+10. **Rate Limiting**: Excessive requests from same IP are rejected
+11. **Length Validation**: Keys outside configured length range are rejected
+12. **Negative Cache Hits**: Previously failed keys are rejected from cache
 
 ## Testing
 

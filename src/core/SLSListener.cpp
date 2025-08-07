@@ -70,8 +70,15 @@ CSLSListener::CSLSListener()
     m_domain_publisher.clear();
     m_app_players.clear();
     m_player_key_cache.clear();
+    m_rate_limit_map.clear();
     m_player_key_auth_timeout = 2000; // 2 seconds default
     m_player_key_cache_duration = 60000; // 1 minute default
+    m_player_key_rate_limit_requests = 10; // 10 requests per window default
+    m_player_key_rate_limit_window = 60000; // 1 minute window default
+    m_player_key_max_length = 64; // 64 characters max default
+    m_player_key_min_length = 8; // 8 characters min default
+    // Default regex: alphanumeric, hyphens, underscores, 8-64 characters
+    m_player_key_regex = std::regex("^[a-zA-Z0-9_-]{8,64}$");
 
     sprintf(m_role_name, "listener");
 }
@@ -184,7 +191,107 @@ bool CSLSListener::should_handle_app(const std::string& app_name, bool is_publis
     return false;
 }
 
-int CSLSListener::validate_player_key(const char* player_key, char* resolved_stream_id, size_t resolved_stream_id_size)
+bool CSLSListener::validate_player_key_format(const char* player_key)
+{
+    if (!player_key) {
+        return false;
+    }
+    
+    size_t key_len = strlen(player_key);
+    
+    // Check length constraints
+    if (key_len < (size_t)m_player_key_min_length || key_len > (size_t)m_player_key_max_length) {
+        spdlog::warn("[{}] CSLSListener::validate_player_key_format, key length {} outside range [{}, {}].", 
+                     fmt::ptr(this), key_len, m_player_key_min_length, m_player_key_max_length);
+        return false;
+    }
+    
+    // Check format with regex
+    try {
+        if (!std::regex_match(player_key, m_player_key_regex)) {
+            spdlog::warn("[{}] CSLSListener::validate_player_key_format, key '{}' doesn't match required format.", 
+                         fmt::ptr(this), player_key);
+            return false;
+        }
+    } catch (const std::regex_error& e) {
+        spdlog::error("[{}] CSLSListener::validate_player_key_format, regex error: {}.", fmt::ptr(this), e.what());
+        return false;
+    }
+    
+    return true;
+}
+
+bool CSLSListener::is_rate_limited(const char* client_ip)
+{
+    if (!client_ip || strlen(client_ip) == 0) {
+        return false; // No IP means no rate limiting
+    }
+    
+    auto now = std::chrono::steady_clock::now();
+    std::string ip_str(client_ip);
+    
+    // Clean up expired rate limit entries periodically
+    cleanup_expired_rate_limits();
+    
+    auto rate_it = m_rate_limit_map.find(ip_str);
+    if (rate_it == m_rate_limit_map.end()) {
+        return false; // No previous requests from this IP
+    }
+    
+    RateLimitEntry& entry = rate_it->second;
+    
+    // Remove expired requests from the deque
+    auto window_start = now - std::chrono::milliseconds(m_player_key_rate_limit_window);
+    while (!entry.request_times.empty() && entry.request_times.front() < window_start) {
+        entry.request_times.pop_front();
+    }
+    
+    // Check if we've exceeded the rate limit
+    if ((int)entry.request_times.size() >= m_player_key_rate_limit_requests) {
+        spdlog::warn("[{}] CSLSListener::is_rate_limited, IP '{}' exceeded rate limit: {} requests in {}ms window.", 
+                     fmt::ptr(this), client_ip, entry.request_times.size(), m_player_key_rate_limit_window);
+        return true;
+    }
+    
+    return false;
+}
+
+void CSLSListener::update_rate_limit(const char* client_ip)
+{
+    if (!client_ip || strlen(client_ip) == 0) {
+        return;
+    }
+    
+    auto now = std::chrono::steady_clock::now();
+    std::string ip_str(client_ip);
+    
+    // Add current request time
+    m_rate_limit_map[ip_str].request_times.push_back(now);
+}
+
+void CSLSListener::cleanup_expired_rate_limits()
+{
+    auto now = std::chrono::steady_clock::now();
+    auto window_start = now - std::chrono::milliseconds(m_player_key_rate_limit_window * 2); // Keep some buffer
+    
+    for (auto it = m_rate_limit_map.begin(); it != m_rate_limit_map.end();) {
+        RateLimitEntry& entry = it->second;
+        
+        // Remove expired requests
+        while (!entry.request_times.empty() && entry.request_times.front() < window_start) {
+            entry.request_times.pop_front();
+        }
+        
+        // Remove empty entries
+        if (entry.request_times.empty()) {
+            it = m_rate_limit_map.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+int CSLSListener::validate_player_key(const char* player_key, char* resolved_stream_id, size_t resolved_stream_id_size, const char* client_ip)
 {
     // Check if player key authentication is enabled
     if (strlen(m_player_key_auth_url) == 0)
@@ -193,20 +300,43 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         return SLS_ERROR; // No auth URL configured, reject
     }
 
+    // Validate player key format first (fast check)
+    if (!validate_player_key_format(player_key))
+    {
+        spdlog::warn("[{}] CSLSListener::validate_player_key, invalid player key format for key='{}'.", fmt::ptr(this), player_key);
+        return SLS_ERROR;
+    }
+
+    // Check rate limiting
+    if (client_ip && is_rate_limited(client_ip))
+    {
+        spdlog::warn("[{}] CSLSListener::validate_player_key, rate limited request from IP='{}'.", fmt::ptr(this), client_ip);
+        return SLS_ERROR;
+    }
+
     std::string key_str(player_key);
     auto now = std::chrono::steady_clock::now();
     
-    // Check cache first
+    // Check cache first (including negative cache)
     auto cache_it = m_player_key_cache.find(key_str);
     if (cache_it != m_player_key_cache.end())
     {
         if (now < cache_it->second.expiry_time)
         {
             // Cache hit - return cached result
-            strlcpy(resolved_stream_id, cache_it->second.resolved_stream_id.c_str(), resolved_stream_id_size);
-            spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit for player_key='{}', resolved to: '{}'.", 
-                         fmt::ptr(this), player_key, resolved_stream_id);
-            return SLS_OK;
+            if (cache_it->second.is_valid)
+            {
+                strlcpy(resolved_stream_id, cache_it->second.resolved_stream_id.c_str(), resolved_stream_id_size);
+                spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (valid) for player_key='{}', resolved to: '{}'.", 
+                             fmt::ptr(this), player_key, resolved_stream_id);
+                return SLS_OK;
+            }
+            else
+            {
+                spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (invalid) for player_key='{}'.", 
+                             fmt::ptr(this), player_key);
+                return SLS_ERROR;
+            }
         }
         else
         {
@@ -214,6 +344,12 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
             m_player_key_cache.erase(cache_it);
             spdlog::debug("[{}] CSLSListener::validate_player_key, cache expired for player_key='{}'.", fmt::ptr(this), player_key);
         }
+    }
+
+    // Update rate limiting counter
+    if (client_ip)
+    {
+        update_rate_limit(client_ip);
     }
 
     // Create HTTP client for the API call
@@ -313,6 +449,17 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     {
         spdlog::error("[{}] CSLSListener::validate_player_key, API returned error code: {}, response: '{}'.", 
                      fmt::ptr(this), response->m_response_code.c_str(), response->m_response_content.c_str());
+        
+        // Cache negative result for failed validations (shorter duration)
+        PlayerKeyCacheEntry negative_cache_entry;
+        negative_cache_entry.resolved_stream_id = "";
+        negative_cache_entry.is_valid = false;
+        negative_cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration / 4); // 1/4 of normal cache time
+        m_player_key_cache[key_str] = negative_cache_entry;
+        
+        spdlog::debug("[{}] CSLSListener::validate_player_key, cached negative result for player_key='{}', expires in {}ms.", 
+                     fmt::ptr(this), player_key, m_player_key_cache_duration / 4);
+        
         http_client->close();
         delete http_client;
         return SLS_ERROR;
@@ -363,6 +510,7 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     // Cache the successful result
     PlayerKeyCacheEntry cache_entry;
     cache_entry.resolved_stream_id = stream_id;
+    cache_entry.is_valid = true;
     cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration);
     m_player_key_cache[key_str] = cache_entry;
     
@@ -412,6 +560,22 @@ int CSLSListener::init_conf_app()
     strlcpy(m_player_key_auth_url, conf_server->player_key_auth_url, sizeof(m_player_key_auth_url));
     m_player_key_auth_timeout = conf_server->player_key_auth_timeout;
     m_player_key_cache_duration = conf_server->player_key_cache_duration;
+    m_player_key_rate_limit_requests = conf_server->player_key_rate_limit_requests;
+    m_player_key_rate_limit_window = conf_server->player_key_rate_limit_window;
+    m_player_key_max_length = conf_server->player_key_max_length;
+    m_player_key_min_length = conf_server->player_key_min_length;
+    
+    // Build regex pattern based on configured min/max length
+    char regex_pattern[256];
+    snprintf(regex_pattern, sizeof(regex_pattern), "^[a-zA-Z0-9_-]{%d,%d}$", 
+             m_player_key_min_length, m_player_key_max_length);
+    try {
+        m_player_key_regex = std::regex(regex_pattern);
+    } catch (const std::regex_error& e) {
+        spdlog::warn("[{}] CSLSListener::init_conf_app, invalid regex pattern '{}', using default.", fmt::ptr(this), regex_pattern);
+        m_player_key_regex = std::regex("^[a-zA-Z0-9_-]{8,64}$");
+    }
+    
     strlcpy(m_default_sid, conf_server->default_sid, sizeof(m_default_sid));
     spdlog::info("[{}] CSLSListener::init_conf_app, m_back_log={:d}, m_idle_streams_timeout={:d}.",
                  fmt::ptr(this), m_back_log, m_idle_streams_timeout_role);
@@ -917,7 +1081,7 @@ int CSLSListener::handler()
                      fmt::ptr(this), peer_name, peer_port, domain, app, player_key);
         
         // Validate the player key and get the resolved stream ID
-        int validation_result = validate_player_key(player_key, validated_stream_id, sizeof(validated_stream_id));
+        int validation_result = validate_player_key(player_key, validated_stream_id, sizeof(validated_stream_id), peer_name);
         if (validation_result != SLS_OK) {
             spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], player key validation FAILED for key='{}'", 
                          fmt::ptr(this), peer_name, peer_port, player_key);
