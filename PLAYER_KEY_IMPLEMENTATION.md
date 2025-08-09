@@ -326,3 +326,54 @@ To test the implementation:
 4. **Secure**: Invalid keys are rejected at connection time
 5. **Flexible**: API can implement any authentication/authorization logic
 6. **JSON Standard**: Uses industry-standard JSON for API responses
+
+## Player Connection Limits
+
+### How Player Limits Work with Player Keys
+
+The `max_players_per_stream` setting correctly applies to the **resolved stream** after player key validation, not to individual player keys. This ensures proper connection limiting regardless of how many different player keys resolve to the same stream.
+
+**Behavior:**
+- Multiple different player keys resolving to the same stream count toward the same limit
+- Player limits are enforced on the actual stream name returned by the API
+- Each unique resolved stream has its own independent player count
+
+**Example:**
+```conf
+app {
+    max_players_per_stream 3;    # Maximum 3 players per resolved stream
+}
+```
+
+**Scenario:**
+```bash
+# Player 1 connects
+ffplay "srt://host:4000?streamid=play/live/key123"
+# API returns: {"stream_id": "publish/live/movie1"}
+
+# Player 2 connects  
+ffplay "srt://host:4000?streamid=play/live/key456"
+# API returns: {"stream_id": "publish/live/movie1"}  # Same stream!
+
+# Player 3 connects
+ffplay "srt://host:4000?streamid=play/live/key789"
+# API returns: {"stream_id": "publish/live/movie1"}  # Same stream!
+
+# Player 4 tries to connect
+ffplay "srt://host:4000?streamid=play/live/key999"
+# API returns: {"stream_id": "publish/live/movie1"}
+# CONNECTION REJECTED - stream limit (3) reached for "movie1"
+```
+
+**Key Points:**
+- ✅ **Correct Limiting**: All 4 player keys count toward the same "movie1" stream limit
+- ✅ **Security**: Player keys don't bypass connection limits
+- ✅ **Flexibility**: Different streams can have different player keys accessing them
+- ✅ **Logging**: Connection rejections clearly show both player key and resolved stream
+
+**Logging Output:**
+```log
+[INFO] player key validation SUCCESS, resolved to stream_id='publish/live/movie1'
+[INFO] re-parsed validated stream: 'publish/live/movie1'
+[WARN] refused, new player[192.168.1.100:12345], stream=publish/live/movie1, player limit reached (3/3)
+```

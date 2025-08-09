@@ -1107,6 +1107,42 @@ int CSLSListener::handler()
         strlcpy(sid, validated_stream_id, sizeof(sid));
         spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], updated stream_id to: '{}'",
                      fmt::ptr(this), peer_name, peer_port, sid);
+                     
+        // Re-parse the validated stream ID to get the correct host, app, and stream name
+        // This ensures player limits are applied to the actual resolved stream, not the player key
+        sid_kv = srt->libsrt_parse_sid(sid);
+        bool validated_sid_valid = true;
+        
+        // Re-extract values from the validated stream ID
+        if (sid_kv.count("h")) {
+            strlcpy(host_name, sid_kv.at("h").c_str(), sizeof(host_name));
+        } else {
+            validated_sid_valid = false;
+        }
+        if (sid_kv.count("sls_app")) {
+            strlcpy(app_name, sid_kv.at("sls_app").c_str(), sizeof(app_name));
+        } else {
+            validated_sid_valid = false;
+        }
+        if (sid_kv.count("r")) {
+            strlcpy(stream_name, sid_kv.at("r").c_str(), sizeof(stream_name));
+        } else {
+            validated_sid_valid = false;
+        }
+        
+        if (!validated_sid_valid) {
+            spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], validated stream_id '{}' has invalid format", 
+                         fmt::ptr(this), peer_name, peer_port, sid);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+        
+        // Update key_app with the validated values
+        snprintf(key_app, sizeof(key_app), "%s/%s", host_name, app_name);
+        
+        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], re-parsed validated stream: '{}/{}/{}'",
+                     fmt::ptr(this), peer_name, peer_port, host_name, app_name, stream_name);
     }
     
     // Continue with normal SID parsing using the (possibly updated) stream ID
