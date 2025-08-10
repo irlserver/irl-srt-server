@@ -77,8 +77,8 @@ CSLSListener::CSLSListener()
     m_player_key_rate_limit_window = 60000; // 1 minute window default
     m_player_key_max_length = 64; // 64 characters max default
     m_player_key_min_length = 8; // 8 characters min default
-    // Default regex: alphanumeric, hyphens, underscores, 8-64 characters
-    m_player_key_regex = std::regex("^[a-zA-Z0-9_-]{8,64}$");
+    // Default regex: Most printable characters, 8-64 characters (allows query parameters, etc.)
+    m_player_key_regex = std::regex("^[\\x20-\\x7E]{8,64}$");
 
     sprintf(m_role_name, "listener");
 }
@@ -577,13 +577,13 @@ int CSLSListener::init_conf_app()
     
     // Build regex pattern based on configured min/max length
     char regex_pattern[256];
-    snprintf(regex_pattern, sizeof(regex_pattern), "^[a-zA-Z0-9_-]{%d,%d}$", 
+    snprintf(regex_pattern, sizeof(regex_pattern), "^[\\x20-\\x7E]{%d,%d}$", 
              m_player_key_min_length, m_player_key_max_length);
     try {
         m_player_key_regex = std::regex(regex_pattern);
     } catch (const std::regex_error& e) {
         spdlog::warn("[{}] CSLSListener::init_conf_app, invalid regex pattern '{}', using default.", fmt::ptr(this), regex_pattern);
-        m_player_key_regex = std::regex("^[a-zA-Z0-9_-]{8,64}$");
+        m_player_key_regex = std::regex("^[\\x20-\\x7E]{8,64}$");
     }
     
     strlcpy(m_default_sid, conf_server->default_sid, sizeof(m_default_sid));
