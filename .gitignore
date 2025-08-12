@@ -3,8 +3,6 @@ build/
 bin/
 build-srt/
 external/
-lib/spdlog/
-lib/json/
 # CMake artifacts
 CMakeFiles/
 CMakeCache.txt

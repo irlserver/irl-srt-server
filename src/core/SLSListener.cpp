@@ -1125,20 +1125,7 @@ int CSLSListener::handler()
         spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], updated stream_id to: '{}'",
                      fmt::ptr(this), peer_name, peer_port, sid);
         
-        // If the validated player key had a per-key override, update the per-stream cap
-        {
-            auto it_cache = m_player_key_cache.find(std::string(player_key));
-            if (it_cache != m_player_key_cache.end()) {
-                const PlayerKeyCacheEntry &entry = it_cache->second;
-                auto now_ts = std::chrono::steady_clock::now();
-                if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
-                    // We do not yet know final key_stream_name until app_uplive is known below; store by resolved stream id temporarily
-                    // We'll update after we compute key_stream_name as well
-                    // Here, we can't compute key_stream_name reliably; defer mapping until after app_uplive concatenation
-                }
-            }
-        }
-                       
+        
         // Re-parse the validated stream ID to get the correct host, app, and stream name
         // This ensures player limits are applied to the actual resolved stream, not the player key
         sid_kv = srt->libsrt_parse_sid(sid);
