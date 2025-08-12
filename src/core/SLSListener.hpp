@@ -150,6 +150,8 @@ private:
         std::string resolved_stream_id;
         std::chrono::steady_clock::time_point expiry_time;
         bool is_valid; // true for successful validation, false for failed validation
+        bool has_max_players_override; // true if the API provided a per-key override
+        int max_players_per_stream_override; // override value (-1 = unlimited). Ignored if has_max_players_override is false
     };
     std::map<std::string, PlayerKeyCacheEntry> m_player_key_cache;
     

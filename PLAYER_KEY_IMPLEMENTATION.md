@@ -34,6 +34,24 @@ Expected API response (JSON only):
 - **HTTP 200**: Player key is valid, connect to the returned stream ID
 - **Non-200 status**: Player key is invalid, reject connection
 
+### API Response
+
+Required:
+- `stream_id` (string) — e.g. `publish/live/actualstream`
+
+Optional:
+- `max_players_per_stream` (integer) — per-key player limit override; `-1` for unlimited. If provided, it overrides the app-level `max_players_per_stream` for connections authenticated with this key and applies to the resolved stream.
+
+Example successful response:
+```json
+{
+  "stream_id": "publish/live/movie1",
+  "max_players_per_stream": 10
+}
+```
+
+If omitted, the server uses the configured app-level limit.
+
 ## Configuration Example
 
 ```conf
@@ -108,7 +126,7 @@ In this example:
 
 1. **Uses Configuration**: Respects configured `domain_player` and `app_player` values
 2. **Multiple Domains/Apps**: Supports multiple configured player domains and apps
-3. **JSON Only**: API responses must be valid JSON with `stream_id` field
+3. **JSON Only**: API responses must be valid JSON with `stream_id` field. Optionally include per-key player limit via `max_players_per_stream`.
 4. **Backward Compatibility**: Only applies to configured player formats when auth URL is configured
 5. **Stream ID Replacement**: Validated stream ID replaces the original for processing
 6. **Robust JSON Parsing**: Uses nlohmann/json library with proper error handling
@@ -337,6 +355,7 @@ The `max_players_per_stream` setting correctly applies to the **resolved stream*
 - Multiple different player keys resolving to the same stream count toward the same limit
 - Player limits are enforced on the actual stream name returned by the API
 - Each unique resolved stream has its own independent player count
+- If the API returns `max_players_per_stream`, that value overrides the app-level limit for connections authenticated with that specific key
 
 **Example:**
 ```conf
@@ -344,6 +363,8 @@ app {
     max_players_per_stream 3;    # Maximum 3 players per resolved stream
 }
 ```
+
+With a key-specific override from the API (`max_players_per_stream: 10`), players using that key will be limited to 10 concurrent connections on the resolved stream, while other players (without an override) remain limited to 3.
 
 **Scenario:**
 ```bash

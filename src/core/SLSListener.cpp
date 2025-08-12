@@ -465,6 +465,8 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         negative_cache_entry.resolved_stream_id = "";
         negative_cache_entry.is_valid = false;
         negative_cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration / 4); // 1/4 of normal cache time
+        negative_cache_entry.has_max_players_override = false;
+        negative_cache_entry.max_players_per_stream_override = -1;
         m_player_key_cache[key_str] = negative_cache_entry;
         
         spdlog::debug("[{}] CSLSListener::validate_player_key, cached negative result for player_key='{}', expires in {}ms.", 
@@ -481,6 +483,8 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     spdlog::info("[{}] CSLSListener::validate_player_key, API response: '{}'.", fmt::ptr(this), response_content.c_str());
 
     std::string stream_id;
+    int json_max_players_override = -1;
+    bool json_has_max_players_override = false;
     try
     {
         nlohmann::json json_response = nlohmann::json::parse(response_content);
@@ -495,6 +499,16 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
             http_client->close();
             delete http_client;
             return SLS_ERROR;
+        }
+
+        // Optional per-key max players override
+        if (json_response.contains("max_players_per_stream")) {
+            if (json_response["max_players_per_stream"].is_number_integer()) {
+                json_max_players_override = json_response["max_players_per_stream"].get<int>();
+                json_has_max_players_override = true;
+            } else {
+                spdlog::warn("[{}] CSLSListener::validate_player_key, 'max_players_per_stream' present but not an integer; ignoring.", fmt::ptr(this));
+            }
         }
     }
     catch (const nlohmann::json::exception& e)
@@ -522,10 +536,13 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     cache_entry.resolved_stream_id = stream_id;
     cache_entry.is_valid = true;
     cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration);
+    cache_entry.has_max_players_override = json_has_max_players_override;
+    cache_entry.max_players_per_stream_override = json_max_players_override;
     m_player_key_cache[key_str] = cache_entry;
     
-    spdlog::debug("[{}] CSLSListener::validate_player_key, cached result for player_key='{}', expires in {}ms.", 
-                 fmt::ptr(this), player_key, m_player_key_cache_duration);
+    spdlog::debug("[{}] CSLSListener::validate_player_key, cached result for player_key='{}', expires in {}ms.{}", 
+                 fmt::ptr(this), player_key, m_player_key_cache_duration,
+                 cache_entry.has_max_players_override ? " (with per-key max_players_per_stream override)" : "");
 
     // Copy the resolved stream ID to output buffer
     strlcpy(resolved_stream_id, stream_id.c_str(), resolved_stream_id_size);
@@ -1274,21 +1291,40 @@ int CSLSListener::handler()
         }
 
         // Check player limit per stream
-        if (ca->max_players_per_stream > 0)
         {
-            int current_player_count = m_list_role->count_players_for_stream(key_stream_name);
-            if (current_player_count >= ca->max_players_per_stream)
-            {
-                spdlog::warn("[{}] CSLSListener::handler, refused, new player[{}:{:d}], stream={}, player limit reached ({:d}/{:d}).",
-                             fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, ca->max_players_per_stream);
-                srt->libsrt_close();
-                delete srt;
-                return client_count;
-            }
-            spdlog::debug("[{}] CSLSListener::handler, new player[{}:{:d}], stream={}, player count ({:d}/{:d}).",
-                          fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, ca->max_players_per_stream);
-        }
+            int effective_max_players = ca->max_players_per_stream;
+            bool using_override = false;
 
+            if (player_key_validation_required) {
+                // If this connection used a player key, check for any per-key override
+                auto now_ts = std::chrono::steady_clock::now();
+                auto it_cache = m_player_key_cache.find(std::string(player_key));
+                if (it_cache != m_player_key_cache.end()) {
+                    const PlayerKeyCacheEntry& entry = it_cache->second;
+                    if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
+                        effective_max_players = entry.max_players_per_stream_override;
+                        using_override = true;
+                    }
+                }
+            }
+
+            if (effective_max_players > 0) {
+                int current_player_count = m_list_role->count_players_for_stream(key_stream_name);
+                if (current_player_count >= effective_max_players)
+                {
+                    spdlog::warn("[{}] CSLSListener::handler, refused, new player[{}:{:d}], stream={}, player limit reached ({:d}/{:d}){}.",
+                                 fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
+                                 using_override ? " [per-key override]" : "");
+                    srt->libsrt_close();
+                    delete srt;
+                    return client_count;
+                }
+                spdlog::debug("[{}] CSLSListener::handler, new player[{}:{:d}], stream={}, player count ({:d}/{:d}){}.",
+                              fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
+                              using_override ? " [per-key override]" : "");
+            }
+        }
+        
         // new player
         if (srt->libsrt_socket_nonblock(0) < 0)
             spdlog::warn("[{}] CSLSListener::handler, new player[{}:{:d}], libsrt_socket_nonblock failed.",

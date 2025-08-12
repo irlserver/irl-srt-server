@@ -224,11 +224,13 @@ int CSLSSrt::libsrt_setup(int port)
         return SLS_ERROR;
     }
 
+    #ifdef SRTO_SRTLAPATCHES
     status = srt_setsockopt(fd, SOL_SOCKET, SRTO_SRTLAPATCHES, &srtlaPatches, sizeof(srtlaPatches));
     if (status < 0) {
         spdlog::error("[{}] CSLSSrt::open, srt_setsockopt SRTO_SRTLAPATCHES failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
         return SLS_ERROR;
     }
+    #endif
 
     /* Set the socket's send or receive buffer sizes, if specified.
        If unspecified or setting fails, system default is used. */
