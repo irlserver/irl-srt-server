@@ -1124,7 +1124,21 @@ int CSLSListener::handler()
         strlcpy(sid, validated_stream_id, sizeof(sid));
         spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], updated stream_id to: '{}'",
                      fmt::ptr(this), peer_name, peer_port, sid);
-                     
+        
+        // If the validated player key had a per-key override, update the per-stream cap
+        {
+            auto it_cache = m_player_key_cache.find(std::string(player_key));
+            if (it_cache != m_player_key_cache.end()) {
+                const PlayerKeyCacheEntry &entry = it_cache->second;
+                auto now_ts = std::chrono::steady_clock::now();
+                if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
+                    // We do not yet know final key_stream_name until app_uplive is known below; store by resolved stream id temporarily
+                    // We'll update after we compute key_stream_name as well
+                    // Here, we can't compute key_stream_name reliably; defer mapping until after app_uplive concatenation
+                }
+            }
+        }
+                       
         // Re-parse the validated stream ID to get the correct host, app, and stream name
         // This ensures player limits are applied to the actual resolved stream, not the player key
         sid_kv = srt->libsrt_parse_sid(sid);
@@ -1168,6 +1182,24 @@ int CSLSListener::handler()
     if (app_uplive.length() > 0)
     {
         snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", app_uplive.c_str(), stream_name);
+        // Ensure per-stream override map is updated if the validated key carried an override
+        if (player_key_validation_required) {
+            auto now_ts = std::chrono::steady_clock::now();
+            auto it_cache = m_player_key_cache.find(std::string(player_key));
+            if (it_cache != m_player_key_cache.end()) {
+                const PlayerKeyCacheEntry &entry = it_cache->second;
+                if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
+                    StreamPlayerLimitEntry stream_entry;
+                    stream_entry.has_override = true;
+                    stream_entry.max_players_per_stream = entry.max_players_per_stream_override;
+                    // Align expiry with player key cache entry to avoid stale overrides
+                    stream_entry.expiry_time = entry.expiry_time;
+                    m_stream_player_limit_map[std::string(key_stream_name)] = stream_entry;
+                    spdlog::info("[{}] CSLSListener::handler, applied per-stream cap override for stream='{}' to {} (from key).",
+                                 fmt::ptr(this), key_stream_name, stream_entry.max_players_per_stream);
+                }
+            }
+        }
         CSLSRole *pub = m_map_publisher->get_publisher(key_stream_name);
         if (NULL == pub)
         {
@@ -1294,10 +1326,23 @@ int CSLSListener::handler()
         {
             int effective_max_players = ca->max_players_per_stream;
             bool using_override = false;
+            auto now_ts = std::chrono::steady_clock::now();
 
-            if (player_key_validation_required) {
-                // If this connection used a player key, check for any per-key override
-                auto now_ts = std::chrono::steady_clock::now();
+            // First, enforce per-stream override if present and valid
+            auto it_stream_cap = m_stream_player_limit_map.find(std::string(key_stream_name));
+            if (it_stream_cap != m_stream_player_limit_map.end()) {
+                const StreamPlayerLimitEntry &sentry = it_stream_cap->second;
+                if (sentry.has_override && now_ts < sentry.expiry_time) {
+                    effective_max_players = sentry.max_players_per_stream;
+                    using_override = true;
+                } else if (now_ts >= sentry.expiry_time) {
+                    // Expired entry: remove it
+                    m_stream_player_limit_map.erase(it_stream_cap);
+                }
+            }
+
+            // Backward fallback: if no per-stream cap was set, allow per-key override during this connection
+            if (!using_override && player_key_validation_required) {
                 auto it_cache = m_player_key_cache.find(std::string(player_key));
                 if (it_cache != m_player_key_cache.end()) {
                     const PlayerKeyCacheEntry& entry = it_cache->second;
@@ -1307,21 +1352,21 @@ int CSLSListener::handler()
                     }
                 }
             }
-
+ 
             if (effective_max_players > 0) {
                 int current_player_count = m_list_role->count_players_for_stream(key_stream_name);
                 if (current_player_count >= effective_max_players)
                 {
                     spdlog::warn("[{}] CSLSListener::handler, refused, new player[{}:{:d}], stream={}, player limit reached ({:d}/{:d}){}.",
                                  fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
-                                 using_override ? " [per-key override]" : "");
+                                 using_override ? " [override]" : "");
                     srt->libsrt_close();
                     delete srt;
                     return client_count;
                 }
                 spdlog::debug("[{}] CSLSListener::handler, new player[{}:{:d}], stream={}, player count ({:d}/{:d}){}.",
                               fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
-                              using_override ? " [per-key override]" : "");
+                              using_override ? " [override]" : "");
             }
         }
         

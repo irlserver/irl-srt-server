@@ -355,7 +355,7 @@ The `max_players_per_stream` setting correctly applies to the **resolved stream*
 - Multiple different player keys resolving to the same stream count toward the same limit
 - Player limits are enforced on the actual stream name returned by the API
 - Each unique resolved stream has its own independent player count
-- If the API returns `max_players_per_stream`, that value overrides the app-level limit for connections authenticated with that specific key
+- If the API returns `max_players_per_stream`, the server stores a per-stream cap for the resolved stream (with the key's cache expiry). This per-stream cap applies to all subsequent players on that resolved stream, regardless of which key they used, until it expires. If no per-stream cap exists, the app-level limit is used.
 
 **Example:**
 ```conf
@@ -364,7 +364,7 @@ app {
 }
 ```
 
-With a key-specific override from the API (`max_players_per_stream: 10`), players using that key will be limited to 10 concurrent connections on the resolved stream, while other players (without an override) remain limited to 3.
+If the API responds for a key with `{ "stream_id": "publish/live/movie1", "max_players_per_stream": 10 }`, then the per-stream cap for `publish/live/movie1` becomes 10 (for the duration of the key's cache). All players to `publish/live/movie1` are limited to 10 during that period, regardless of which key they used. When the cap expires, the server falls back to the app-level limit (3) unless refreshed by another validated key response.
 
 **Scenario:**
 ```bash

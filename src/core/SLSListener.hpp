@@ -161,6 +161,14 @@ private:
     };
     std::map<std::string, RateLimitEntry> m_rate_limit_map;
     
+    // Per-stream player limit override structure
+    struct StreamPlayerLimitEntry {
+        bool has_override;
+        int max_players_per_stream;
+        std::chrono::steady_clock::time_point expiry_time;
+    };
+    std::map<std::string, StreamPlayerLimitEntry> m_stream_player_limit_map;
+    
     // Security configuration
     int m_player_key_auth_timeout;
     int m_player_key_cache_duration;
