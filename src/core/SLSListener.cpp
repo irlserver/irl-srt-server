@@ -69,7 +69,10 @@ CSLSListener::CSLSListener()
     m_domain_players.clear();
     m_domain_publisher.clear();
     m_app_players.clear();
-    m_player_key_cache.clear();
+    {
+        std::lock_guard<std::mutex> lk(m_cache_mutex);
+        m_player_key_cache.clear();
+    }
     m_rate_limit_map.clear();
     m_player_key_auth_timeout = 2000; // 2 seconds default
     m_player_key_cache_duration = 60000; // 1 minute default
@@ -328,31 +331,34 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     auto now = std::chrono::steady_clock::now();
     
     // Check cache first (including negative cache)
-    auto cache_it = m_player_key_cache.find(key_str);
-    if (cache_it != m_player_key_cache.end())
     {
-        if (now < cache_it->second.expiry_time)
+        std::lock_guard<std::mutex> lk(m_cache_mutex);
+        auto cache_it = m_player_key_cache.find(key_str);
+        if (cache_it != m_player_key_cache.end())
         {
-            // Cache hit - return cached result
-            if (cache_it->second.is_valid)
+            if (now < cache_it->second.expiry_time)
             {
-                strlcpy(resolved_stream_id, cache_it->second.resolved_stream_id.c_str(), resolved_stream_id_size);
-                spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (valid) for player_key='{}', resolved to: '{}'.", 
-                             fmt::ptr(this), player_key, resolved_stream_id);
-                return SLS_OK;
+                // Cache hit - return cached result
+                if (cache_it->second.is_valid)
+                {
+                    strlcpy(resolved_stream_id, cache_it->second.resolved_stream_id.c_str(), resolved_stream_id_size);
+                    spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (valid) for player_key='{}', resolved to: '{}'.", 
+                                 fmt::ptr(this), player_key, resolved_stream_id);
+                    return SLS_OK;
+                }
+                else
+                {
+                    spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (invalid) for player_key='{}'", 
+                                 fmt::ptr(this), player_key);
+                    return SLS_ERROR;
+                }
             }
             else
             {
-                spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (invalid) for player_key='{}'.", 
-                             fmt::ptr(this), player_key);
-                return SLS_ERROR;
+                // Cache expired - remove entry
+                m_player_key_cache.erase(cache_it);
+                spdlog::debug("[{}] CSLSListener::validate_player_key, cache expired for player_key='{}'.", fmt::ptr(this), player_key);
             }
-        }
-        else
-        {
-            // Cache expired - remove entry
-            m_player_key_cache.erase(cache_it);
-            spdlog::debug("[{}] CSLSListener::validate_player_key, cache expired for player_key='{}'.", fmt::ptr(this), player_key);
         }
     }
 
@@ -465,7 +471,12 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         negative_cache_entry.resolved_stream_id = "";
         negative_cache_entry.is_valid = false;
         negative_cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration / 4); // 1/4 of normal cache time
-        m_player_key_cache[key_str] = negative_cache_entry;
+        negative_cache_entry.has_max_players_override = false;
+        negative_cache_entry.max_players_per_stream_override = -1;
+        {
+            std::lock_guard<std::mutex> lk(m_cache_mutex);
+            m_player_key_cache[key_str] = negative_cache_entry;
+        }
         
         spdlog::debug("[{}] CSLSListener::validate_player_key, cached negative result for player_key='{}', expires in {}ms.", 
                      fmt::ptr(this), player_key, m_player_key_cache_duration / 4);
@@ -481,6 +492,8 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     spdlog::info("[{}] CSLSListener::validate_player_key, API response: '{}'.", fmt::ptr(this), response_content.c_str());
 
     std::string stream_id;
+    int json_max_players_override = -1;
+    bool json_has_max_players_override = false;
     try
     {
         nlohmann::json json_response = nlohmann::json::parse(response_content);
@@ -495,6 +508,16 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
             http_client->close();
             delete http_client;
             return SLS_ERROR;
+        }
+
+        // Optional per-key max players override
+        if (json_response.contains("max_players_per_stream")) {
+            if (json_response["max_players_per_stream"].is_number_integer()) {
+                json_max_players_override = json_response["max_players_per_stream"].get<int>();
+                json_has_max_players_override = true;
+            } else {
+                spdlog::warn("[{}] CSLSListener::validate_player_key, 'max_players_per_stream' present but not an integer; ignoring.", fmt::ptr(this));
+            }
         }
     }
     catch (const nlohmann::json::exception& e)
@@ -522,10 +545,16 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     cache_entry.resolved_stream_id = stream_id;
     cache_entry.is_valid = true;
     cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration);
-    m_player_key_cache[key_str] = cache_entry;
+    cache_entry.has_max_players_override = json_has_max_players_override;
+    cache_entry.max_players_per_stream_override = json_max_players_override;
+    {
+        std::lock_guard<std::mutex> lk(m_cache_mutex);
+        m_player_key_cache[key_str] = cache_entry;
+    }
     
-    spdlog::debug("[{}] CSLSListener::validate_player_key, cached result for player_key='{}', expires in {}ms.", 
-                 fmt::ptr(this), player_key, m_player_key_cache_duration);
+    spdlog::debug("[{}] CSLSListener::validate_player_key, cached result for player_key='{}', expires in {}ms.{}", 
+                 fmt::ptr(this), player_key, m_player_key_cache_duration,
+                 cache_entry.has_max_players_override ? " (with per-key max_players_per_stream override)" : "");
 
     // Copy the resolved stream ID to output buffer
     strlcpy(resolved_stream_id, stream_id.c_str(), resolved_stream_id_size);
@@ -851,6 +880,8 @@ int CSLSListener::stop()
 
 int CSLSListener::handler()
 {
+    // Cleanup expired per-stream overrides proactively before handling a new connection
+    cleanupExpiredStreamOverrides();
     int ret = SLS_OK;
     int fd_client = 0;
     CSLSSrt *srt = NULL;
@@ -1107,7 +1138,8 @@ int CSLSListener::handler()
         strlcpy(sid, validated_stream_id, sizeof(sid));
         spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], updated stream_id to: '{}'",
                      fmt::ptr(this), peer_name, peer_port, sid);
-                     
+        
+        
         // Re-parse the validated stream ID to get the correct host, app, and stream name
         // This ensures player limits are applied to the actual resolved stream, not the player key
         sid_kv = srt->libsrt_parse_sid(sid);
@@ -1151,6 +1183,32 @@ int CSLSListener::handler()
     if (app_uplive.length() > 0)
     {
         snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", app_uplive.c_str(), stream_name);
+        // Ensure per-stream override map is updated if the validated key carried an override
+        if (player_key_validation_required) {
+            auto now_ts = std::chrono::steady_clock::now();
+            PlayerKeyCacheEntry entry;
+            bool found_entry = false;
+            {
+                std::lock_guard<std::mutex> lk(m_cache_mutex);
+                auto it_cache = m_player_key_cache.find(std::string(player_key));
+                if (it_cache != m_player_key_cache.end()) {
+                    entry = it_cache->second;
+                    found_entry = true;
+                }
+            }
+            if (found_entry) {
+                if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
+                    StreamPlayerLimitEntry stream_entry;
+                    stream_entry.has_override = true;
+                    stream_entry.max_players_per_stream = entry.max_players_per_stream_override;
+                    // Align expiry with player key cache entry to avoid stale overrides
+                    stream_entry.expiry_time = entry.expiry_time;
+                    m_stream_player_limit_map[std::string(key_stream_name)] = stream_entry;
+                    spdlog::info("[{}] CSLSListener::handler, applied per-stream cap override for stream='{}' to {} (from key).",
+                                 fmt::ptr(this), key_stream_name, stream_entry.max_players_per_stream);
+                }
+            }
+        }
         CSLSRole *pub = m_map_publisher->get_publisher(key_stream_name);
         if (NULL == pub)
         {
@@ -1274,21 +1332,61 @@ int CSLSListener::handler()
         }
 
         // Check player limit per stream
-        if (ca->max_players_per_stream > 0)
         {
-            int current_player_count = m_list_role->count_players_for_stream(key_stream_name);
-            if (current_player_count >= ca->max_players_per_stream)
-            {
-                spdlog::warn("[{}] CSLSListener::handler, refused, new player[{}:{:d}], stream={}, player limit reached ({:d}/{:d}).",
-                             fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, ca->max_players_per_stream);
-                srt->libsrt_close();
-                delete srt;
-                return client_count;
-            }
-            spdlog::debug("[{}] CSLSListener::handler, new player[{}:{:d}], stream={}, player count ({:d}/{:d}).",
-                          fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, ca->max_players_per_stream);
-        }
+            int effective_max_players = ca->max_players_per_stream;
+            bool using_override = false;
+            auto now_ts = std::chrono::steady_clock::now();
 
+            // First, enforce per-stream override if present and valid
+            auto it_stream_cap = m_stream_player_limit_map.find(std::string(key_stream_name));
+            if (it_stream_cap != m_stream_player_limit_map.end()) {
+                const StreamPlayerLimitEntry &sentry = it_stream_cap->second;
+                if (sentry.has_override && now_ts < sentry.expiry_time) {
+                    effective_max_players = sentry.max_players_per_stream;
+                    using_override = true;
+                } else if (now_ts >= sentry.expiry_time) {
+                    // Expired entry: remove it
+                    m_stream_player_limit_map.erase(it_stream_cap);
+                }
+            }
+
+            // Backward fallback: if no per-stream cap was set, allow per-key override during this connection
+            if (!using_override && player_key_validation_required) {
+                PlayerKeyCacheEntry entry;
+                bool found_entry = false;
+                {
+                    std::lock_guard<std::mutex> lk(m_cache_mutex);
+                    auto it_cache = m_player_key_cache.find(std::string(player_key));
+                    if (it_cache != m_player_key_cache.end()) {
+                        entry = it_cache->second;
+                        found_entry = true;
+                    }
+                }
+                if (found_entry) {
+                    if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
+                        effective_max_players = entry.max_players_per_stream_override;
+                        using_override = true;
+                    }
+                }
+            }
+ 
+            if (effective_max_players > 0) {
+                int current_player_count = m_list_role->count_players_for_stream(key_stream_name);
+                if (current_player_count >= effective_max_players)
+                {
+                    spdlog::warn("[{}] CSLSListener::handler, refused, new player[{}:{:d}], stream={}, player limit reached ({:d}/{:d}){}.",
+                                 fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
+                                 using_override ? " [override]" : "");
+                    srt->libsrt_close();
+                    delete srt;
+                    return client_count;
+                }
+                spdlog::debug("[{}] CSLSListener::handler, new player[{}:{:d}], stream={}, player count ({:d}/{:d}){}.",
+                              fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
+                              using_override ? " [override]" : "");
+            }
+        }
+        
         // new player
         if (srt->libsrt_socket_nonblock(0) < 0)
             spdlog::warn("[{}] CSLSListener::handler, new player[{}:{:d}], libsrt_socket_nonblock failed.",
@@ -1493,4 +1591,17 @@ stat_info_t CSLSListener::get_stat_info()
         m_stat_info.start_time = cur_time;
     }
     return m_stat_info;
+}
+
+void CSLSListener::cleanupExpiredStreamOverrides()
+{
+    auto now_ts = std::chrono::steady_clock::now();
+    for (auto it = m_stream_player_limit_map.begin(); it != m_stream_player_limit_map.end(); ) {
+        const StreamPlayerLimitEntry &entry = it->second;
+        if (entry.expiry_time <= now_ts) {
+            it = m_stream_player_limit_map.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }

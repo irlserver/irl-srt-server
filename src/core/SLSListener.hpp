@@ -39,6 +39,7 @@
 #include <chrono>
 #include <regex>
 #include <deque>
+#include <mutex>
 
 /**
  * server conf
@@ -147,17 +148,29 @@ private:
     
     // Player key cache structure
     struct PlayerKeyCacheEntry {
-        std::string resolved_stream_id;
-        std::chrono::steady_clock::time_point expiry_time;
-        bool is_valid; // true for successful validation, false for failed validation
+        std::string resolved_stream_id = "";
+        std::chrono::steady_clock::time_point expiry_time{};
+        bool is_valid = false; // true for successful validation, false for failed validation
+        bool has_max_players_override = false; // true if the API provided a per-key override
+        int max_players_per_stream_override = -1; // override value (-1 = unlimited). Ignored if has_max_players_override is false
     };
     std::map<std::string, PlayerKeyCacheEntry> m_player_key_cache;
+    std::mutex m_cache_mutex;
     
     // Rate limiting structure
     struct RateLimitEntry {
         std::deque<std::chrono::steady_clock::time_point> request_times;
     };
     std::map<std::string, RateLimitEntry> m_rate_limit_map;
+    
+    // Per-stream player limit override structure
+    struct StreamPlayerLimitEntry {
+        bool has_override = false;
+        int max_players_per_stream = 0;
+        std::chrono::steady_clock::time_point expiry_time{};
+    };
+    std::map<std::string, StreamPlayerLimitEntry> m_stream_player_limit_map;
+    void cleanupExpiredStreamOverrides();
     
     // Security configuration
     int m_player_key_auth_timeout;
