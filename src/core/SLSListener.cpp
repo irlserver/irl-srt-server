@@ -69,7 +69,10 @@ CSLSListener::CSLSListener()
     m_domain_players.clear();
     m_domain_publisher.clear();
     m_app_players.clear();
-    m_player_key_cache.clear();
+    {
+        std::lock_guard<std::mutex> lk(m_cache_mutex);
+        m_player_key_cache.clear();
+    }
     m_rate_limit_map.clear();
     m_player_key_auth_timeout = 2000; // 2 seconds default
     m_player_key_cache_duration = 60000; // 1 minute default
@@ -328,31 +331,34 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     auto now = std::chrono::steady_clock::now();
     
     // Check cache first (including negative cache)
-    auto cache_it = m_player_key_cache.find(key_str);
-    if (cache_it != m_player_key_cache.end())
     {
-        if (now < cache_it->second.expiry_time)
+        std::lock_guard<std::mutex> lk(m_cache_mutex);
+        auto cache_it = m_player_key_cache.find(key_str);
+        if (cache_it != m_player_key_cache.end())
         {
-            // Cache hit - return cached result
-            if (cache_it->second.is_valid)
+            if (now < cache_it->second.expiry_time)
             {
-                strlcpy(resolved_stream_id, cache_it->second.resolved_stream_id.c_str(), resolved_stream_id_size);
-                spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (valid) for player_key='{}', resolved to: '{}'.", 
-                             fmt::ptr(this), player_key, resolved_stream_id);
-                return SLS_OK;
+                // Cache hit - return cached result
+                if (cache_it->second.is_valid)
+                {
+                    strlcpy(resolved_stream_id, cache_it->second.resolved_stream_id.c_str(), resolved_stream_id_size);
+                    spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (valid) for player_key='{}', resolved to: '{}'.", 
+                                 fmt::ptr(this), player_key, resolved_stream_id);
+                    return SLS_OK;
+                }
+                else
+                {
+                    spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (invalid) for player_key='{}'", 
+                                 fmt::ptr(this), player_key);
+                    return SLS_ERROR;
+                }
             }
             else
             {
-                spdlog::debug("[{}] CSLSListener::validate_player_key, cache hit (invalid) for player_key='{}'.", 
-                             fmt::ptr(this), player_key);
-                return SLS_ERROR;
+                // Cache expired - remove entry
+                m_player_key_cache.erase(cache_it);
+                spdlog::debug("[{}] CSLSListener::validate_player_key, cache expired for player_key='{}'.", fmt::ptr(this), player_key);
             }
-        }
-        else
-        {
-            // Cache expired - remove entry
-            m_player_key_cache.erase(cache_it);
-            spdlog::debug("[{}] CSLSListener::validate_player_key, cache expired for player_key='{}'.", fmt::ptr(this), player_key);
         }
     }
 
@@ -467,7 +473,10 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         negative_cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration / 4); // 1/4 of normal cache time
         negative_cache_entry.has_max_players_override = false;
         negative_cache_entry.max_players_per_stream_override = -1;
-        m_player_key_cache[key_str] = negative_cache_entry;
+        {
+            std::lock_guard<std::mutex> lk(m_cache_mutex);
+            m_player_key_cache[key_str] = negative_cache_entry;
+        }
         
         spdlog::debug("[{}] CSLSListener::validate_player_key, cached negative result for player_key='{}', expires in {}ms.", 
                      fmt::ptr(this), player_key, m_player_key_cache_duration / 4);
@@ -538,7 +547,10 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration);
     cache_entry.has_max_players_override = json_has_max_players_override;
     cache_entry.max_players_per_stream_override = json_max_players_override;
-    m_player_key_cache[key_str] = cache_entry;
+    {
+        std::lock_guard<std::mutex> lk(m_cache_mutex);
+        m_player_key_cache[key_str] = cache_entry;
+    }
     
     spdlog::debug("[{}] CSLSListener::validate_player_key, cached result for player_key='{}', expires in {}ms.{}", 
                  fmt::ptr(this), player_key, m_player_key_cache_duration,
@@ -868,6 +880,8 @@ int CSLSListener::stop()
 
 int CSLSListener::handler()
 {
+    // Cleanup expired per-stream overrides proactively before handling a new connection
+    cleanupExpiredStreamOverrides();
     int ret = SLS_OK;
     int fd_client = 0;
     CSLSSrt *srt = NULL;
@@ -1172,9 +1186,17 @@ int CSLSListener::handler()
         // Ensure per-stream override map is updated if the validated key carried an override
         if (player_key_validation_required) {
             auto now_ts = std::chrono::steady_clock::now();
-            auto it_cache = m_player_key_cache.find(std::string(player_key));
-            if (it_cache != m_player_key_cache.end()) {
-                const PlayerKeyCacheEntry &entry = it_cache->second;
+            PlayerKeyCacheEntry entry;
+            bool found_entry = false;
+            {
+                std::lock_guard<std::mutex> lk(m_cache_mutex);
+                auto it_cache = m_player_key_cache.find(std::string(player_key));
+                if (it_cache != m_player_key_cache.end()) {
+                    entry = it_cache->second;
+                    found_entry = true;
+                }
+            }
+            if (found_entry) {
                 if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
                     StreamPlayerLimitEntry stream_entry;
                     stream_entry.has_override = true;
@@ -1330,9 +1352,17 @@ int CSLSListener::handler()
 
             // Backward fallback: if no per-stream cap was set, allow per-key override during this connection
             if (!using_override && player_key_validation_required) {
-                auto it_cache = m_player_key_cache.find(std::string(player_key));
-                if (it_cache != m_player_key_cache.end()) {
-                    const PlayerKeyCacheEntry& entry = it_cache->second;
+                PlayerKeyCacheEntry entry;
+                bool found_entry = false;
+                {
+                    std::lock_guard<std::mutex> lk(m_cache_mutex);
+                    auto it_cache = m_player_key_cache.find(std::string(player_key));
+                    if (it_cache != m_player_key_cache.end()) {
+                        entry = it_cache->second;
+                        found_entry = true;
+                    }
+                }
+                if (found_entry) {
                     if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
                         effective_max_players = entry.max_players_per_stream_override;
                         using_override = true;
@@ -1561,4 +1591,17 @@ stat_info_t CSLSListener::get_stat_info()
         m_stat_info.start_time = cur_time;
     }
     return m_stat_info;
+}
+
+void CSLSListener::cleanupExpiredStreamOverrides()
+{
+    auto now_ts = std::chrono::steady_clock::now();
+    for (auto it = m_stream_player_limit_map.begin(); it != m_stream_player_limit_map.end(); ) {
+        const StreamPlayerLimitEntry &entry = it->second;
+        if (entry.expiry_time <= now_ts) {
+            it = m_stream_player_limit_map.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
