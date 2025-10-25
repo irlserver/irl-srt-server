@@ -1,4 +1,17 @@
 logs/
 build/
+bin/
+build-srt/
+external/
+# CMake artifacts
+CMakeFiles/
+CMakeCache.txt
+**/*.o
+**/*.a
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.exe
+**/*.pdb
 fuzzing/
 .vscode/

@@ -31,6 +31,7 @@
 #include "SLSRole.hpp"
 #include "SLSLog.hpp"
 #include "util.hpp"
+#include "SLSBitrateLimit.hpp"
 
 /**
  * CSLSRole class implementation
@@ -80,11 +81,15 @@ CSLSRole::CSLSRole()
     m_record_hls_segment_duration = 10; //default 10s
     m_record_hls_target_duration = m_record_hls_segment_duration;
 
+    // Initialize bitrate limiter
+    m_bitrate_limiter = NULL;
+
     snprintf(m_role_name, sizeof(m_role_name), "role");
 }
 
 CSLSRole::~CSLSRole()
 {
+    cleanup_bitrate_limiter();
     uninit();
 }
 
@@ -253,6 +258,11 @@ char *CSLSRole::get_streamid()
         m_srt->libsrt_getsockopt(SRTO_STREAMID, "SRTO_STREAMID", m_streamid, &sid_size);
     }
     return m_streamid;
+}
+
+char *CSLSRole::get_map_data_key()
+{
+    return m_map_data_key;
 }
 
 bool CSLSRole::is_reconnect()
@@ -517,9 +527,22 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
         return SLS_ERROR;
     }
 
-    m_stat_bitrate_datacount += n;
-    //update invalid begin time
+    // Update invalid begin time
     m_invalid_begin_tm = sls_gettime_ms();
+    
+    // Check bitrate limiting if enabled
+    if (m_bitrate_limiter) {
+        CSLSBitrateLimit::BitrateCheckResult result = m_bitrate_limiter->check_data_bitrate(n, m_invalid_begin_tm);
+        if (result == CSLSBitrateLimit::BITRATE_DISCONNECT) {
+            // Stream should be disconnected due to sustained bitrate violations
+            spdlog::error("[{}] CSLSRole::handler_read_data, disconnecting stream due to bitrate limit violation", fmt::ptr(this));
+            invalid_srt();
+            return SLS_ERROR;
+        }
+        // For BITRATE_VIOLATION and BITRATE_OK, we continue processing the data
+    }
+
+    m_stat_bitrate_datacount += n;
     int d = m_invalid_begin_tm - m_stat_bitrate_last_tm;
     if (d >= m_stat_bitrate_interval)
     {
@@ -786,4 +809,51 @@ int CSLSRole::check_http_passed()
         invalid_srt();
         return SLS_ERROR;
     }
+}
+
+int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds)
+{
+    cleanup_bitrate_limiter();
+    
+    if (max_bitrate_kbps <= 0) {
+        spdlog::info("[{}] CSLSRole::init_bitrate_limiter, bitrate limiting disabled (max_bitrate_kbps={:d})", 
+                    fmt::ptr(this), max_bitrate_kbps);
+        return SLS_OK;
+    }
+    
+    m_bitrate_limiter = new CSLSBitrateLimit();
+    if (!m_bitrate_limiter) {
+        spdlog::error("[{}] CSLSRole::init_bitrate_limiter, failed to allocate bitrate limiter", fmt::ptr(this));
+        return SLS_ERROR;
+    }
+    
+    int ret = m_bitrate_limiter->init(max_bitrate_kbps, violation_timeout_seconds);
+    if (ret != SLS_OK) {
+        spdlog::error("[{}] CSLSRole::init_bitrate_limiter, failed to initialize bitrate limiter", fmt::ptr(this));
+        delete m_bitrate_limiter;
+        m_bitrate_limiter = NULL;
+        return ret;
+    }
+    
+    spdlog::info("[{}] CSLSRole::init_bitrate_limiter, initialized with max_bitrate={:d}kbps, violation_timeout={:d}s", 
+                fmt::ptr(this), max_bitrate_kbps, violation_timeout_seconds);
+    return SLS_OK;
+}
+
+void CSLSRole::cleanup_bitrate_limiter()
+{
+    if (m_bitrate_limiter) {
+        delete m_bitrate_limiter;
+        m_bitrate_limiter = NULL;
+    }
+}
+
+CSLSBitrateLimit::BitrateStats CSLSRole::get_bitrate_stats() const
+{
+    if (m_bitrate_limiter) {
+        return m_bitrate_limiter->get_stats();
+    }
+    
+    CSLSBitrateLimit::BitrateStats empty_stats = {};
+    return empty_stats;
 }

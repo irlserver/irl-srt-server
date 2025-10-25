@@ -42,6 +42,7 @@ public:
     CSLSRole *pop();
     void erase();
     int size();
+    int count_players_for_stream(const char *stream_key);
 
 protected:
 private:

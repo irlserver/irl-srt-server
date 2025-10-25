@@ -13,6 +13,8 @@ set(sls_core_files
 	README.md
 	SLSArray.cpp
 	SLSArray.hpp
+	SLSBitrateLimit.cpp
+	SLSBitrateLimit.hpp
 	SLSClient.cpp
 	SLSClient.hpp
 	SLSEpollThread.cpp
