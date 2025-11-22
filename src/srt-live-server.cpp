@@ -276,6 +276,68 @@ int main(int argc, char *argv[])
         res.set_header("Access-Control-Allow-Origin", cors_header);
         res.set_content(ret.dump(), "application/json");
     });
+
+    svr.Post("/disconnect", [&](const Request& req, Response& res) {
+        json ret;
+        sls_conf_srt_t *conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf();
+
+        if (!sls_manager || !conf_srt) {
+            ret["status"]  = "error";
+            ret["message"] = "Internal server error: manager or config not available";
+            res.status = 500;
+            res.set_header("Access-Control-Allow-Origin", cors_header);
+            res.set_content(ret.dump(), "application/json");
+            return;
+        }
+
+        // Check if stream parameter is provided
+        if (!req.has_param("stream")) {
+            ret["status"] = "error";
+            ret["message"] = "Missing 'stream' parameter";
+            res.status = 400; // Bad Request
+            res.set_header("Access-Control-Allow-Origin", cors_header);
+            res.set_content(ret.dump(), "application/json");
+            return;
+        }
+
+        // Check authorization with API key
+        bool authorized = false;
+        if (conf_srt->api_keys.empty()) {
+            // No API keys configured, disallow access
+            authorized = false;
+        } else {
+            // API keys configured, check Authorization header
+            if (req.has_header("Authorization")) {
+                std::string auth_header = req.get_header_value("Authorization");
+                for (const auto& key : conf_srt->api_keys) {
+                    if (key == auth_header) {
+                        authorized = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!authorized) {
+            ret["status"] = "error";
+            ret["message"] = "Unauthorized: API key required or invalid.";
+            res.status = 401; // Unauthorized
+            res.set_header("Access-Control-Allow-Origin", cors_header);
+            res.set_content(ret.dump(), "application/json");
+            return;
+        }
+
+        // Disconnect the stream
+        std::string stream_name = req.get_param_value("stream");
+        ret = sls_manager->disconnect_stream(stream_name);
+        
+        if (ret["status"] == "error") {
+            res.status = 404; // Not Found
+        }
+
+        res.set_header("Access-Control-Allow-Origin", cors_header);
+        res.set_content(ret.dump(), "application/json");
+    });
     
     if (conf_srt->http_port) {
         httpPort = conf_srt->http_port;

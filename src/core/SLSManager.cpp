@@ -342,6 +342,44 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear) {
     return ret;
 }
 
+json CSLSManager::disconnect_stream(std::string streamName) {
+    json ret;
+    ret["status"] = "error";
+    ret["message"] = "Stream not found";
+    
+    bool found = false;
+    
+    // Iterate through all servers to find and disconnect the stream
+    for (int i = 0; i < m_server_count; i++) {
+        CSLSMapPublisher *publisher_map = &m_map_publisher[i];
+        CSLSRole *publisher_role = publisher_map->get_publisher(streamName);
+        
+        if (publisher_role != NULL) {
+            found = true;
+            
+            // Close the publisher connection
+            spdlog::info("[{}] CSLSManager::disconnect_stream, closing publisher for stream '{}'.", 
+                        fmt::ptr(this), streamName);
+            publisher_role->close();
+            
+            // The players will be disconnected automatically when the publisher closes
+            // as they won't be able to read data anymore
+            
+            ret["status"] = "ok";
+            ret["message"] = "Stream disconnected successfully";
+            ret["stream"] = streamName;
+            break;
+        }
+    }
+    
+    if (!found) {
+        spdlog::warn("[{}] CSLSManager::disconnect_stream, stream '{}' not found.", 
+                    fmt::ptr(this), streamName);
+    }
+    
+    return ret;
+}
+
 int CSLSManager::single_thread_handler()
 {
     if (m_single_group)

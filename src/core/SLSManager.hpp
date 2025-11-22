@@ -90,6 +90,8 @@ public:
     bool is_single_thread();
 
     std::string get_stat_info();
+
+    json disconnect_stream(std::string streamName);
     static int stat_client_callback(void *p, HTTP_CALLBACK_TYPE type, void *v, void *context);
 
 private:
