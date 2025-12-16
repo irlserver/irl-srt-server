@@ -331,15 +331,14 @@ int CSLSListener::handler()
 
             pub = m_map_publisher->get_publisher(key_stream_name);
             if (NULL == pub) {
-                spdlog::info("[{}] CSLSListener::handler, m_map_publisher->get_publisher failed, new client[{}:{:d}], stream= {}.",
+                spdlog::warn("[{}] CSLSListener::handler, publisher not ready after puller start, new client[{}:{:d}], stream='{}'. Client should retry.",
                              fmt::ptr(this), peer_name, peer_port, key_stream_name);
                 srt->libsrt_close();
                 delete srt;
                 return client_count;
-            } else {
-                spdlog::info("[{}] CSLSListener::handler, m_map_publisher->get_publisher ok, pub={}, new client[{}:{:d}], stream= {}.",
-                             fmt::ptr(this), fmt::ptr(pub), peer_name, peer_port, key_stream_name);
             }
+            spdlog::info("[{}] CSLSListener::handler, m_map_publisher->get_publisher ok, pub={}, new client[{}:{:d}], stream='{}'.",
+                         fmt::ptr(this), fmt::ptr(pub), peer_name, peer_port, key_stream_name);
         }
 
         ca = (sls_conf_app_t *)m_map_publisher->get_ca(app_uplive);
@@ -383,8 +382,9 @@ int CSLSListener::handler()
             }
         }
 
-        if (!m_map_data->is_exist(key_stream_name)) {
-            spdlog::error("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream={}, but publisher data doesn't exist in m_map_data.",
+        CSLSRole *pub_check = m_map_publisher->get_publisher(key_stream_name);
+        if (NULL == pub_check) {
+            spdlog::error("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream={}, publisher no longer exists.",
                           fmt::ptr(this), peer_name, peer_port, key_stream_name);
             srt->libsrt_close();
             delete srt;
@@ -447,6 +447,14 @@ int CSLSListener::handler()
                          fmt::ptr(this), peer_name, peer_port);
 
         CSLSPlayer *player = new CSLSPlayer;
+        if (NULL == player) {
+            spdlog::error("[{}] CSLSListener::handler, failed to allocate player for [{}:{:d}]",
+                         fmt::ptr(this), peer_name, peer_port);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+
         player->init();
         player->set_idle_streams_timeout(m_idle_streams_timeout_role);
         player->set_srt(srt);
