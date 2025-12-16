@@ -150,13 +150,13 @@ int CSLSMapPublisher::remove(CSLSRole *role)
 
     CSLSLock lock(&m_rwclock, true);
 
-    for (auto const &[live_stream_name, pub] : m_map_push_2_publisher)
+    for (auto it = m_map_push_2_publisher.begin(); it != m_map_push_2_publisher.end(); ++it)
     {
-        if (role == pub)
+        if (role == it->second)
         {
             spdlog::info("[{}] CSLSMapPublisher::remove, {}={}, live_key={}.",
-                         fmt::ptr(this), pub->get_role_name(), fmt::ptr(pub), live_stream_name.c_str());
-            m_map_push_2_publisher.erase(live_stream_name);
+                         fmt::ptr(this), it->second->get_role_name(), fmt::ptr(it->second), it->first.c_str());
+            m_map_push_2_publisher.erase(it);
             ret = SLS_OK;
             break;
         }
