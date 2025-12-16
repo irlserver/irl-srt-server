@@ -186,17 +186,28 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
 
     int64_t start_time = sls_gettime_ms();
     int64_t timeout_ms = m_player_key_auth_timeout;
+    int64_t current_time = start_time;
+    
+    const int64_t MAX_BLOCKING_TIME_MS = 1000;
+    if (timeout_ms > MAX_BLOCKING_TIME_MS) {
+        spdlog::warn("[{}] CSLSListener::validate_player_key, timeout {}ms exceeds maximum {}ms, using {}ms.",
+                    fmt::ptr(this), timeout_ms, MAX_BLOCKING_TIME_MS, MAX_BLOCKING_TIME_MS);
+        timeout_ms = MAX_BLOCKING_TIME_MS;
+    }
+    
     bool request_completed = false;
+    int iterations = 0;
+    const int max_iterations = timeout_ms;
 
-    while (!request_completed) {
+    while (!request_completed && iterations < max_iterations) {
         http_client->handler();
         if (SLS_OK == http_client->check_finished()) {
             request_completed = true;
             break;
         }
-        int64_t current_time = sls_gettime_ms();
+        current_time = sls_gettime_ms();
         if (current_time - start_time >= timeout_ms) {
-            spdlog::error("[{}] CSLSListener::validate_player_key, HTTP request timeout after {}ms for player_key='{}'.",
+            spdlog::error("[{}] CSLSListener::validate_player_key, timeout after {}ms for player_key='{}'.",
                          fmt::ptr(this), timeout_ms, player_key);
             http_client->close();
             delete http_client;
@@ -210,6 +221,15 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
             return SLS_ERROR;
         }
         usleep(1000);
+        iterations++;
+    }
+
+    if (!request_completed) {
+        spdlog::error("[{}] CSLSListener::validate_player_key, request incomplete after {}ms for player_key='{}'.",
+                     fmt::ptr(this), current_time - start_time, player_key);
+        http_client->close();
+        delete http_client;
+        return SLS_ERROR;
     }
 
     HTTP_RESPONSE_INFO *response = http_client->get_response_info();
