@@ -153,6 +153,7 @@ int main(int argc, char *argv[])
     sigemptyset(&sigHupHandler.sa_mask);
     sigHupHandler.sa_flags = 0;
     sigaction(SIGHUP, &sigHupHandler, 0);
+    sigaction(SIGTERM, &sigIntHandler, 0);
 
     // init srt
     CSLSSrt::libsrt_init();
