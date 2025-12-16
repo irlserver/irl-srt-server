@@ -130,11 +130,15 @@ int CSLSRole::invalid_srt()
 {
     if (m_srt)
     {
-        spdlog::info("[{}] CSLSRole::invalid_srt, close sock={:d}, m_state={:d}.", fmt::ptr(this), get_fd(), m_state);
+        int fd = get_fd(); // Get fd before closing
+        spdlog::info("[{}] CSLSRole::invalid_srt, close sock={:d}, m_state={:d}.", fmt::ptr(this), fd, m_state);
+        
+        // Close and cleanup SRT socket
         m_srt->libsrt_close();
         delete m_srt;
         m_srt = NULL;
 
+        // Notify about disconnection
         on_close();
     }
     return SLS_OK;
@@ -204,9 +208,19 @@ int CSLSRole::set_srt(CSLSSrt *srt)
 
 int CSLSRole::write(const char *buf, int size)
 {
-    if (m_srt)
-        return m_srt->libsrt_write(buf, size);
-    return SLS_ERROR;
+    if (NULL == m_srt)
+    {
+        spdlog::error("[{}] CSLSRole::write, m_srt is NULL, cannot write {:d} bytes.",
+                      fmt::ptr(this), size);
+        return SLS_ERROR;
+    }
+    if (NULL == buf || size <= 0)
+    {
+        spdlog::error("[{}] CSLSRole::write, invalid parameters: buf={}, size={:d}.",
+                      fmt::ptr(this), fmt::ptr(buf), size);
+        return SLS_ERROR;
+    }
+    return m_srt->libsrt_write(buf, size);
 }
 
 int CSLSRole::add_to_epoll(int eid)
@@ -601,6 +615,14 @@ int CSLSRole::handler_write_data()
         return SLS_OK;
     }
 
+    // Critical: Check if SRT socket is still valid
+    if (NULL == m_srt)
+    {
+        spdlog::error("[{}] CSLSRole::handler_write_data, m_srt is NULL, cannot write data.",
+                      fmt::ptr(this));
+        return SLS_ERROR;
+    }
+
     //read data from publisher's data array
     if (NULL == m_map_data)
     {
@@ -642,10 +664,24 @@ int CSLSRole::handler_write_data()
     int remainer = m_data_len - m_data_pos;
     while (remainer >= TS_UDP_LEN)
     {
+        // Re-check m_srt before each write in case it was closed mid-operation
+        if (NULL == m_srt)
+        {
+            spdlog::error("[{}] CSLSRole::handler_write_data, m_srt became NULL during write loop.",
+                          fmt::ptr(this));
+            return SLS_ERROR;
+        }
+
         ret = write(m_data + m_data_pos, TS_UDP_LEN);
         if (ret < TS_UDP_LEN)
         {
             spdlog::error("[{}] CSLSRole::handler_write_data, write data failed, len={:d}, ret={:d}, not {:d}.", fmt::ptr(this), len, ret, TS_UDP_LEN);
+            // On write failure, mark connection as invalid to trigger cleanup
+            if (ret <= 0)
+            {
+                spdlog::error("[{}] CSLSRole::handler_write_data, critical write failure (ret={:d}), marking connection invalid.", fmt::ptr(this), ret);
+                return SLS_ERROR;
+            }
             break;
         }
         m_data_pos += TS_UDP_LEN;
