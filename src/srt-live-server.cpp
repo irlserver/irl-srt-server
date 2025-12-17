@@ -34,7 +34,9 @@ using namespace httplib;
 #include <nlohmann/json.hpp>
 #include "SLSLog.hpp"
 #include "SLSManager.hpp"
-#include "HttpClient.hpp"
+#include "AsyncHttpClient.hpp"
+#include <thread>
+#include <chrono>
 
 using json = nlohmann::json;
 
@@ -101,15 +103,14 @@ int main(int argc, char *argv[])
     CSLSManager *sls_manager = NULL;
 
     vector<CSLSManager *> reload_manager_list;
-    CHttpClient *http_stat_client = new CHttpClient;
+    std::shared_ptr<std::shared_future<AsyncHttpResponse>> stat_future;
+    int64_t last_stat_post_time = 0;
+    std::string stat_post_url;
+    int stat_post_interval = 0;
 
     int ret = SLS_OK;
     int httpPort = 8181;
     char cors_header[URL_MAX_LEN] = "*";
-    int l = sizeof(sockaddr_in);
-    int64_t tm_begin_ms = 0;
-
-    char stat_method[] = "POST";
     sls_conf_srt_t *conf_srt = NULL;
 
     usage();
@@ -215,8 +216,9 @@ int main(int argc, char *argv[])
     }
     else if (ret > 0)
     {
-        http_stat_client->set_stage_callback(CSLSManager::stat_client_callback, sls_manager);
-        http_stat_client->open(conf_srt->stat_post_url, stat_method, conf_srt->stat_post_interval);
+        stat_post_url = conf_srt->stat_post_url;
+        stat_post_interval = conf_srt->stat_post_interval;
+        last_stat_post_time = sls_gettime_ms();
     }
 
     if (strlen(conf_srt->cors_header) > 0) {
@@ -353,21 +355,22 @@ int main(int argc, char *argv[])
         {
             ret = sls_manager->single_thread_handler();
         }
-        if (NULL != http_stat_client)
+        if (!stat_post_url.empty() && stat_post_interval > 0)
         {
-            if (!http_stat_client->is_valid())
+            if (stat_future && stat_future->wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
             {
-                if (SLS_OK == http_stat_client->check_repeat(cur_tm_ms))
-                {
-                    http_stat_client->reopen();
-                }
+                auto response = stat_future->get();
+                stat_future = nullptr;
+                if (!response.success)
+                    spdlog::warn("Stats POST failed: {}", response.error);
             }
-            ret = http_stat_client->handler();
-            if (SLS_OK == http_stat_client->check_finished() ||
-                SLS_OK == http_stat_client->check_timeout(cur_tm_ms))
+
+            if (!stat_future && (cur_tm_ms - last_stat_post_time >= stat_post_interval))
             {
-                // http_stat_client->get_response_info();
-                http_stat_client->close();
+                std::string stats_json = sls_manager->get_stat_info();
+                auto future = AsyncHttpClient::instance().post_async(stat_post_url, stats_json, "application/json", 10);
+                stat_future = std::make_shared<std::shared_future<AsyncHttpResponse>>(std::move(future));
+                last_stat_post_time = cur_tm_ms;
             }
         }
 
@@ -436,8 +439,10 @@ int main(int argc, char *argv[])
             }
             if (strlen(conf_srt->stat_post_url) > 0)
             {
-                http_stat_client->set_stage_callback(CSLSManager::stat_client_callback, sls_manager);
-                http_stat_client->open(conf_srt->stat_post_url, stat_method, conf_srt->stat_post_interval);
+                stat_post_url = conf_srt->stat_post_url;
+                stat_post_interval = conf_srt->stat_post_interval;
+                last_stat_post_time = sls_gettime_ms();
+                stat_future = nullptr;
             }
 
             spdlog::info("Reloaded successfully.");
@@ -472,14 +477,7 @@ EXIT_PROC:
     spdlog::info("Released reload_manager_list");
     reload_manager_list.clear();
 
-    spdlog::info("Releasing http_stat_client");
-    // release http_stat_client
-    if (NULL != http_stat_client)
-    {
-        http_stat_client->close();
-        delete http_stat_client;
-        http_stat_client = NULL;
-    }
+    stat_future = nullptr;
 
     // uninit srt
     spdlog::info("Destroy SRT objects");
