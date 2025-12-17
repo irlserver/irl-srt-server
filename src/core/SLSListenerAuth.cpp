@@ -1,5 +1,6 @@
 #include "SLSListener.hpp"
 #include "HttpClient.hpp"
+#include "AsyncHttpClient.hpp"
 #include "util.hpp"
 #include "spdlog/spdlog.h"
 #include <nlohmann/json.hpp>
@@ -152,97 +153,33 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         update_rate_limit(client_ip);
     }
 
-    CHttpClient *http_client = new CHttpClient;
-    if (!http_client) {
-        spdlog::error("[{}] CSLSListener::validate_player_key, failed to create HTTP client.", fmt::ptr(this));
-        return SLS_ERROR;
-    }
-
-    http_client->set_timeout(m_player_key_auth_timeout / 1000);
-
+    // Build auth URL
     char auth_url[URL_MAX_LEN * 2] = {0};
     if (strlen(m_player_key_auth_url) > URL_MAX_LEN - 100) {
         spdlog::error("[{}] CSLSListener::validate_player_key, base auth URL too long.", fmt::ptr(this));
-        delete http_client;
         return SLS_ERROR;
     }
     int ret = snprintf(auth_url, sizeof(auth_url), "%s?player_key=%s",
                        m_player_key_auth_url, url_encode(player_key).c_str());
     if (ret < 0 || (unsigned)ret >= sizeof(auth_url)) {
         spdlog::error("[{}] CSLSListener::validate_player_key, auth URL too long, ret={:d}.", fmt::ptr(this), ret);
-        delete http_client;
         return SLS_ERROR;
     }
 
-    spdlog::info("[{}] CSLSListener::validate_player_key, validating player_key='{}' at URL='{}', timeout={}ms.",
+    spdlog::info("[{}] CSLSListener::validate_player_key, validating player_key='{}' at URL='{}' (async), timeout={}ms.",
                  fmt::ptr(this), player_key, auth_url, m_player_key_auth_timeout);
 
-    ret = http_client->open(auth_url, "GET");
-    if (ret != SLS_OK) {
-        spdlog::error("[{}] CSLSListener::validate_player_key, failed to open HTTP request, ret={:d}.", fmt::ptr(this), ret);
-        delete http_client;
-        return SLS_ERROR;
-    }
-
-    int64_t start_time = sls_gettime_ms();
-    int64_t timeout_ms = m_player_key_auth_timeout;
-    int64_t current_time = start_time;
+    // Use AsyncHttpClient - this executes in thread pool
+    int timeout_sec = (m_player_key_auth_timeout + 999) / 1000; // Round up to seconds
+    auto future = AsyncHttpClient::instance().get_async(auth_url, timeout_sec);
     
-    const int64_t MAX_BLOCKING_TIME_MS = 1000;
-    if (timeout_ms > MAX_BLOCKING_TIME_MS) {
-        spdlog::warn("[{}] CSLSListener::validate_player_key, timeout {}ms exceeds maximum {}ms, using {}ms.",
-                    fmt::ptr(this), timeout_ms, MAX_BLOCKING_TIME_MS, MAX_BLOCKING_TIME_MS);
-        timeout_ms = MAX_BLOCKING_TIME_MS;
-    }
+    // Wait for result (blocks this thread, but NOT the listener thread if called from worker)
+    // IMPORTANT: The listener thread should never call this directly!
+    auto response = future.get();
     
-    bool request_completed = false;
-    int iterations = 0;
-    const int max_iterations = timeout_ms;
-
-    while (!request_completed && iterations < max_iterations) {
-        http_client->handler();
-        if (SLS_OK == http_client->check_finished()) {
-            request_completed = true;
-            break;
-        }
-        current_time = sls_gettime_ms();
-        if (current_time - start_time >= timeout_ms) {
-            spdlog::error("[{}] CSLSListener::validate_player_key, timeout after {}ms for player_key='{}'.",
-                         fmt::ptr(this), timeout_ms, player_key);
-            http_client->close();
-            delete http_client;
-            return SLS_ERROR;
-        }
-        if (SLS_OK == http_client->check_timeout(current_time)) {
-            spdlog::error("[{}] CSLSListener::validate_player_key, HTTP client timeout for player_key='{}'.",
-                         fmt::ptr(this), player_key);
-            http_client->close();
-            delete http_client;
-            return SLS_ERROR;
-        }
-        usleep(1000);
-        iterations++;
-    }
-
-    if (!request_completed) {
-        spdlog::error("[{}] CSLSListener::validate_player_key, request incomplete after {}ms for player_key='{}'.",
-                     fmt::ptr(this), current_time - start_time, player_key);
-        http_client->close();
-        delete http_client;
-        return SLS_ERROR;
-    }
-
-    HTTP_RESPONSE_INFO *response = http_client->get_response_info();
-    if (!response) {
-        spdlog::error("[{}] CSLSListener::validate_player_key, failed to get HTTP response.", fmt::ptr(this));
-        http_client->close();
-        delete http_client;
-        return SLS_ERROR;
-    }
-
-    if (response->m_response_code != HTTP_RESPONSE_CODE_200) {
-        spdlog::error("[{}] CSLSListener::validate_player_key, API returned error code: {}, response: '{}'.",
-                     fmt::ptr(this), response->m_response_code.c_str(), response->m_response_content.c_str());
+    if (!response.success) {
+        spdlog::error("[{}] CSLSListener::validate_player_key, HTTP request failed: {}",
+                     fmt::ptr(this), response.error);
         PlayerKeyCacheEntry negative_cache_entry;
         negative_cache_entry.resolved_stream_id = "";
         negative_cache_entry.is_valid = false;
@@ -255,12 +192,28 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         }
         spdlog::debug("[{}] CSLSListener::validate_player_key, cached negative result for player_key='{}', expires in {}ms.",
                      fmt::ptr(this), player_key, m_player_key_cache_duration / 4);
-        http_client->close();
-        delete http_client;
         return SLS_ERROR;
     }
 
-    std::string response_content = response->m_response_content;
+    if (response.status_code != 200) {
+        spdlog::error("[{}] CSLSListener::validate_player_key, API returned error code: {}, response: '{}'.",
+                     fmt::ptr(this), response.status_code, response.body.c_str());
+        PlayerKeyCacheEntry negative_cache_entry;
+        negative_cache_entry.resolved_stream_id = "";
+        negative_cache_entry.is_valid = false;
+        negative_cache_entry.expiry_time = now + std::chrono::milliseconds(m_player_key_cache_duration / 4);
+        negative_cache_entry.has_max_players_override = false;
+        negative_cache_entry.max_players_per_stream_override = -1;
+        {
+            std::lock_guard<std::mutex> lk(m_cache_mutex);
+            m_player_key_cache[key_str] = negative_cache_entry;
+        }
+        spdlog::debug("[{}] CSLSListener::validate_player_key, cached negative result for player_key='{}', expires in {}ms.",
+                     fmt::ptr(this), player_key, m_player_key_cache_duration / 4);
+        return SLS_ERROR;
+    }
+
+    std::string response_content = response.body;
     spdlog::info("[{}] CSLSListener::validate_player_key, API response: '{}'.", fmt::ptr(this), response_content.c_str());
 
     std::string stream_id;
@@ -272,8 +225,6 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
             stream_id = json_response["stream_id"];
         } else {
             spdlog::error("[{}] CSLSListener::validate_player_key, JSON response missing 'stream_id' field or field is not a string.", fmt::ptr(this));
-            http_client->close();
-            delete http_client;
             return SLS_ERROR;
         }
         if (json_response.contains("max_players_per_stream")) {
@@ -286,13 +237,8 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         }
     } catch (const nlohmann::json::exception& e) {
         spdlog::error("[{}] CSLSListener::validate_player_key, failed to parse JSON response: {}.", fmt::ptr(this), e.what());
-        http_client->close();
-        delete http_client;
         return SLS_ERROR;
     }
-
-    http_client->close();
-    delete http_client;
 
     if (stream_id.empty() || stream_id.length() >= resolved_stream_id_size) {
         spdlog::error("[{}] CSLSListener::validate_player_key, invalid or empty stream_id returned: '{}'.",
