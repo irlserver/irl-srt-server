@@ -5,6 +5,9 @@
 #include "SLSMapRelay.hpp"
 #include "SLSSrt.hpp"
 #include "util.hpp"
+#include "SLSLog.hpp"
+#include "SLSLogCategory.hpp"
+#include "SLSSessionTracker.hpp"
 #include "spdlog/spdlog.h"
 #include <arpa/inet.h>
 #include <errno.h>
@@ -31,6 +34,9 @@ int CSLSListener::handler()
     unsigned long peer_addr_raw = 0;
     struct in6_addr peer_addr6_raw;
     int client_count = 0;
+    
+    // Generate session ID for this connection
+    std::string session_id = CSLSSessionTracker::generate_session_id();
 
     fd_client = m_srt->libsrt_accept();
     if (fd_client < 0) {
@@ -49,10 +55,14 @@ int CSLSListener::handler()
         delete srt;
         return client_count;
     }
-    spdlog::info("[{}] CSLSListener::handler, new client[{}:{:d}], fd={:d}, listener_type={}, legacy={}, port={}.",
-                 fmt::ptr(this), peer_name, peer_port, fd_client,
-                 m_is_publisher_listener ? "publisher" : "player",
-                 m_is_legacy_listener ? "true" : "false", m_port);
+    // Log new connection at DEBUG level (reduced from INFO)
+    if (sls_should_log_category(SLSLogCategory::CONNECTION, spdlog::level::debug))
+    {
+        spdlog::debug("[connection:{}] New client {}:{} fd={} type={} legacy={} port={}",
+                     session_id, peer_name, peer_port, fd_client,
+                     m_is_publisher_listener ? "publisher" : "player",
+                     m_is_legacy_listener, m_port);
+    }
 
     sls_conf_server_t* conf_server = (sls_conf_server_t*)m_conf;
     int negotiated_latency = 0;
@@ -65,8 +75,12 @@ int CSLSListener::handler()
                 fmt::ptr(this), peer_name, peer_port, negotiated_latency);
     } else {
         const char* role = m_is_publisher_listener ? "publisher" : "player";
-        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], {} latency={} ms.",
-                fmt::ptr(this), peer_name, peer_port, role, negotiated_latency);
+        // Log latency at DEBUG level
+        if (sls_should_log_category(SLSLogCategory::CONNECTION, spdlog::level::debug))
+        {
+            spdlog::debug("[connection:{}] {} {}:{} latency={} ms",
+                    session_id, role, peer_name, peer_port, negotiated_latency);
+        }
         if (conf_server->latency_max > 0 && negotiated_latency > conf_server->latency_max) {
             spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], rejecting {}: latency {} ms exceeds maximum {} ms.",
                     fmt::ptr(this), peer_name, peer_port, role, negotiated_latency, conf_server->latency_max);
@@ -86,8 +100,12 @@ int CSLSListener::handler()
         return client_count;
     }
 
-    spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], received stream_id: '{}'",
-                 fmt::ptr(this), peer_name, peer_port, sid);
+    // Log stream ID at DEBUG level
+    if (sls_should_log_category(SLSLogCategory::CONNECTION, spdlog::level::debug))
+    {
+        spdlog::debug("[connection:{}] Received stream_id '{}' from {}:{}",
+                     session_id, sid, peer_name, peer_port);
+    }
 
     if (strlen(sid) == 0) {
         spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], fd={:d}, empty stream ID not allowed.", fmt::ptr(this), peer_name, peer_port, srt->libsrt_get_fd());
@@ -114,13 +132,18 @@ int CSLSListener::handler()
         sidValid = false;
     }
     if (!sidValid) {
-        spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], parse sid='{}' failed.", fmt::ptr(this), peer_name, peer_port, sid);
+        spdlog::error("[connection:{}] Parse SID '{}' failed for {}:{}", 
+                     session_id, sid, peer_name, peer_port);
         srt->libsrt_close();
         delete srt;
         return client_count;
     }
-    spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], sid '{}/{}/{}'",
-                 fmt::ptr(this), peer_name, peer_port, host_name, app_name, stream_name);
+    // Log parsed SID at DEBUG level
+    if (sls_should_log_category(SLSLogCategory::CONNECTION, spdlog::level::debug))
+    {
+        spdlog::debug("[connection:{}] Parsed SID: {}/{}/{} from {}:{}",
+                     session_id, host_name, app_name, stream_name, peer_name, peer_port);
+    }
 
     snprintf(key_app, sizeof(key_app), "%s/%s", host_name, app_name);
 
@@ -134,39 +157,70 @@ int CSLSListener::handler()
     bool is_player_connection = (app_uplive.length() > 0);
     bool connection_allowed = true;
 
-    spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], connection analysis: key_app='{}', app_uplive='{}', is_player_connection={}, listener_type={}, legacy={}",
-                 fmt::ptr(this), peer_name, peer_port, key_app, app_uplive, is_player_connection ? "true" : "false",
-                 m_is_publisher_listener ? "publisher" : "player", m_is_legacy_listener ? "true" : "false");
+    // Verbose connection analysis at DEBUG level
+    if (sls_should_log_category(SLSLogCategory::CONNECTION, spdlog::level::debug))
+    {
+        spdlog::debug("[connection:{}] Analysis: app='{}' uplive='{}' is_player={} type={} legacy={}",
+                     session_id, key_app, app_uplive, is_player_connection,
+                     m_is_publisher_listener ? "publisher" : "player", m_is_legacy_listener);
+    }
 
     if (m_is_legacy_listener) {
-        spdlog::debug("[{}] CSLSListener::handler, {} connection with app '{}' accepted on legacy listener (port {}) - backwards compatible.",
-                      fmt::ptr(this), is_player_connection ? "player" : "publisher", app_name, m_port);
+        spdlog::debug("[connection:{}] {} app='{}' accepted on legacy listener port={} (backward compat)",
+                      session_id, is_player_connection ? "Player" : "Publisher", app_name, m_port);
     } else {
-        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], validation check: is_publisher_listener={}, is_player_connection={}",
-                     fmt::ptr(this), peer_name, peer_port, m_is_publisher_listener ? "true" : "false", is_player_connection ? "true" : "false");
+        // Validation check at DEBUG level
+        if (sls_should_log_category(SLSLogCategory::CONNECTION, spdlog::level::debug))
+        {
+            spdlog::debug("[connection:{}] Validation: pub_listener={} is_player={}",
+                         session_id, m_is_publisher_listener, is_player_connection);
+        }
 
         if (!m_is_publisher_listener && !is_player_connection) {
-            spdlog::warn("[{}] CSLSListener::handler, refused, new role[{}:{:d}], publisher connection with app '{}' attempted on dedicated player listener (port {}).",
-                         fmt::ptr(this), peer_name, peer_port, app_name, m_port);
+            spdlog::warn("[connection:{}] REFUSED: Publisher app='{}' on player listener port={} from {}:{}",
+                         session_id, app_name, m_port, peer_name, peer_port);
             connection_allowed = false;
         } else if (m_is_publisher_listener && is_player_connection) {
-            spdlog::warn("[{}] CSLSListener::handler, refused, new role[{}:{:d}], player connection with app '{}' attempted on dedicated publisher listener (port {}).",
-                         fmt::ptr(this), peer_name, peer_port, app_name, m_port);
+            spdlog::warn("[connection:{}] REFUSED: Player app='{}' on publisher listener port={} from {}:{}",
+                         session_id, app_name, m_port, peer_name, peer_port);
             connection_allowed = false;
         } else {
-            spdlog::info("[{}] CSLSListener::handler, {} connection with app '{}' matches dedicated {} listener (port {}), proceeding normally.",
-                          fmt::ptr(this), is_player_connection ? "player" : "publisher", app_name,
-                          m_is_publisher_listener ? "publisher" : "player", m_port);
+            // Connection accepted - log at INFO level with rate limiting
+            CSLSLogRateLimiter::EventStats stats;
+            std::string rate_key = std::string(peer_name) + ":" + (is_player_connection ? "player" : "publisher");
+            
+            if (sls_get_log_config().rate_limit_enabled && 
+                sls_get_rate_limiter().should_log(rate_key, stats))
+            {
+                if (stats.count > 1)
+                {
+                    spdlog::info("[connection:{}] {} connected app='{}' stream='{}' latency={}ms ({} times in {}s)",
+                                session_id, is_player_connection ? "Player" : "Publisher", 
+                                app_name, stream_name, final_latency, stats.count, 
+                                sls_get_log_config().rate_limit_window_sec);
+                }
+                else
+                {
+                    spdlog::info("[connection:{}] {} connected app='{}' stream='{}' latency={}ms",
+                                session_id, is_player_connection ? "Player" : "Publisher",
+                                app_name, stream_name, final_latency);
+                }
+            }
+            else if (!sls_get_log_config().rate_limit_enabled)
+            {
+                spdlog::info("[connection:{}] {} connected app='{}' stream='{}' latency={}ms",
+                            session_id, is_player_connection ? "Player" : "Publisher",
+                            app_name, stream_name, final_latency);
+            }
         }
     }
 
     if (!connection_allowed) {
-        spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], connection REJECTED by validation logic", fmt::ptr(this), peer_name, peer_port);
+        spdlog::error("[connection:{}] Connection REJECTED from {}:{}", 
+                     session_id, peer_name, peer_port);
         srt->libsrt_close();
         delete srt;
         return client_count;
-    } else {
-        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], connection ACCEPTED by validation logic, proceeding to create role", fmt::ptr(this), peer_name, peer_port);
     }
 
     char validated_stream_id[URL_MAX_LEN] = {0};

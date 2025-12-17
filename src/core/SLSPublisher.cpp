@@ -46,11 +46,16 @@ CSLSPublisher::CSLSPublisher()
     m_map_publisher = NULL;
 
     sprintf(m_role_name, "publisher");
+    
+    // Record publisher start for summary logging
+    sls_get_summary_logger().record_publisher_start();
 }
 
 CSLSPublisher::~CSLSPublisher()
 {
     //release
+    // Record publisher stop for summary logging
+    sls_get_summary_logger().record_publisher_stop();
 }
 
 int CSLSPublisher::init()

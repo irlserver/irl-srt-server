@@ -355,6 +355,17 @@ int main(int argc, char *argv[])
         {
             ret = sls_manager->single_thread_handler();
         }
+        
+        // Check if we should log summary
+        if (sls_get_log_config().summary_enabled)
+        {
+            std::string summary_msg;
+            if (sls_get_summary_logger().should_log_summary(
+                    sls_get_log_config().summary_interval_sec, summary_msg))
+            {
+                spdlog::info(summary_msg);
+            }
+        }
         if (!stat_post_url.empty() && stat_post_interval > 0)
         {
             if (stat_future && stat_future->wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
