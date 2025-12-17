@@ -6,6 +6,8 @@
 #include <errno.h>
 #include <regex>
 #include <mutex>
+#include "SLSLog.hpp"
+#include "SLSLogCategory.hpp"
 
 // Keep the server conf implementation in exactly one TU
 SLS_CONF_DYNAMIC_IMPLEMENT(server)
@@ -120,15 +122,17 @@ int CSLSListener::start()
 
     if (NULL == m_conf)
     {
-        spdlog::error("[{}] CSLSListener::start failed, conf is null.", fmt::ptr(this));
+        spdlog::error("[listener] Start failed, conf is null");
         return SLS_ERROR;
     }
-    spdlog::info("[{}] CSLSListener::start", fmt::ptr(this));
+    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+        spdlog::debug("[listener] Starting listener");
+    }
 
     ret = init_conf_app();
     if (SLS_OK != ret)
     {
-        spdlog::error("[{}] CSLSListener::start, init_conf_app failed.", fmt::ptr(this));
+        spdlog::error("[listener] Start failed, init_conf_app failed");
         return SLS_ERROR;
     }
 
@@ -139,19 +143,27 @@ int CSLSListener::start()
     if (m_is_publisher_listener && !m_is_legacy_listener) {
         if (server_conf->latency_min > 0) {
             m_srt->libsrt_set_latency(server_conf->latency_min);
-            spdlog::info("[{}] CSLSListener::start, set minimum latency={} ms on publisher listener socket.",
-                        fmt::ptr(this), server_conf->latency_min);
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
+				spdlog::info("[listener] Publisher listener latency set | latency={}ms",
+							 server_conf->latency_min);
+				}
         } else {
-            spdlog::info("[{}] CSLSListener::start, not setting latency on publisher listener socket to allow full client control.", fmt::ptr(this));
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+				spdlog::debug("[listener] Publisher listener allows client latency control");
+				}
         }
     } else if (m_is_legacy_listener) {
         if (server_conf->latency_min > 0) {
             m_srt->libsrt_set_latency(server_conf->latency_min);
-            spdlog::info("[{}] CSLSListener::start, set latency={} ms on legacy listener socket for backwards compatibility.",
-                        fmt::ptr(this), server_conf->latency_min);
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
+				spdlog::info("[listener] Legacy listener latency set | latency={}ms",
+							 server_conf->latency_min);
+				}
         }
     } else {
-        spdlog::info("[{}] CSLSListener::start, player listener - latency determined by network, not configured.", fmt::ptr(this));
+        if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+				spdlog::debug("[listener] Player listener uses network-determined latency");
+				}
     }
 
     if (m_is_legacy_listener) {
@@ -169,36 +181,42 @@ int CSLSListener::start()
     }
 
     if (m_port <= 0) {
-        spdlog::error("[{}] CSLSListener::start, invalid port %d for %s listener.",
-                fmt::ptr(this), m_port, m_is_publisher_listener ? "publisher" : "player");
+        spdlog::error("[listener] Start failed, invalid port | port={} type={}",
+				m_port, m_is_publisher_listener ? "publisher" : "player");
         return SLS_ERROR;
     }
 
     ret = m_srt->libsrt_setup(m_port);
     if (SLS_OK != ret)
     {
-        spdlog::error("[{}] CSLSListener::start, libsrt_setup failure.", fmt::ptr(this));
+        spdlog::error("[listener] Start failed, libsrt_setup error | port={}", m_port);
         return ret;
     }
 
-    spdlog::info("[{}] CSLSListener::start, libsrt_setup ok on port %d for %s.",
-        fmt::ptr(this), m_port, m_is_publisher_listener ? "publisher" : "player");
+    spdlog::info("[listener] Listener started | port={} type={}",
+		m_port, m_is_publisher_listener ? "publisher" : "player");
 
     ret = m_srt->libsrt_listen(m_back_log);
     if (SLS_OK != ret)
     {
-        spdlog::info("[{}] CSLSListener::start, libsrt_listen failure.", fmt::ptr(this));
+        spdlog::error("[listener] Start failed, libsrt_listen error | port={}", m_port);
         return ret;
     }
 
-    spdlog::info("[{}] CSLSListener::start, m_list_role={}.", fmt::ptr(this), fmt::ptr(m_list_role));
+    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+			spdlog::debug("[listener] Checking role list");
+			}
     if (NULL == m_list_role)
     {
-        spdlog::info("[{}] CSLSListener::start, m_roleList is null.", fmt::ptr(this));
+        if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+				spdlog::debug("[listener] Role list is null");
+				}
         return ret;
     }
 
-    spdlog::info("[{}] CSLSListener::start, push to m_list_role={}.", fmt::ptr(this), fmt::ptr(m_list_role));
+    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+			spdlog::debug("[listener] Added to role list");
+			}
     m_list_role->push(this);
 
     return ret;
@@ -207,7 +225,9 @@ int CSLSListener::start()
 int CSLSListener::stop()
 {
     int ret = SLS_OK;
-    spdlog::info("[{}] CSLSListener::stop.", fmt::ptr(this));
+    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
+			spdlog::info("[listener] Listener stopped | port={}", m_port);
+			}
     return ret;
 }
 
