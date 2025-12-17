@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.5.0)
-project(srt-live-server VERSION 2.5.0)
+cmake_minimum_required (VERSION 3.10 FATAL_ERROR)
+project(srt-live-server VERSION 3.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -28,13 +28,23 @@ include(CPack)
 add_compile_definitions(SLS_VERSION="${PROJECT_VERSION}")
 
 # --- External libraries ---
-add_subdirectory(${PROJECT_SOURCE_DIR}/lib/spdlog)
-find_package(spdlog)
+find_package(Threads REQUIRED)
 
-set(JSON_BuildTests OFF CACHE INTERNAL "")
-add_subdirectory(${PROJECT_SOURCE_DIR}/lib/json)
+# spdlog
+add_subdirectory(lib/spdlog)
 
-find_package(Threads)
+# nlohmann/json
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+add_subdirectory(lib/json)
+
+# cpp-httplib (header-only)
+add_library(httplib INTERFACE)
+target_include_directories(httplib INTERFACE ${PROJECT_SOURCE_DIR}/lib/cpp-httplib)
+
+# BS thread pool (header-only)
+add_library(BS_thread_pool INTERFACE)
+target_include_directories(BS_thread_pool INTERFACE ${PROJECT_SOURCE_DIR}/lib/thread-pool)
+
 
 # Use SLS Core
 add_subdirectory(${PROJECT_SOURCE_DIR}/src)
