@@ -112,12 +112,13 @@ void CSLSGroup::check_new_role()
     if (0 == role->add_to_epoll(m_eid))
     {
         m_map_role[fd] = role;
-        spdlog::info("[{}] CSLSGroup::check_new_role, worker_number={:d}, {}={}, add_to_epoll fd={:d}, role_map.size={:d}.",
+        // Log at DEBUG level (worker operations are verbose)
+        spdlog::debug("[{}] CSLSGroup::check_new_role, worker={:d}, {}={}, fd={:d}, role_map.size={:d}.",
                      fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role), fd, m_map_role.size());
     }
     else
     {
-        spdlog::error("[{}] CSLSGroup::check_new_role, worker_number={:d}, {}={}, add_to_epoll failed, fd={:d}.",
+        spdlog::error("[{}] CSLSGroup::check_new_role, worker={:d}, {}={}, add_to_epoll failed, fd={:d}.",
                       fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role), fd);
         delete role;
     }

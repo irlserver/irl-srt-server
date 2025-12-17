@@ -225,7 +225,8 @@ int CSLSRole::add_to_epoll(int eid)
     {
         m_srt->libsrt_set_eid(eid);
         ret = m_srt->libsrt_add_to_epoll(eid, m_is_write);
-        spdlog::info("[{}] CSLSRole::add_to_epoll, {}, sock={:d}, m_is_write={:d}, ret={:d}.",
+        // Log at TRACE level (epoll operations are very verbose)
+        spdlog::trace("[{}] CSLSRole::add_to_epoll, {}, sock={:d}, m_is_write={:d}, ret={:d}.",
                      fmt::ptr(this), m_role_name, get_fd(), m_is_write, ret);
     }
     return ret;
@@ -237,7 +238,8 @@ int CSLSRole::remove_from_epoll()
     if (m_srt)
     {
         ret = m_srt->libsrt_remove_from_epoll();
-        spdlog::info("[{}] CSLSRole::remove_from_epoll, {}, sock={:d}, ret={:d}.",
+        // Log at TRACE level (epoll operations are very verbose)
+        spdlog::trace("[{}] CSLSRole::remove_from_epoll, {}, sock={:d}, ret={:d}.",
                      fmt::ptr(this), m_role_name, get_fd(), ret);
     }
     return ret;
