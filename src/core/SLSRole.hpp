@@ -32,7 +32,9 @@
 #include "conf.hpp"
 #include "SLSLock.hpp"
 #include "common.hpp"
-#include "HttpClient.hpp"
+#include "AsyncHttpClient.hpp"
+#include <future>
+#include <memory>
 #include "SLSBitrateLimit.hpp"
 
 enum SLS_ROLE_STATE
@@ -141,7 +143,7 @@ protected:
     int m_data_pos;
     bool m_need_reconnect;
     stat_info_t m_stat_info_base;
-    CHttpClient *m_http_client;
+    std::shared_ptr<std::shared_future<AsyncHttpResponse>> m_http_future;
 
     char m_record_hls[SHORT_STR_MAX_LEN];
     int m_record_hls_ts_fd;

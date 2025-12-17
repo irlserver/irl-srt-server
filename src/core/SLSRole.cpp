@@ -69,7 +69,7 @@ CSLSRole::CSLSRole()
     m_data_len = 0;
     m_data_pos = 0;
     m_need_reconnect = false;
-    m_http_client = NULL;
+    m_http_future = nullptr;
 
     snprintf(m_record_hls, sizeof(m_record_hls), "off"); //default off
     m_record_hls_ts_fd = 0;
@@ -108,12 +108,7 @@ int CSLSRole::init()
 int CSLSRole::uninit()
 {
     int ret = 0;
-    if (NULL != m_http_client)
-    {
-        m_http_client->close();
-        delete m_http_client;
-        m_http_client = NULL;
-    }
+    m_http_future = nullptr;
 
     if (SLS_RS_UNINIT != m_state)
     {
@@ -335,10 +330,8 @@ void CSLSRole::set_record_hls_path(const char *hls_path)
 
 int CSLSRole::check_http_client()
 {
-    if (NULL == m_http_client)
-    {
+    if (!m_http_future)
         return SLS_ERROR;
-    }
     return SLS_OK;
 }
 
@@ -735,70 +728,51 @@ void CSLSRole::set_http_url(const char *http_url)
         return;
     }
     strlcpy(m_http_url, http_url, sizeof(m_http_url));
-    if (NULL == m_http_client)
-    {
-        m_http_client = new CHttpClient;
-        m_http_passed = false;
-    }
+    m_http_passed = false;
 }
 
 int CSLSRole::on_connect()
 {
     if (strlen(m_http_url) == 0)
-    {
         return SLS_ERROR;
-    }
-    if (NULL == m_http_client)
-    {
-        m_http_client = new CHttpClient;
-    }
 
     char on_event_url[URL_MAX_LEN] = {0};
     if (strlen(m_peer_ip) == 0)
-    {
         get_peer_info(m_peer_ip, m_peer_port);
-    }
+    
     int ret = snprintf(on_event_url, sizeof(on_event_url), "%s?on_event=on_connect&role_name=%s&srt_url=%s&remote_ip=%s&remote_port=%d",
                        m_http_url, url_encode(m_role_name).c_str(), url_encode(get_streamid()).c_str(), m_peer_ip, m_peer_port);
-    if (ret < 0 || (unsigned)ret >= sizeof(on_event_url))
-    {
+    if (ret < 0 || (unsigned)ret >= sizeof(on_event_url)) {
         spdlog::error("[{}] CSLSRole::on_connect, on_event_url is too long, ret={:d}.", fmt::ptr(this), ret);
         return SLS_ERROR;
     }
 
-    return m_http_client->open(on_event_url);
+    auto future = AsyncHttpClient::instance().get_async(on_event_url, 5);
+    m_http_future = std::make_shared<std::shared_future<AsyncHttpResponse>>(std::move(future));
+    return SLS_OK;
 }
 
 int CSLSRole::on_close()
 {
     if (!m_http_passed)
-    {
         return SLS_OK;
-    }
     if (strlen(m_http_url) == 0)
-    {
         return SLS_OK;
-    }
-    if (NULL == m_http_client)
-    {
-        m_http_client = new CHttpClient;
-    }
 
     char on_event_url[URL_MAX_LEN] = {0};
     if (strlen(m_peer_ip) == 0)
-    {
         get_peer_info(m_peer_ip, m_peer_port);
-    }
+    
     int ret = snprintf(on_event_url, sizeof(on_event_url), "%s?on_event=on_close&role_name=%s&srt_url=%s&remote_ip=%s&remote_port=%d",
                        m_http_url, url_encode(m_role_name).c_str(), url_encode(get_streamid()).c_str(), m_peer_ip, m_peer_port);
-    if (ret < 0 || (unsigned)ret >= sizeof(on_event_url))
-    {
-        spdlog::error("[SLSRole::on_close] callback URL too long, truncating [len={:d}]",
-                      ret);
+    if (ret < 0 || (unsigned)ret >= sizeof(on_event_url)) {
+        spdlog::error("[SLSRole::on_close] callback URL too long, truncating [len={:d}]", ret);
         return SLS_ERROR;
     }
 
-    return m_http_client->open(on_event_url);
+    auto future = AsyncHttpClient::instance().get_async(on_event_url, 5);
+    m_http_future = std::make_shared<std::shared_future<AsyncHttpResponse>>(std::move(future));
+    return SLS_OK;
 }
 
 int CSLSRole::check_http_passed()
@@ -806,45 +780,27 @@ int CSLSRole::check_http_passed()
     if (m_http_passed)
         return SLS_OK;
 
-    if (!m_http_client)
-    {
+    if (!m_http_future)
         return SLS_OK;
-    }
 
-    m_http_client->handler();
-
-    if (SLS_OK != m_http_client->check_finished() && SLS_OK != m_http_client->check_timeout())
-    {
+    using namespace std::chrono_literals;
+    if (m_http_future->wait_for(0ms) != std::future_status::ready)
         return SLS_ERROR;
-    }
 
-    HTTP_RESPONSE_INFO *re = m_http_client->get_response_info();
-    if (NULL == re)
-    {
-        return SLS_ERROR;
-    }
+    auto response = m_http_future->get();
+    m_http_future = nullptr;
 
-    int ret = strcmp(re->m_response_code.c_str(), HTTP_RESPONSE_CODE_200);
-    if (0 == ret)
-    {
-        spdlog::info("[{}] CSLSRole::check_http_client_response, http finished, {}, http_url='{}', response_code={}, response='{}'.",
-                     fmt::ptr(this), m_role_name, m_http_url, re->m_response_code.c_str(), re->m_response_content.c_str());
-        m_http_client->close();
-        delete m_http_client;
-        m_http_client = NULL;
-        m_http_passed = true;
-        return SLS_OK;
-    }
-    else
-    {
-        spdlog::error("[{}] CSLSPlayer::check_http_client_response, http refused, invalid {} http_url='{}', response_code={}, response='{}'.",
-                      fmt::ptr(this), m_role_name, m_http_url, re->m_response_code.c_str(), re->m_response_content.c_str());
-        m_http_client->close();
-        delete m_http_client;
-        m_http_client = NULL;
+    if (!response.success || response.status_code != 200) {
+        spdlog::error("[{}] CSLSRole::check_http_client_response, http refused, invalid {} http_url='{}', status={}, error='{}'.",
+                      fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.error);
         invalid_srt();
         return SLS_ERROR;
     }
+
+    spdlog::info("[{}] CSLSRole::check_http_client_response, http finished, {}, http_url='{}', status={}, response='{}'.",
+                 fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.body);
+    m_http_passed = true;
+    return SLS_OK;
 }
 
 int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds)
