@@ -6,6 +6,8 @@ set(sls_core_files
 	constants.hpp
 	CxxUrl.cpp
 	CxxUrl.hpp
+	AsyncHttpClient.cpp
+	AsyncHttpClient.hpp
 	HttpClient.cpp
 	HttpClient.hpp
 	HttpRoleList.cpp
@@ -78,5 +80,8 @@ target_link_libraries(sls_core
 	spdlog
 	stdc++fs
 	nlohmann_json::nlohmann_json
+	httplib
+	BS_thread_pool
+	Threads::Threads
 )
 target_include_directories(sls_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
