@@ -84,6 +84,50 @@ int CSLSManager::start()
     {
         sls_set_log_file(conf_srt->log_file);
     }
+    
+    // Apply new logging configuration
+    sls_log_config_t& log_config = sls_get_log_config();
+    log_config.rate_limit_enabled = (conf_srt->log_rate_limit_enabled != 0);
+    if (conf_srt->log_rate_limit_window > 0)
+    {
+        log_config.rate_limit_window_sec = conf_srt->log_rate_limit_window;
+        sls_get_rate_limiter().set_window_ms(conf_srt->log_rate_limit_window * 1000);
+    }
+    if (conf_srt->log_rate_limit_threshold > 0)
+    {
+        log_config.rate_limit_threshold = conf_srt->log_rate_limit_threshold;
+        sls_get_rate_limiter().set_threshold(conf_srt->log_rate_limit_threshold);
+    }
+    log_config.summary_enabled = (conf_srt->log_summary_enabled != 0);
+    if (conf_srt->log_summary_interval > 0)
+    {
+        log_config.summary_interval_sec = conf_srt->log_summary_interval;
+    }
+    log_config.session_ids_enabled = (conf_srt->log_session_ids != 0);
+    
+    if (strlen(conf_srt->log_format) > 0)
+    {
+        std::string format(conf_srt->log_format);
+        log_config.json_format = (format == "json");
+    }
+    
+    // Apply category-specific log levels
+    if (strlen(conf_srt->log_level_connection) > 0)
+        sls_set_category_log_level(SLSLogCategory::CONNECTION, conf_srt->log_level_connection);
+    if (strlen(conf_srt->log_level_listener) > 0)
+        sls_set_category_log_level(SLSLogCategory::LISTENER, conf_srt->log_level_listener);
+    if (strlen(conf_srt->log_level_stream) > 0)
+        sls_set_category_log_level(SLSLogCategory::STREAM, conf_srt->log_level_stream);
+    if (strlen(conf_srt->log_level_data) > 0)
+        sls_set_category_log_level(SLSLogCategory::DATA, conf_srt->log_level_data);
+    if (strlen(conf_srt->log_level_relay) > 0)
+        sls_set_category_log_level(SLSLogCategory::RELAY, conf_srt->log_level_relay);
+    if (strlen(conf_srt->log_level_http) > 0)
+        sls_set_category_log_level(SLSLogCategory::HTTP, conf_srt->log_level_http);
+    if (strlen(conf_srt->log_level_auth) > 0)
+        sls_set_category_log_level(SLSLogCategory::AUTH, conf_srt->log_level_auth);
+    if (strlen(conf_srt->log_level_system) > 0)
+        sls_set_category_log_level(SLSLogCategory::SYSTEM, conf_srt->log_level_system);
 
     sls_conf_server_t *conf_server = (sls_conf_server_t *)conf_srt->child;
     if (!conf_server)

@@ -27,6 +27,13 @@ set(sls_core_files
 	SLSLock.hpp
 	SLSLog.cpp
 	SLSLog.hpp
+	SLSLogCategory.hpp
+	SLSLogRateLimiter.cpp
+	SLSLogRateLimiter.hpp
+	SLSSessionTracker.cpp
+	SLSSessionTracker.hpp
+	SLSSummaryLogger.cpp
+	SLSSummaryLogger.hpp
 	SLSManager.cpp
 	SLSManager.hpp
 	SLSMapData.cpp
