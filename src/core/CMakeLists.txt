@@ -8,10 +8,6 @@ set(sls_core_files
 	CxxUrl.hpp
 	AsyncHttpClient.cpp
 	AsyncHttpClient.hpp
-	HttpClient.cpp
-	HttpClient.hpp
-	HttpRoleList.cpp
-	HttpRoleList.hpp
 	README.md
 	SLSArray.cpp
 	SLSArray.hpp

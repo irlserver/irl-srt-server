@@ -1,5 +1,4 @@
 #include "SLSListener.hpp"
-#include "HttpClient.hpp"
 #include "AsyncHttpClient.hpp"
 #include "util.hpp"
 #include "spdlog/spdlog.h"

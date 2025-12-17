@@ -549,20 +549,4 @@ std::string CSLSManager::get_stat_info()
     return info_obj.dump();
 }
 
-int CSLSManager::stat_client_callback(void *p, HTTP_CALLBACK_TYPE type, void *v, void *context)
-{
-    CSLSManager *manager = (CSLSManager *)context;
-    if (HCT_REQUEST_CONTENT == type)
-    {
-        std::string *p_response = (std::string *)v;
-        p_response->assign(manager->get_stat_info());
-    }
-    else if (HCT_RESPONSE_END == type)
-    {
-        //response info maybe include info that server send client, such as reload cmd...
-    }
-    else
-    {
-    }
-    return SLS_OK;
-}
+
