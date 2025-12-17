@@ -48,11 +48,9 @@ CSLSGroup::CSLSGroup()
 CSLSGroup::~CSLSGroup()
 {
     spdlog::trace("[{}] CSLSGroup::~CSLSGroup(), role={}", fmt::ptr(this), fmt::ptr(m_list_role));
-    if (m_list_role)
-    {
-        delete m_list_role;
-        m_list_role = NULL;
-    }
+    // Note: m_list_role is NOT owned by CSLSGroup, it's shared from CSLSManager
+    // CSLSManager is responsible for deleting it, so we just set it to NULL
+    m_list_role = NULL;
 }
 
 int CSLSGroup::start()
