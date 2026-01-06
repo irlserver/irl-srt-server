@@ -749,7 +749,7 @@ int CSLSRole::on_connect()
         return SLS_ERROR;
     }
 
-    auto future = AsyncHttpClient::instance().get_async(on_event_url, 5);
+    auto future = AsyncHttpClient::instance().post_async(on_event_url, "", "application/json", 5);
     m_http_future = std::make_shared<std::shared_future<AsyncHttpResponse>>(std::move(future));
     return SLS_OK;
 }
@@ -772,7 +772,7 @@ int CSLSRole::on_close()
         return SLS_ERROR;
     }
 
-    auto future = AsyncHttpClient::instance().get_async(on_event_url, 5);
+    auto future = AsyncHttpClient::instance().post_async(on_event_url, "", "application/json", 5);
     m_http_future = std::make_shared<std::shared_future<AsyncHttpResponse>>(std::move(future));
     return SLS_OK;
 }
