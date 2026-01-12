@@ -30,6 +30,9 @@
 #include "SLSPusherManager.hpp"
 #include "SLSLog.hpp"
 #include "SLSPusher.hpp"
+#include "SLSLogCategory.hpp"
+#include "SLSLogRateLimiter.hpp"
+#include "SLSSummaryLogger.hpp"
 
 /**
  * CSLSPusherManager class implementation
@@ -49,8 +52,10 @@ int CSLSPusherManager::connect_all()
 	int ret = SLS_ERROR;
 	if (m_sri == NULL)
 	{
-		spdlog::info("[{}] CSLSPusherManager::connect_all, failed, m_upstreams.size()=0, m_app_uplive={}, m_stream_name={}.",
-					 fmt::ptr(this), m_app_uplive, m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] CSLSPusherManager::connect_all failed, no upstreams configured | app={} stream={}",
+						 m_app_uplive, m_stream_name);
+		}
 		return ret;
 	}
 
@@ -73,10 +78,10 @@ int CSLSPusherManager::connect_all()
 			}
 			endpoint_load_success = true;
 		}
-		catch (fmt::v8::format_error const &error)
+		catch (const std::exception &)
 		{
-			spdlog::error("[{}] CSLSPusherManager::connect_all key '{{stream_name}}' not found in entry '{}'",
-						  fmt::ptr(this), szTmp);
+			spdlog::error("[relay] Pusher connect_all key '{{stream_name}}' not found in upstream entry | entry='{}' stream={}",
+						  szTmp, m_stream_name);
 			// If argument is not found, notify of failure and don't try to reconnect
 			ret = SLS_ERROR;
 		}
@@ -100,8 +105,10 @@ int CSLSPusherManager::start()
 	int ret = SLS_ERROR;
 	if (m_sri == NULL)
 	{
-		spdlog::info("[{}] CSLSPusherManager::start, failed, m_upstreams.size()=0, m_app_uplive={}, m_stream_name={}.",
-					 fmt::ptr(this), m_app_uplive, m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Pusher start failed, no upstreams configured | app={} stream={}",
+						 m_app_uplive, m_stream_name);
+		}
 		return ret;
 	}
 
@@ -110,8 +117,8 @@ int CSLSPusherManager::start()
 	ret = snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", m_app_uplive, m_stream_name);
 	if (ret < 0 || (unsigned)ret >= sizeof(key_stream_name))
 	{
-		spdlog::error("[{}] CSLSPusherManager::start, failed, snprintf key_stream_name failed, ret={}, m_app_uplive={}, m_stream_name={}.",
-					  fmt::ptr(this), ret, m_app_uplive, m_stream_name);
+		spdlog::error("[relay] Pusher start failed, stream name too long | app={} stream={} ret={}",
+					  m_app_uplive, m_stream_name, ret);
 		return SLS_ERROR;
 	}
 	if (NULL != m_map_publisher)
@@ -119,8 +126,10 @@ int CSLSPusherManager::start()
 		CSLSRole *publisher = m_map_publisher->get_publisher(key_stream_name);
 		if (NULL == publisher)
 		{
-			spdlog::info("[{}] CSLSPullerManager::start, failed, key_stream_name={}, publisher=NULL not exist.",
-						 fmt::ptr(this), key_stream_name);
+			if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+				spdlog::debug("[relay] Pusher start failed, no publisher for stream | stream={}",
+							 key_stream_name);
+			}
 			return SLS_ERROR;
 		}
 	}
@@ -135,8 +144,8 @@ int CSLSPusherManager::start()
 	}
 	else
 	{
-		spdlog::info("[{}] CSLSPusherManager::start, failed, wrong m_sri->m_mode={:d}, m_app_uplive={}, m_stream_name={}.",
-					 fmt::ptr(this), m_sri->m_mode, m_app_uplive, m_stream_name);
+		spdlog::error("[relay] Pusher start failed, invalid mode | mode={} app={} stream={}",
+					 m_sri->m_mode, m_app_uplive, m_stream_name);
 	}
 	return ret;
 }
@@ -155,8 +164,8 @@ int CSLSPusherManager::set_relay_param(CSLSRelay *relay)
 	ret = snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", m_app_uplive, m_stream_name);
 	if (ret < 0 || (unsigned)ret >= sizeof(key_stream_name))
 	{
-		spdlog::error("[{}] CSLSPusherManager::set_relay_param, failed, snprintf key_stream_name failed, ret={}, m_app_uplive={}, m_stream_name={}.",
-					  fmt::ptr(this), ret, m_app_uplive, m_stream_name);
+		spdlog::error("[relay] Pusher set_relay_param failed, stream name too long | app={} stream={} ret={}",
+					  m_app_uplive, m_stream_name, ret);
 		return SLS_ERROR;
 	}
 	relay->set_map_data(key_stream_name, m_map_data);
@@ -171,8 +180,10 @@ int CSLSPusherManager::add_reconnect_stream(char *relay_url)
 	int ret = SLS_ERROR;
 	if (m_sri == NULL)
 	{
-		spdlog::info("[{}] CSLSPusherManager::add_reconnect_stream, failed, m_upstreams.size()=0, m_app_uplive={}, m_stream_name={}.",
-					 fmt::ptr(this), m_app_uplive, m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Pusher add_reconnect_stream failed, no upstreams configured | app={} stream={}",
+						 m_app_uplive, m_stream_name);
+		}
 		return ret;
 	}
 
@@ -191,8 +202,8 @@ int CSLSPusherManager::add_reconnect_stream(char *relay_url)
 	}
 	else
 	{
-		spdlog::info("[{}] CSLSPusherManager::add_reconnect_stream, failed, wrong m_sri->m_mode={:d}, m_app_uplive={}, m_stream_name={}.",
-					 fmt::ptr(this), m_sri->m_mode, m_app_uplive, m_stream_name);
+		spdlog::error("[relay] Pusher add_reconnect_stream failed, invalid mode | mode={} app={} stream={}",
+					 m_sri->m_mode, m_app_uplive, m_stream_name);
 	}
 	return ret;
 }
@@ -202,15 +213,19 @@ int CSLSPusherManager::reconnect(int64_t cur_tm_ms)
 	int ret = SLS_ERROR;
 	if (SLS_OK != check_relay_param())
 	{
-		spdlog::warn("[{}] CSLSPusherManager::reconnect, check_relay_param failed, stream={}.",
-					 fmt::ptr(this), m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Pusher reconnect check_relay_param failed | stream={}",
+						 m_stream_name);
+		}
 		return ret;
 	}
 
 	if (m_sri == NULL)
 	{
-		spdlog::info("[{}] CSLSPusherManager::reconnect, failed, m_upstreams.size()=0, m_app_uplive={}, m_stream_name={}.",
-					 fmt::ptr(this), m_app_uplive, m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Pusher reconnect failed, no upstreams configured | app={} stream={}",
+						 m_app_uplive, m_stream_name);
+		}
 		return ret;
 	}
 
@@ -220,8 +235,8 @@ int CSLSPusherManager::reconnect(int64_t cur_tm_ms)
 	ret = snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", m_app_uplive, m_stream_name);
 	if (ret < 0 || (unsigned)ret >= sizeof(key_stream_name))
 	{
-		spdlog::error("[{}] CSLSPusherManager::reconnect, failed, snprintf key_stream_name failed, ret={}, m_app_uplive={}, m_stream_name={}.",
-					  fmt::ptr(this), ret, m_app_uplive, m_stream_name);
+		spdlog::error("[relay] Pusher reconnect failed, stream name too long | app={} stream={} ret={}",
+					  m_app_uplive, m_stream_name, ret);
 		return SLS_ERROR;
 	}
 	if (NULL != m_map_publisher)
@@ -246,16 +261,18 @@ int CSLSPusherManager::reconnect(int64_t cur_tm_ms)
 		m_reconnect_begin_tm = cur_tm_ms;
 		if (no_publisher)
 		{
-			spdlog::info("[{}] CSLSPullerManager::reconnect, connect_hash failed, key_stream_name={}, publisher=NULL not exist.",
-						 fmt::ptr(this), key_stream_name);
+			if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+				spdlog::debug("[relay] Pusher reconnect failed, no publisher for stream | stream={}",
+							 key_stream_name);
+			}
 			return SLS_ERROR;
 		}
 		ret = connect_hash();
 	}
 	else
 	{
-		spdlog::info("[{}] CSLSPusherManager::reconnect, failed, wrong m_sri->m_mode={:d}, m_app_uplive={}, m_stream_name={}.",
-					 fmt::ptr(this), m_sri->m_mode, m_app_uplive, m_stream_name);
+		spdlog::error("[relay] Pusher reconnect failed, invalid mode | mode={} app={} stream={}",
+					 m_sri->m_mode, m_app_uplive, m_stream_name);
 		return SLS_ERROR;
 	}
 	return ret;
@@ -265,14 +282,18 @@ int CSLSPusherManager::check_relay_param()
 {
 	if (NULL == m_role_list)
 	{
-		spdlog::warn("[{}] CSLSRelayManager::check_relay_param, failed, m_role_list is null, stream={}.",
-					 fmt::ptr(this), m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Pusher check_relay_param failed, role_list is null | stream={}",
+						 m_stream_name);
+		}
 		return SLS_ERROR;
 	}
 	if (NULL == m_map_data)
 	{
-		spdlog::warn("[{}] CSLSRelayManager::check_relay_param, failed, m_map_data is null, stream={}.",
-					 fmt::ptr(this), m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Pusher check_relay_param failed, map_data is null | stream={}",
+						 m_stream_name);
+		}
 		return SLS_ERROR;
 	}
 	return SLS_OK;
@@ -286,6 +307,10 @@ int CSLSPusherManager::reconnect_all(int64_t cur_tm_ms, bool no_publisher)
 	int all_ret = SLS_OK;
 	std::map<std::string, int64_t>::iterator it_cur;
 	std::map<std::string, int64_t>::iterator it;
+	
+	// Use rate limiting for reconnection attempts
+	static std::string rate_key_base = "pusher_reconnect";
+	
 	for (it = m_map_reconnect_relay.begin(); it != m_map_reconnect_relay.end();)
 	{
 		std::string url = it->first;
@@ -299,24 +324,35 @@ int CSLSPusherManager::reconnect_all(int64_t cur_tm_ms, bool no_publisher)
 		}
 		if (no_publisher)
 		{
-			// it_cur->second = cur_tm_ms；
 			all_ret |= ret;
 			m_map_reconnect_relay[url] = cur_tm_ms;
-			spdlog::info("[{}] CSLSPullerManager::reconnect_all, failed, url={}, publisher=NULL not exist.",
-						 fmt::ptr(this), url.c_str());
+			if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+				CSLSLogRateLimiter::EventStats stats;
+				std::string rate_key = rate_key_base + "_no_pub_" + url;
+				if (sls_get_rate_limiter().should_log(rate_key, stats)) {
+					spdlog::debug("[relay] Pusher reconnect_all skipped, no publisher | url={} ({}x in {}s)",
+								 url, stats.count, sls_get_log_config().rate_limit_window_sec);
+				}
+			}
 			continue;
 		}
 		ret = connect(url.c_str());
 		if (SLS_OK != ret)
 		{
-			spdlog::info("[{}] CSLSRelayManager::reconnect_all, faild, connect url='{}'.",
-						 fmt::ptr(this), url.c_str());
 			m_map_reconnect_relay[url] = cur_tm_ms;
+			CSLSLogRateLimiter::EventStats stats;
+			std::string rate_key = rate_key_base + "_failed_" + url;
+			if (sls_get_rate_limiter().should_log(rate_key, stats)) {
+				spdlog::info("[relay] Pusher reconnect_all failed | url={} ({}x in {}s)",
+							 url, stats.count, sls_get_log_config().rate_limit_window_sec);
+			}
 		}
 		else
 		{
-			spdlog::info("[{}] CSLSRelayManager::reconnect_all, ok, connect url='{}', erase item from m_map_reconnect_relay.",
-						 fmt::ptr(this), url.c_str());
+			if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::info)) {
+				spdlog::info("[relay] Pusher reconnect_all success | url={}",
+							 url);
+			}
 			m_map_reconnect_relay.erase(it_cur);
 		}
 		all_ret |= ret;

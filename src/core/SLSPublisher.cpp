@@ -46,11 +46,16 @@ CSLSPublisher::CSLSPublisher()
     m_map_publisher = NULL;
 
     sprintf(m_role_name, "publisher");
+    
+    // Record publisher start for summary logging
+    sls_get_summary_logger().record_publisher_start();
 }
 
 CSLSPublisher::~CSLSPublisher()
 {
     //release
+    // Record publisher stop for summary logging
+    sls_get_summary_logger().record_publisher_stop();
 }
 
 int CSLSPublisher::init()
@@ -62,6 +67,19 @@ int CSLSPublisher::init()
         //m_exit_delay = ((sls_conf_app_t *)m_conf)->publisher_exit_delay;
         strlcpy(m_record_hls, app_conf->record_hls, sizeof(m_record_hls));
         m_record_hls_segment_duration = app_conf->record_hls_segment_duration;
+        
+        // Initialize bitrate limiter if configured
+        if (app_conf->max_input_bitrate_kbps > 0) {
+            int violation_timeout = app_conf->max_input_bitrate_violation_timeout;
+            if (violation_timeout <= 0) {
+                violation_timeout = 30; // Default to 30 seconds if not configured
+            }
+            ret = init_bitrate_limiter(app_conf->max_input_bitrate_kbps, violation_timeout);
+            if (ret != SLS_OK) {
+                spdlog::error("[{}] CSLSPublisher::init, failed to initialize bitrate limiter", fmt::ptr(this));
+                return ret;
+            }
+        }
     }
 
     return ret;

@@ -32,7 +32,10 @@
 #include "conf.hpp"
 #include "SLSLock.hpp"
 #include "common.hpp"
-#include "HttpClient.hpp"
+#include "AsyncHttpClient.hpp"
+#include <future>
+#include <memory>
+#include "SLSBitrateLimit.hpp"
 
 enum SLS_ROLE_STATE
 {
@@ -82,6 +85,7 @@ public:
 
     char *get_streamid();
     bool is_reconnect();
+    char *get_map_data_key();
 
     void set_stat_info_base(stat_info_t &v);
     virtual stat_info_t get_stat_info();
@@ -95,10 +99,17 @@ public:
     int get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
     int get_bitrate();
     int get_uptime();
+    int get_latency() { return m_latency; }
+    void set_latency(int latency) { m_latency = latency; }
     int check_http_client();
     int check_http_passed();
 
     void set_record_hls_path(const char *hls_path);
+
+    // Bitrate limiting methods
+    int init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds = 30);
+    void cleanup_bitrate_limiter();
+    CSLSBitrateLimit::BitrateStats get_bitrate_stats() const;
 
 protected:
     CSLSSrt *m_srt;
@@ -132,7 +143,7 @@ protected:
     int m_data_pos;
     bool m_need_reconnect;
     stat_info_t m_stat_info_base;
-    CHttpClient *m_http_client;
+    std::shared_ptr<std::shared_future<AsyncHttpResponse>> m_http_future;
 
     char m_record_hls[SHORT_STR_MAX_LEN];
     int m_record_hls_ts_fd;
@@ -143,6 +154,9 @@ protected:
     int64_t m_record_hls_begin_tm_ms;
     int m_record_hls_segment_duration;
     float m_record_hls_target_duration;
+
+    // Bitrate limiting
+    CSLSBitrateLimit *m_bitrate_limiter;
 
     int handler_write_data();
     int handler_read_data(int64_t *last_read_time = NULL);

@@ -84,6 +84,50 @@ int CSLSManager::start()
     {
         sls_set_log_file(conf_srt->log_file);
     }
+    
+    // Apply new logging configuration
+    sls_log_config_t& log_config = sls_get_log_config();
+    log_config.rate_limit_enabled = (conf_srt->log_rate_limit_enabled != 0);
+    if (conf_srt->log_rate_limit_window > 0)
+    {
+        log_config.rate_limit_window_sec = conf_srt->log_rate_limit_window;
+        sls_get_rate_limiter().set_window_ms(conf_srt->log_rate_limit_window * 1000);
+    }
+    if (conf_srt->log_rate_limit_threshold > 0)
+    {
+        log_config.rate_limit_threshold = conf_srt->log_rate_limit_threshold;
+        sls_get_rate_limiter().set_threshold(conf_srt->log_rate_limit_threshold);
+    }
+    log_config.summary_enabled = (conf_srt->log_summary_enabled != 0);
+    if (conf_srt->log_summary_interval > 0)
+    {
+        log_config.summary_interval_sec = conf_srt->log_summary_interval;
+    }
+    log_config.session_ids_enabled = (conf_srt->log_session_ids != 0);
+    
+    if (strlen(conf_srt->log_format) > 0)
+    {
+        std::string format(conf_srt->log_format);
+        log_config.json_format = (format == "json");
+    }
+    
+    // Apply category-specific log levels
+    if (strlen(conf_srt->log_level_connection) > 0)
+        sls_set_category_log_level(SLSLogCategory::CONNECTION, conf_srt->log_level_connection);
+    if (strlen(conf_srt->log_level_listener) > 0)
+        sls_set_category_log_level(SLSLogCategory::LISTENER, conf_srt->log_level_listener);
+    if (strlen(conf_srt->log_level_stream) > 0)
+        sls_set_category_log_level(SLSLogCategory::STREAM, conf_srt->log_level_stream);
+    if (strlen(conf_srt->log_level_data) > 0)
+        sls_set_category_log_level(SLSLogCategory::DATA, conf_srt->log_level_data);
+    if (strlen(conf_srt->log_level_relay) > 0)
+        sls_set_category_log_level(SLSLogCategory::RELAY, conf_srt->log_level_relay);
+    if (strlen(conf_srt->log_level_http) > 0)
+        sls_set_category_log_level(SLSLogCategory::HTTP, conf_srt->log_level_http);
+    if (strlen(conf_srt->log_level_auth) > 0)
+        sls_set_category_log_level(SLSLogCategory::AUTH, conf_srt->log_level_auth);
+    if (strlen(conf_srt->log_level_system) > 0)
+        sls_set_category_log_level(SLSLogCategory::SYSTEM, conf_srt->log_level_system);
 
     sls_conf_server_t *conf_server = (sls_conf_server_t *)conf_srt->child;
     if (!conf_server)
@@ -92,6 +136,8 @@ int CSLSManager::start()
         return SLS_ERROR;
     }
     m_server_count = sls_conf_get_conf_count((sls_conf_base_t *)conf_server);
+    spdlog::info("[{}] CSLSManager::start, detected {} server configuration(s)", fmt::ptr(this), m_server_count);
+    
     sls_conf_server_t *conf = conf_server;
     m_map_data = new CSLSMapData[m_server_count];
     m_map_publisher = new CSLSMapPublisher[m_server_count];
@@ -105,25 +151,138 @@ int CSLSManager::start()
     //create listeners according config, delete by groups
     for (i = 0; i < m_server_count; i++)
     {
-        CSLSListener *p = new CSLSListener(); //deleted by groups
-        p->set_role_list(m_list_role);
-        p->set_conf((sls_conf_base_t *)conf);
-        p->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
-        p->set_map_data("", &m_map_data[i]);
-        p->set_map_publisher(&m_map_publisher[i]);
-        p->set_map_puller(&m_map_puller[i]);
-        p->set_map_pusher(&m_map_pusher[i]);
-        if (p->init() != SLS_OK)
+        spdlog::info("[{}] CSLSManager::start, creating listeners for server {} of {}", fmt::ptr(this), i + 1, m_server_count);
+        std::vector<std::string> created_listeners;
+        
+        // 1. Create publisher listener if configured
+        if (conf->listen_publisher > 0)
         {
-            spdlog::error("[{}] CSLSManager::start, p->init failed.", fmt::ptr(this));
-            return SLS_ERROR;
+            CSLSListener *pub_listener = new CSLSListener(); //deleted by groups
+            pub_listener->set_role_list(m_list_role);
+            pub_listener->set_conf((sls_conf_base_t *)conf);
+            pub_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
+            pub_listener->set_map_data("", &m_map_data[i]);
+            pub_listener->set_map_publisher(&m_map_publisher[i]);
+            pub_listener->set_map_puller(&m_map_puller[i]);
+            pub_listener->set_map_pusher(&m_map_pusher[i]);
+            pub_listener->set_listener_type(true); // Publisher listener
+            
+            if (pub_listener->init() != SLS_OK)
+            {
+                spdlog::error("[{}] CSLSManager::start, publisher listener init failed.", fmt::ptr(this));
+                return SLS_ERROR;
+            }
+            if (pub_listener->start() != SLS_OK)
+            {
+                spdlog::error("[{}] CSLSManager::start, publisher listener start failed.", fmt::ptr(this));
+                return SLS_ERROR;
+            }
+            m_servers.push_back(pub_listener);
+            created_listeners.push_back("publisher (port " + std::to_string(conf->listen_publisher) + ")");
         }
-        if (p->start() != SLS_OK)
+        
+        // 2. Create player listener if configured
+        if (conf->listen_player > 0)
         {
-            spdlog::error("[{}] CSLSManager::start, p->start failed.", fmt::ptr(this));
-            return SLS_ERROR;
+            CSLSListener *player_listener = new CSLSListener(); //deleted by groups
+            player_listener->set_role_list(m_list_role);
+            player_listener->set_conf((sls_conf_base_t *)conf);
+            player_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
+            player_listener->set_map_data("", &m_map_data[i]);
+            player_listener->set_map_publisher(&m_map_publisher[i]);
+            player_listener->set_map_puller(&m_map_puller[i]);
+            player_listener->set_map_pusher(&m_map_pusher[i]);
+            player_listener->set_listener_type(false); // Player listener
+            
+            if (player_listener->init() != SLS_OK)
+            {
+                spdlog::error("[{}] CSLSManager::start, player listener init failed.", fmt::ptr(this));
+                return SLS_ERROR;
+            }
+            if (player_listener->start() != SLS_OK)
+            {
+                spdlog::error("[{}] CSLSManager::start, player listener start failed.", fmt::ptr(this));
+                return SLS_ERROR;
+            }
+            m_servers.push_back(player_listener);
+            created_listeners.push_back("player (port " + std::to_string(conf->listen_player) + ")");
         }
-        m_servers.push_back(p);
+        
+        // 3. Create legacy listener if listen port is different from listen_publisher
+        //    (If they're the same, listen_publisher takes precedence)
+        spdlog::info("[{}] CSLSManager::start, checking legacy listener: listen={}, listen_publisher={}", 
+                     fmt::ptr(this), conf->listen, conf->listen_publisher);
+        if (conf->listen > 0 && conf->listen != conf->listen_publisher)
+        {
+            spdlog::info("[{}] CSLSManager::start, creating legacy listener on port {}", fmt::ptr(this), conf->listen);
+            CSLSListener *legacy_listener = new CSLSListener(); //deleted by groups
+            legacy_listener->set_role_list(m_list_role);
+            legacy_listener->set_conf((sls_conf_base_t *)conf);
+            legacy_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
+            legacy_listener->set_map_data("", &m_map_data[i]);
+            legacy_listener->set_map_publisher(&m_map_publisher[i]);
+            legacy_listener->set_map_puller(&m_map_puller[i]);
+            legacy_listener->set_map_pusher(&m_map_pusher[i]);
+            // Legacy listener accepts both publishers and players for backwards compatibility
+            legacy_listener->set_listener_type(true);
+            legacy_listener->set_legacy_mode(true); // Mark as legacy for backwards compatibility
+            
+            if (legacy_listener->init() != SLS_OK)
+            {
+                spdlog::error("[{}] CSLSManager::start, legacy listener init failed.", fmt::ptr(this));
+                return SLS_ERROR;
+            }
+            if (legacy_listener->start() != SLS_OK)
+            {
+                spdlog::warn("[{}] CSLSManager::start, legacy listener start failed on port {} - might already be bound, continuing...", fmt::ptr(this), conf->listen);
+                delete legacy_listener; // Clean up failed listener
+                // Don't return error - continue with existing listeners
+            } else {
+                spdlog::info("[{}] CSLSManager::start, legacy listener started successfully on port {}", fmt::ptr(this), conf->listen);
+                m_servers.push_back(legacy_listener);
+                created_listeners.push_back("legacy (port " + std::to_string(conf->listen) + ", accepts both)");
+            }
+        }
+        
+        // 4. Fallback: if no listeners were created, create a legacy one
+        if (created_listeners.empty())
+        {
+            int fallback_port = conf->listen > 0 ? conf->listen : (conf->listen_publisher > 0 ? conf->listen_publisher : 30000);
+            
+            CSLSListener *fallback_listener = new CSLSListener(); //deleted by groups
+            fallback_listener->set_role_list(m_list_role);
+            fallback_listener->set_conf((sls_conf_base_t *)conf);
+            fallback_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
+            fallback_listener->set_map_data("", &m_map_data[i]);
+            fallback_listener->set_map_publisher(&m_map_publisher[i]);
+            fallback_listener->set_map_puller(&m_map_puller[i]);
+            fallback_listener->set_map_pusher(&m_map_pusher[i]);
+            fallback_listener->set_listener_type(true); // Default to publisher listener for backwards compatibility
+            fallback_listener->set_legacy_mode(true); // Fallback is also legacy/backwards compatible
+            
+            if (fallback_listener->init() != SLS_OK)
+            {
+                spdlog::error("[{}] CSLSManager::start, fallback listener init failed.", fmt::ptr(this));
+                return SLS_ERROR;
+            }
+            if (fallback_listener->start() != SLS_OK)
+            {
+                spdlog::error("[{}] CSLSManager::start, fallback listener start failed.", fmt::ptr(this));
+                return SLS_ERROR;
+            }
+            m_servers.push_back(fallback_listener);
+            created_listeners.push_back("fallback (port " + std::to_string(fallback_port) + ", accepts both)");
+        }
+        
+        // Log what was created
+        std::string listeners_str = "";
+        for (size_t j = 0; j < created_listeners.size(); ++j) {
+            if (j > 0) listeners_str += ", ";
+            listeners_str += created_listeners[j];
+        }
+        spdlog::info("[{}] CSLSManager::start, created listeners for server {}: {}",
+                     fmt::ptr(this), i, listeners_str);
+        
         conf = (sls_conf_server_t *)conf->sibling;
     }
     spdlog::info("[{}] CSLSManager::start, init listeners, count={:d}.", fmt::ptr(this), m_server_count);
@@ -223,6 +382,45 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear) {
     ret["mbpsBandwidth"]    = stats.mbpsBandwidth;
     ret["bitrate"]          = role->get_bitrate(); // in kbps
     ret["uptime"]           = role->get_uptime(); // in seconds
+    ret["latency"]          = role->get_latency(); // in milliseconds
+    return ret;
+}
+
+json CSLSManager::disconnect_stream(std::string streamName) {
+    json ret;
+    ret["status"] = "error";
+    ret["message"] = "Stream not found";
+    
+    bool found = false;
+    
+    // Iterate through all servers to find and disconnect the stream
+    for (int i = 0; i < m_server_count; i++) {
+        CSLSMapPublisher *publisher_map = &m_map_publisher[i];
+        CSLSRole *publisher_role = publisher_map->get_publisher(streamName);
+        
+        if (publisher_role != NULL) {
+            found = true;
+            
+            // Close the publisher connection
+            spdlog::info("[{}] CSLSManager::disconnect_stream, closing publisher for stream '{}'.", 
+                        fmt::ptr(this), streamName);
+            publisher_role->close();
+            
+            // The players will be disconnected automatically when the publisher closes
+            // as they won't be able to read data anymore
+            
+            ret["status"] = "ok";
+            ret["message"] = "Stream disconnected successfully";
+            ret["stream"] = streamName;
+            break;
+        }
+    }
+    
+    if (!found) {
+        spdlog::warn("[{}] CSLSManager::disconnect_stream, stream '{}' not found.", 
+                    fmt::ptr(this), streamName);
+    }
+    
     return ret;
 }
 
@@ -395,20 +593,4 @@ std::string CSLSManager::get_stat_info()
     return info_obj.dump();
 }
 
-int CSLSManager::stat_client_callback(void *p, HTTP_CALLBACK_TYPE type, void *v, void *context)
-{
-    CSLSManager *manager = (CSLSManager *)context;
-    if (HCT_REQUEST_CONTENT == type)
-    {
-        std::string *p_response = (std::string *)v;
-        p_response->assign(manager->get_stat_info());
-    }
-    else if (HCT_RESPONSE_END == type)
-    {
-        //response info maybe include info that server send client, such as reload cmd...
-    }
-    else
-    {
-    }
-    return SLS_OK;
-}
+

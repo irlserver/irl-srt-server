@@ -37,10 +37,15 @@ CSLSPlayer::CSLSPlayer()
     m_is_write = 1;
 
     sprintf(m_role_name, "player");
+    
+    // Record player connection for summary logging
+    sls_get_summary_logger().record_player_connect();
 }
 
 CSLSPlayer::~CSLSPlayer()
 {
+    // Record player disconnection for summary logging
+    sls_get_summary_logger().record_player_disconnect();
 }
 
 int CSLSPlayer::handler()

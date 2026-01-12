@@ -21,67 +21,34 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "HttpRoleList.hpp"
+#include "SLSSessionTracker.hpp"
+#include "common.hpp"
+#include <sstream>
+#include <iomanip>
 
-#include <errno.h>
-#include <string.h>
-#include "spdlog/spdlog.h"
+// Initialize static counter
+std::atomic<uint32_t> CSLSSessionTracker::s_counter(0);
 
-#include "SLSLog.hpp"
-#include "SLSLock.hpp"
-
-/**
- * CHttpRoleList class implementation
- */
-
-CHttpRoleList::CHttpRoleList()
+std::string CSLSSessionTracker::generate_session_id(bool short_form)
 {
-}
-CHttpRoleList::~CHttpRoleList()
-{
-}
-
-int CHttpRoleList::push(CHttpClient *role)
-{
-    if (role)
+    uint32_t counter = s_counter.fetch_add(1, std::memory_order_relaxed);
+    
+    if (short_form)
     {
-        CSLSLock lock(&m_mutex);
-        m_list_role.push_back(role);
+        // Generate short session ID (just hex counter)
+        // Format: "a3f2" (4 hex digits, wraps around at 0xFFFF)
+        std::ostringstream oss;
+        oss << std::hex << std::setw(4) << std::setfill('0') << (counter & 0xFFFF);
+        return oss.str();
     }
-    return 0;
-}
-
-CHttpClient *CHttpRoleList::pop()
-{
-    CSLSLock lock(&m_mutex);
-    CHttpClient *role = NULL;
-    if (!m_list_role.empty())
+    else
     {
-        role = m_list_role.front();
-        m_list_role.pop_front();
+        // Generate full session ID with timestamp
+        // Format: "1734437445123-a3f2"
+        int64_t timestamp_ms = sls_gettime_ms();
+        std::ostringstream oss;
+        oss << timestamp_ms << "-" 
+            << std::hex << std::setw(4) << std::setfill('0') << (counter & 0xFFFF);
+        return oss.str();
     }
-    return role;
-}
-
-int CHttpRoleList::size()
-{
-    CSLSLock lock(&m_mutex);
-    return m_list_role.size();
-}
-
-void CHttpRoleList::erase()
-{
-    CSLSLock lock(&m_mutex);
-    spdlog::trace("[{}] CHttpRoleList::erase, list.count={:d}", fmt::ptr(this), m_list_role.size());
-    for (std::list<CHttpClient *>::iterator it = m_list_role.begin(); it != m_list_role.end();)
-    {
-        CHttpClient *role = *it;
-        if (role)
-        {
-            role->close();
-            delete role;
-        }
-        it++;
-    }
-    m_list_role.clear();
 }

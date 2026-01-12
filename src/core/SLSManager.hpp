@@ -51,6 +51,23 @@ char record_hls_path_prefix[URL_MAX_LEN];
 int http_port;
 char cors_header[URL_MAX_LEN];
 std::vector<std::string> api_keys;
+// New logging configuration options
+int log_rate_limit_enabled;
+int log_rate_limit_window;
+int log_rate_limit_threshold;
+int log_summary_enabled;
+int log_summary_interval;
+int log_session_ids;
+char log_format[32];
+// Category-specific log levels
+char log_level_connection[32];
+char log_level_listener[32];
+char log_level_stream[32];
+char log_level_data[32];
+char log_level_relay[32];
+char log_level_http[32];
+char log_level_auth[32];
+char log_level_system[32];
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -68,6 +85,22 @@ SLS_SET_CONF(srt, string, log_file, "save log file name.", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, int, http_port, "rest api port", 1, 65535),
     SLS_SET_CONF(srt, string, cors_header, "cors header", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, string_list, api_keys, "comma-separated list of API keys for /stats endpoint", 0, 10240),
+    // New logging configuration
+    SLS_SET_CONF(srt, int, log_rate_limit_enabled, "enable log rate limiting", 0, 1),
+    SLS_SET_CONF(srt, int, log_rate_limit_window, "rate limit window in seconds", 1, 3600),
+    SLS_SET_CONF(srt, int, log_rate_limit_threshold, "log every Nth event", 1, 1000),
+    SLS_SET_CONF(srt, int, log_summary_enabled, "enable periodic summary logging", 0, 1),
+    SLS_SET_CONF(srt, int, log_summary_interval, "summary interval in seconds", 1, 3600),
+    SLS_SET_CONF(srt, int, log_session_ids, "enable session ID tracking", 0, 1),
+    SLS_SET_CONF(srt, string, log_format, "log format: text or json", 1, 31),
+    SLS_SET_CONF(srt, string, log_level_connection, "connection category log level", 1, 31),
+    SLS_SET_CONF(srt, string, log_level_listener, "listener category log level", 1, 31),
+    SLS_SET_CONF(srt, string, log_level_stream, "stream category log level", 1, 31),
+    SLS_SET_CONF(srt, string, log_level_data, "data category log level", 1, 31),
+    SLS_SET_CONF(srt, string, log_level_relay, "relay category log level", 1, 31),
+    SLS_SET_CONF(srt, string, log_level_http, "http category log level", 1, 31),
+    SLS_SET_CONF(srt, string, log_level_auth, "auth category log level", 1, 31),
+    SLS_SET_CONF(srt, string, log_level_system, "system category log level", 1, 31),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**
@@ -90,7 +123,8 @@ public:
     bool is_single_thread();
 
     std::string get_stat_info();
-    static int stat_client_callback(void *p, HTTP_CALLBACK_TYPE type, void *v, void *context);
+
+    json disconnect_stream(std::string streamName);
 
 private:
     vector<CSLSListener *> m_servers;

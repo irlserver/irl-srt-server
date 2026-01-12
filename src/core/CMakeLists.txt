@@ -6,24 +6,34 @@ set(sls_core_files
 	constants.hpp
 	CxxUrl.cpp
 	CxxUrl.hpp
-	HttpClient.cpp
-	HttpClient.hpp
-	HttpRoleList.cpp
-	HttpRoleList.hpp
+	AsyncHttpClient.cpp
+	AsyncHttpClient.hpp
 	README.md
 	SLSArray.cpp
 	SLSArray.hpp
+	SLSBitrateLimit.cpp
+	SLSBitrateLimit.hpp
 	SLSClient.cpp
 	SLSClient.hpp
 	SLSEpollThread.cpp
 	SLSEpollThread.hpp
 	SLSGroup.cpp
 	SLSGroup.hpp
-	SLSListener.cpp
+	SLSListenerCore.cpp
+	SLSListenerAuth.cpp
+	SLSListenerConfig.cpp
+	SLSListenerHandler.cpp
 	SLSListener.hpp
 	SLSLock.hpp
 	SLSLog.cpp
 	SLSLog.hpp
+	SLSLogCategory.hpp
+	SLSLogRateLimiter.cpp
+	SLSLogRateLimiter.hpp
+	SLSSessionTracker.cpp
+	SLSSessionTracker.hpp
+	SLSSummaryLogger.cpp
+	SLSSummaryLogger.hpp
 	SLSManager.cpp
 	SLSManager.hpp
 	SLSMapData.cpp
@@ -73,5 +83,8 @@ target_link_libraries(sls_core
 	spdlog
 	stdc++fs
 	nlohmann_json::nlohmann_json
+	httplib
+	BS_thread_pool
+	Threads::Threads
 )
 target_include_directories(sls_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

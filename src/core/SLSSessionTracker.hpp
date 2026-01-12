@@ -23,27 +23,29 @@
 
 #pragma once
 
-#include <list>
-
-#include "HttpClient.hpp"
-#include "SLSLock.hpp"
+#include <string>
+#include <cstdint>
+#include <atomic>
 
 /**
- * CHttpRoleList
+ * Session ID tracker for logging
+ * 
+ * Generates unique, short session IDs for connection tracking.
+ * Format: {timestamp_ms}-{counter}
+ * Example: "1734437445123-a3f2" or just "a3f2" (short form)
+ * 
+ * Session IDs allow correlating log messages across a connection's lifecycle.
  */
-class CHttpRoleList
+class CSLSSessionTracker
 {
 public:
-    CHttpRoleList();
-    ~CHttpRoleList();
+    /**
+     * Generate a new session ID
+     * @param short_form If true, returns only the counter portion (default: true)
+     * @return Session ID string
+     */
+    static std::string generate_session_id(bool short_form = true);
 
-    int push(CHttpClient *role);
-    CHttpClient *pop();
-    void erase();
-    int size();
-
-protected:
 private:
-    std::list<CHttpClient *> m_list_role;
-    CSLSMutex m_mutex;
+    static std::atomic<uint32_t> s_counter;
 };

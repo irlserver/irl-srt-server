@@ -34,7 +34,9 @@ using namespace httplib;
 #include <nlohmann/json.hpp>
 #include "SLSLog.hpp"
 #include "SLSManager.hpp"
-#include "HttpClient.hpp"
+#include "AsyncHttpClient.hpp"
+#include <thread>
+#include <chrono>
 
 using json = nlohmann::json;
 
@@ -45,6 +47,7 @@ static bool b_exit = 0;
 static void ctrl_c_handler(int s)
 {
     spdlog::warn("caught signal {:d}, exit.", s);
+    sls_remove_pid();
     b_exit = true;
 }
 
@@ -85,6 +88,10 @@ void httpWorker(int bindPort)
     svr.listen("::", bindPort);
 }
 
+bool file_exists(const char *path) {
+    return access(path, R_OK) == 0;
+}
+
 int main(int argc, char *argv[])
 {
     struct sigaction sigIntHandler;
@@ -96,15 +103,14 @@ int main(int argc, char *argv[])
     CSLSManager *sls_manager = NULL;
 
     vector<CSLSManager *> reload_manager_list;
-    CHttpClient *http_stat_client = new CHttpClient;
+    std::shared_ptr<std::shared_future<AsyncHttpResponse>> stat_future;
+    int64_t last_stat_post_time = 0;
+    std::string stat_post_url;
+    int stat_post_interval = 0;
 
     int ret = SLS_OK;
     int httpPort = 8181;
     char cors_header[URL_MAX_LEN] = "*";
-    int l = sizeof(sockaddr_in);
-    int64_t tm_begin_ms = 0;
-
-    char stat_method[] = "POST";
     sls_conf_srt_t *conf_srt = NULL;
 
     usage();
@@ -148,6 +154,7 @@ int main(int argc, char *argv[])
     sigemptyset(&sigHupHandler.sa_mask);
     sigHupHandler.sa_flags = 0;
     sigaction(SIGHUP, &sigHupHandler, 0);
+    sigaction(SIGTERM, &sigIntHandler, 0);
 
     // init srt
     CSLSSrt::libsrt_init();
@@ -155,10 +162,24 @@ int main(int argc, char *argv[])
     // parse conf file
     if (strlen(sls_opt.conf_file_name) == 0)
     {
-        ret = snprintf(sls_opt.conf_file_name, sizeof(sls_opt.conf_file_name), "./sls.conf");
-        if (ret < 0 || (unsigned)ret >= sizeof(sls_opt.conf_file_name))
-        {
-            spdlog::critical("INTERNAL BUG! Conf file name is too long.");
+        const char *search_paths[] = {
+            "/etc/sls/sls.conf",
+            "/usr/local/etc/sls/sls.conf",
+            "/usr/etc/sls/sls.conf",
+            "./sls.conf"
+        };
+
+        bool found = false;
+        for (auto &path : search_paths) {
+            if (file_exists(path)) {
+                snprintf(sls_opt.conf_file_name, sizeof(sls_opt.conf_file_name), "%s", path);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            spdlog::critical("No configuration file found in standard paths.");
             goto EXIT_PROC;
         }
     }
@@ -195,8 +216,9 @@ int main(int argc, char *argv[])
     }
     else if (ret > 0)
     {
-        http_stat_client->set_stage_callback(CSLSManager::stat_client_callback, sls_manager);
-        http_stat_client->open(conf_srt->stat_post_url, stat_method, conf_srt->stat_post_interval);
+        stat_post_url = conf_srt->stat_post_url;
+        stat_post_interval = conf_srt->stat_post_interval;
+        last_stat_post_time = sls_gettime_ms();
     }
 
     if (strlen(conf_srt->cors_header) > 0) {
@@ -257,6 +279,68 @@ int main(int argc, char *argv[])
         res.set_header("Access-Control-Allow-Origin", cors_header);
         res.set_content(ret.dump(), "application/json");
     });
+
+    svr.Post("/disconnect", [&](const Request& req, Response& res) {
+        json ret;
+        sls_conf_srt_t *conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf();
+
+        if (!sls_manager || !conf_srt) {
+            ret["status"]  = "error";
+            ret["message"] = "Internal server error: manager or config not available";
+            res.status = 500;
+            res.set_header("Access-Control-Allow-Origin", cors_header);
+            res.set_content(ret.dump(), "application/json");
+            return;
+        }
+
+        // Check if stream parameter is provided
+        if (!req.has_param("stream")) {
+            ret["status"] = "error";
+            ret["message"] = "Missing 'stream' parameter";
+            res.status = 400; // Bad Request
+            res.set_header("Access-Control-Allow-Origin", cors_header);
+            res.set_content(ret.dump(), "application/json");
+            return;
+        }
+
+        // Check authorization with API key
+        bool authorized = false;
+        if (conf_srt->api_keys.empty()) {
+            // No API keys configured, disallow access
+            authorized = false;
+        } else {
+            // API keys configured, check Authorization header
+            if (req.has_header("Authorization")) {
+                std::string auth_header = req.get_header_value("Authorization");
+                for (const auto& key : conf_srt->api_keys) {
+                    if (key == auth_header) {
+                        authorized = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!authorized) {
+            ret["status"] = "error";
+            ret["message"] = "Unauthorized: API key required or invalid.";
+            res.status = 401; // Unauthorized
+            res.set_header("Access-Control-Allow-Origin", cors_header);
+            res.set_content(ret.dump(), "application/json");
+            return;
+        }
+
+        // Disconnect the stream
+        std::string stream_name = req.get_param_value("stream");
+        ret = sls_manager->disconnect_stream(stream_name);
+        
+        if (ret["status"] == "error") {
+            res.status = 404; // Not Found
+        }
+
+        res.set_header("Access-Control-Allow-Origin", cors_header);
+        res.set_content(ret.dump(), "application/json");
+    });
     
     if (conf_srt->http_port) {
         httpPort = conf_srt->http_port;
@@ -271,21 +355,33 @@ int main(int argc, char *argv[])
         {
             ret = sls_manager->single_thread_handler();
         }
-        if (NULL != http_stat_client)
+        
+        // Check if we should log summary
+        if (sls_get_log_config().summary_enabled)
         {
-            if (!http_stat_client->is_valid())
+            std::string summary_msg;
+            if (sls_get_summary_logger().should_log_summary(
+                    sls_get_log_config().summary_interval_sec, summary_msg))
             {
-                if (SLS_OK == http_stat_client->check_repeat(cur_tm_ms))
-                {
-                    http_stat_client->reopen();
-                }
+                spdlog::info(summary_msg);
             }
-            ret = http_stat_client->handler();
-            if (SLS_OK == http_stat_client->check_finished() ||
-                SLS_OK == http_stat_client->check_timeout(cur_tm_ms))
+        }
+        if (!stat_post_url.empty() && stat_post_interval > 0)
+        {
+            if (stat_future && stat_future->wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
             {
-                // http_stat_client->get_response_info();
-                http_stat_client->close();
+                auto response = stat_future->get();
+                stat_future = nullptr;
+                if (!response.success)
+                    spdlog::warn("Stats POST failed: {}", response.error);
+            }
+
+            if (!stat_future && (cur_tm_ms - last_stat_post_time >= stat_post_interval))
+            {
+                std::string stats_json = sls_manager->get_stat_info();
+                auto future = AsyncHttpClient::instance().post_async(stat_post_url, stats_json, "application/json", 10);
+                stat_future = std::make_shared<std::shared_future<AsyncHttpResponse>>(std::move(future));
+                last_stat_post_time = cur_tm_ms;
             }
         }
 
@@ -354,8 +450,10 @@ int main(int argc, char *argv[])
             }
             if (strlen(conf_srt->stat_post_url) > 0)
             {
-                http_stat_client->set_stage_callback(CSLSManager::stat_client_callback, sls_manager);
-                http_stat_client->open(conf_srt->stat_post_url, stat_method, conf_srt->stat_post_interval);
+                stat_post_url = conf_srt->stat_post_url;
+                stat_post_interval = conf_srt->stat_post_interval;
+                last_stat_post_time = sls_gettime_ms();
+                stat_future = nullptr;
             }
 
             spdlog::info("Reloaded successfully.");
@@ -390,14 +488,7 @@ EXIT_PROC:
     spdlog::info("Released reload_manager_list");
     reload_manager_list.clear();
 
-    spdlog::info("Releasing http_stat_client");
-    // release http_stat_client
-    if (NULL != http_stat_client)
-    {
-        http_stat_client->close();
-        delete http_stat_client;
-        http_stat_client = NULL;
-    }
+    stat_future = nullptr;
 
     // uninit srt
     spdlog::info("Destroy SRT objects");

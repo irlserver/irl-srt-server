@@ -31,6 +31,7 @@
 #include "SLSRole.hpp"
 #include "SLSLog.hpp"
 #include "util.hpp"
+#include "SLSBitrateLimit.hpp"
 
 /**
  * CSLSRole class implementation
@@ -68,7 +69,7 @@ CSLSRole::CSLSRole()
     m_data_len = 0;
     m_data_pos = 0;
     m_need_reconnect = false;
-    m_http_client = NULL;
+    m_http_future = nullptr;
 
     snprintf(m_record_hls, sizeof(m_record_hls), "off"); //default off
     m_record_hls_ts_fd = 0;
@@ -80,11 +81,15 @@ CSLSRole::CSLSRole()
     m_record_hls_segment_duration = 10; //default 10s
     m_record_hls_target_duration = m_record_hls_segment_duration;
 
+    // Initialize bitrate limiter
+    m_bitrate_limiter = NULL;
+
     snprintf(m_role_name, sizeof(m_role_name), "role");
 }
 
 CSLSRole::~CSLSRole()
 {
+    cleanup_bitrate_limiter();
     uninit();
 }
 
@@ -103,12 +108,7 @@ int CSLSRole::init()
 int CSLSRole::uninit()
 {
     int ret = 0;
-    if (NULL != m_http_client)
-    {
-        m_http_client->close();
-        delete m_http_client;
-        m_http_client = NULL;
-    }
+    m_http_future = nullptr;
 
     if (SLS_RS_UNINIT != m_state)
     {
@@ -125,11 +125,15 @@ int CSLSRole::invalid_srt()
 {
     if (m_srt)
     {
-        spdlog::info("[{}] CSLSRole::invalid_srt, close sock={:d}, m_state={:d}.", fmt::ptr(this), get_fd(), m_state);
+        int fd = get_fd(); // Get fd before closing
+        spdlog::info("[{}] CSLSRole::invalid_srt, close sock={:d}, m_state={:d}.", fmt::ptr(this), fd, m_state);
+        
+        // Close and cleanup SRT socket
         m_srt->libsrt_close();
         delete m_srt;
         m_srt = NULL;
 
+        // Notify about disconnection
         on_close();
     }
     return SLS_OK;
@@ -199,9 +203,19 @@ int CSLSRole::set_srt(CSLSSrt *srt)
 
 int CSLSRole::write(const char *buf, int size)
 {
-    if (m_srt)
-        return m_srt->libsrt_write(buf, size);
-    return SLS_ERROR;
+    if (NULL == m_srt)
+    {
+        spdlog::error("[{}] CSLSRole::write, m_srt is NULL, cannot write {:d} bytes.",
+                      fmt::ptr(this), size);
+        return SLS_ERROR;
+    }
+    if (NULL == buf || size <= 0)
+    {
+        spdlog::error("[{}] CSLSRole::write, invalid parameters: buf={}, size={:d}.",
+                      fmt::ptr(this), fmt::ptr(buf), size);
+        return SLS_ERROR;
+    }
+    return m_srt->libsrt_write(buf, size);
 }
 
 int CSLSRole::add_to_epoll(int eid)
@@ -211,7 +225,8 @@ int CSLSRole::add_to_epoll(int eid)
     {
         m_srt->libsrt_set_eid(eid);
         ret = m_srt->libsrt_add_to_epoll(eid, m_is_write);
-        spdlog::info("[{}] CSLSRole::add_to_epoll, {}, sock={:d}, m_is_write={:d}, ret={:d}.",
+        // Log at TRACE level (epoll operations are very verbose)
+        spdlog::trace("[{}] CSLSRole::add_to_epoll, {}, sock={:d}, m_is_write={:d}, ret={:d}.",
                      fmt::ptr(this), m_role_name, get_fd(), m_is_write, ret);
     }
     return ret;
@@ -223,7 +238,8 @@ int CSLSRole::remove_from_epoll()
     if (m_srt)
     {
         ret = m_srt->libsrt_remove_from_epoll();
-        spdlog::info("[{}] CSLSRole::remove_from_epoll, {}, sock={:d}, ret={:d}.",
+        // Log at TRACE level (epoll operations are very verbose)
+        spdlog::trace("[{}] CSLSRole::remove_from_epoll, {}, sock={:d}, ret={:d}.",
                      fmt::ptr(this), m_role_name, get_fd(), ret);
     }
     return ret;
@@ -253,6 +269,11 @@ char *CSLSRole::get_streamid()
         m_srt->libsrt_getsockopt(SRTO_STREAMID, "SRTO_STREAMID", m_streamid, &sid_size);
     }
     return m_streamid;
+}
+
+char *CSLSRole::get_map_data_key()
+{
+    return m_map_data_key;
 }
 
 bool CSLSRole::is_reconnect()
@@ -311,10 +332,8 @@ void CSLSRole::set_record_hls_path(const char *hls_path)
 
 int CSLSRole::check_http_client()
 {
-    if (NULL == m_http_client)
-    {
+    if (!m_http_future)
         return SLS_ERROR;
-    }
     return SLS_OK;
 }
 
@@ -517,9 +536,22 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
         return SLS_ERROR;
     }
 
-    m_stat_bitrate_datacount += n;
-    //update invalid begin time
+    // Update invalid begin time
     m_invalid_begin_tm = sls_gettime_ms();
+    
+    // Check bitrate limiting if enabled
+    if (m_bitrate_limiter) {
+        CSLSBitrateLimit::BitrateCheckResult result = m_bitrate_limiter->check_data_bitrate(n, m_invalid_begin_tm);
+        if (result == CSLSBitrateLimit::BITRATE_DISCONNECT) {
+            // Stream should be disconnected due to sustained bitrate violations
+            spdlog::error("[{}] CSLSRole::handler_read_data, disconnecting stream due to bitrate limit violation", fmt::ptr(this));
+            invalid_srt();
+            return SLS_ERROR;
+        }
+        // For BITRATE_VIOLATION and BITRATE_OK, we continue processing the data
+    }
+
+    m_stat_bitrate_datacount += n;
     int d = m_invalid_begin_tm - m_stat_bitrate_last_tm;
     if (d >= m_stat_bitrate_interval)
     {
@@ -578,6 +610,14 @@ int CSLSRole::handler_write_data()
         return SLS_OK;
     }
 
+    // Critical: Check if SRT socket is still valid
+    if (NULL == m_srt)
+    {
+        spdlog::error("[{}] CSLSRole::handler_write_data, m_srt is NULL, cannot write data.",
+                      fmt::ptr(this));
+        return SLS_ERROR;
+    }
+
     //read data from publisher's data array
     if (NULL == m_map_data)
     {
@@ -619,10 +659,24 @@ int CSLSRole::handler_write_data()
     int remainer = m_data_len - m_data_pos;
     while (remainer >= TS_UDP_LEN)
     {
+        // Re-check m_srt before each write in case it was closed mid-operation
+        if (NULL == m_srt)
+        {
+            spdlog::error("[{}] CSLSRole::handler_write_data, m_srt became NULL during write loop.",
+                          fmt::ptr(this));
+            return SLS_ERROR;
+        }
+
         ret = write(m_data + m_data_pos, TS_UDP_LEN);
         if (ret < TS_UDP_LEN)
         {
             spdlog::error("[{}] CSLSRole::handler_write_data, write data failed, len={:d}, ret={:d}, not {:d}.", fmt::ptr(this), len, ret, TS_UDP_LEN);
+            // On write failure, mark connection as invalid to trigger cleanup
+            if (ret <= 0)
+            {
+                spdlog::error("[{}] CSLSRole::handler_write_data, critical write failure (ret={:d}), marking connection invalid.", fmt::ptr(this), ret);
+                return SLS_ERROR;
+            }
             break;
         }
         m_data_pos += TS_UDP_LEN;
@@ -676,70 +730,51 @@ void CSLSRole::set_http_url(const char *http_url)
         return;
     }
     strlcpy(m_http_url, http_url, sizeof(m_http_url));
-    if (NULL == m_http_client)
-    {
-        m_http_client = new CHttpClient;
-        m_http_passed = false;
-    }
+    m_http_passed = false;
 }
 
 int CSLSRole::on_connect()
 {
     if (strlen(m_http_url) == 0)
-    {
         return SLS_ERROR;
-    }
-    if (NULL == m_http_client)
-    {
-        m_http_client = new CHttpClient;
-    }
 
     char on_event_url[URL_MAX_LEN] = {0};
     if (strlen(m_peer_ip) == 0)
-    {
         get_peer_info(m_peer_ip, m_peer_port);
-    }
+    
     int ret = snprintf(on_event_url, sizeof(on_event_url), "%s?on_event=on_connect&role_name=%s&srt_url=%s&remote_ip=%s&remote_port=%d",
                        m_http_url, url_encode(m_role_name).c_str(), url_encode(get_streamid()).c_str(), m_peer_ip, m_peer_port);
-    if (ret < 0 || (unsigned)ret >= sizeof(on_event_url))
-    {
+    if (ret < 0 || (unsigned)ret >= sizeof(on_event_url)) {
         spdlog::error("[{}] CSLSRole::on_connect, on_event_url is too long, ret={:d}.", fmt::ptr(this), ret);
         return SLS_ERROR;
     }
 
-    return m_http_client->open(on_event_url);
+    auto future = AsyncHttpClient::instance().post_async(on_event_url, "", "application/json", 5);
+    m_http_future = std::make_shared<std::shared_future<AsyncHttpResponse>>(std::move(future));
+    return SLS_OK;
 }
 
 int CSLSRole::on_close()
 {
     if (!m_http_passed)
-    {
         return SLS_OK;
-    }
     if (strlen(m_http_url) == 0)
-    {
         return SLS_OK;
-    }
-    if (NULL == m_http_client)
-    {
-        m_http_client = new CHttpClient;
-    }
 
     char on_event_url[URL_MAX_LEN] = {0};
     if (strlen(m_peer_ip) == 0)
-    {
         get_peer_info(m_peer_ip, m_peer_port);
-    }
+    
     int ret = snprintf(on_event_url, sizeof(on_event_url), "%s?on_event=on_close&role_name=%s&srt_url=%s&remote_ip=%s&remote_port=%d",
                        m_http_url, url_encode(m_role_name).c_str(), url_encode(get_streamid()).c_str(), m_peer_ip, m_peer_port);
-    if (ret < 0 || (unsigned)ret >= sizeof(on_event_url))
-    {
-        spdlog::error("[SLSRole::on_close] callback URL too long, truncating [len={:d}]",
-                      ret);
+    if (ret < 0 || (unsigned)ret >= sizeof(on_event_url)) {
+        spdlog::error("[SLSRole::on_close] callback URL too long, truncating [len={:d}]", ret);
         return SLS_ERROR;
     }
 
-    return m_http_client->open(on_event_url);
+    auto future = AsyncHttpClient::instance().post_async(on_event_url, "", "application/json", 5);
+    m_http_future = std::make_shared<std::shared_future<AsyncHttpResponse>>(std::move(future));
+    return SLS_OK;
 }
 
 int CSLSRole::check_http_passed()
@@ -747,43 +782,72 @@ int CSLSRole::check_http_passed()
     if (m_http_passed)
         return SLS_OK;
 
-    if (!m_http_client)
-    {
+    if (!m_http_future)
         return SLS_OK;
-    }
 
-    m_http_client->handler();
-
-    if (SLS_OK != m_http_client->check_finished() && SLS_OK != m_http_client->check_timeout())
-    {
+    using namespace std::chrono_literals;
+    if (m_http_future->wait_for(0ms) != std::future_status::ready)
         return SLS_ERROR;
-    }
 
-    HTTP_RESPONSE_INFO *re = m_http_client->get_response_info();
-    if (NULL == re)
-    {
-        return SLS_ERROR;
-    }
+    auto response = m_http_future->get();
+    m_http_future = nullptr;
 
-    int ret = strcmp(re->m_response_code.c_str(), HTTP_RESPONSE_CODE_200);
-    if (0 == ret)
-    {
-        spdlog::info("[{}] CSLSRole::check_http_client_response, http finished, {}, http_url='{}', response_code={}, response='{}'.",
-                     fmt::ptr(this), m_role_name, m_http_url, re->m_response_code.c_str(), re->m_response_content.c_str());
-        m_http_client->close();
-        delete m_http_client;
-        m_http_client = NULL;
-        m_http_passed = true;
-        return SLS_OK;
-    }
-    else
-    {
-        spdlog::error("[{}] CSLSPlayer::check_http_client_response, http refused, invalid {} http_url='{}', response_code={}, response='{}'.",
-                      fmt::ptr(this), m_role_name, m_http_url, re->m_response_code.c_str(), re->m_response_content.c_str());
-        m_http_client->close();
-        delete m_http_client;
-        m_http_client = NULL;
+    if (!response.success || response.status_code != 200) {
+        spdlog::error("[{}] CSLSRole::check_http_client_response, http refused, invalid {} http_url='{}', status={}, error='{}'.",
+                      fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.error);
         invalid_srt();
         return SLS_ERROR;
     }
+
+    spdlog::info("[{}] CSLSRole::check_http_client_response, http finished, {}, http_url='{}', status={}, response='{}'.",
+                 fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.body);
+    m_http_passed = true;
+    return SLS_OK;
+}
+
+int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds)
+{
+    cleanup_bitrate_limiter();
+    
+    if (max_bitrate_kbps <= 0) {
+        spdlog::info("[{}] CSLSRole::init_bitrate_limiter, bitrate limiting disabled (max_bitrate_kbps={:d})", 
+                    fmt::ptr(this), max_bitrate_kbps);
+        return SLS_OK;
+    }
+    
+    m_bitrate_limiter = new CSLSBitrateLimit();
+    if (!m_bitrate_limiter) {
+        spdlog::error("[{}] CSLSRole::init_bitrate_limiter, failed to allocate bitrate limiter", fmt::ptr(this));
+        return SLS_ERROR;
+    }
+    
+    int ret = m_bitrate_limiter->init(max_bitrate_kbps, violation_timeout_seconds);
+    if (ret != SLS_OK) {
+        spdlog::error("[{}] CSLSRole::init_bitrate_limiter, failed to initialize bitrate limiter", fmt::ptr(this));
+        delete m_bitrate_limiter;
+        m_bitrate_limiter = NULL;
+        return ret;
+    }
+    
+    spdlog::info("[{}] CSLSRole::init_bitrate_limiter, initialized with max_bitrate={:d}kbps, violation_timeout={:d}s", 
+                fmt::ptr(this), max_bitrate_kbps, violation_timeout_seconds);
+    return SLS_OK;
+}
+
+void CSLSRole::cleanup_bitrate_limiter()
+{
+    if (m_bitrate_limiter) {
+        delete m_bitrate_limiter;
+        m_bitrate_limiter = NULL;
+    }
+}
+
+CSLSBitrateLimit::BitrateStats CSLSRole::get_bitrate_stats() const
+{
+    if (m_bitrate_limiter) {
+        return m_bitrate_limiter->get_stats();
+    }
+    
+    CSLSBitrateLimit::BitrateStats empty_stats = {};
+    return empty_stats;
 }

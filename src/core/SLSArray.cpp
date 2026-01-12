@@ -80,7 +80,7 @@ int CSLSArray::put(const uint8_t *data, int len)
     if (NULL == data || len <= 0)
     {
         spdlog::error("[{}] CSLSArray::put, failed, data={}, len={:d}.",
-                      fmt::ptr(this), data, len);
+                      fmt::ptr(this), fmt::ptr(data), len);
         return SLS_ERROR;
     }
 
@@ -92,8 +92,8 @@ int CSLSArray::put(const uint8_t *data, int len)
         //need expand data buff
         //ext at least DEFAULT_MAX_DATA_SIZE each time.
         int ext_len = m_nDataSize + (DEFAULT_MAX_DATA_SIZE >= len ? DEFAULT_MAX_DATA_SIZE : len); //m_nDataCount + len;
-        spdlog::info("[{}] CSLSArray::put, len={:d} is bigger than nRemainder={:d}, ext m_nDataSize={:d} to ext_len={:d}.",
-                     fmt::ptr(this), data, len, m_nDataSize, ext_len);
+        spdlog::info("[{}] CSLSArray::put, len={:d} is bigger than nRemainder={:d}, m_nDataSize={:d} -> ext_len={:d}.",
+                     fmt::ptr(this), len, nRemainder, m_nDataSize, ext_len);
 
         uint8_t *ext_data = new uint8_t[ext_len];
         int re = get_inline(ext_data, m_nDataCount);

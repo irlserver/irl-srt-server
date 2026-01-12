@@ -30,6 +30,9 @@
 #include "SLSPullerManager.hpp"
 #include "SLSLog.hpp"
 #include "SLSPuller.hpp"
+#include "SLSLogCategory.hpp"
+#include "SLSLogRateLimiter.hpp"
+#include "SLSSummaryLogger.hpp"
 
 /**
  * CSLSPullerManager class implementation
@@ -51,8 +54,10 @@ int CSLSPullerManager::connect_loop()
 
 	if (m_sri == NULL || m_sri->m_upstreams.size() == 0)
 	{
-		spdlog::info("[{}] CSLSPullerManager::connect_loop, failed, m_upstreams.size()=0, m_app_uplive={}, m_stream_name={}.",
-					 fmt::ptr(this), m_app_uplive, m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller connect_loop failed, no upstreams configured | app={} stream={}",
+						 m_app_uplive, m_stream_name);
+		}
 		return SLS_ERROR;
 	}
 
@@ -73,7 +78,7 @@ int CSLSPullerManager::connect_loop()
 		ret = snprintf(szURL, sizeof(szURL), "srt://%s/%s", szTmp, m_stream_name);
 		if (ret < 0 || (unsigned)ret >= sizeof(szURL))
 		{
-			spdlog::error("[{}] snprintf failed, ret={}", __func__, ret);
+			spdlog::error("[relay] Puller connect_loop failed, URL too long | ret={}", ret);
 			return SLS_ERROR;
 		}
 
@@ -84,8 +89,10 @@ int CSLSPullerManager::connect_loop()
 		}
 		if (index == m_cur_loop_index)
 		{
-			spdlog::info("[{}] CSLSPullerManager::connect_loop, failed, no available pullers, m_app_uplive={}, m_stream_name={}.",
-						 fmt::ptr(this), m_app_uplive, m_stream_name);
+			if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller connect_loop failed, no available pullers | app={} stream={}",
+						 m_app_uplive, m_stream_name);
+			}
 			break;
 		}
 		spdlog::info("[{}] CSLSPullerManager::connect_loop, failed, index={:d}, m_app_uplive={}, m_stream_name={}, szURL=‘{}’.",
@@ -102,8 +109,10 @@ int CSLSPullerManager::start()
 
 	if (NULL == m_sri)
 	{
-		spdlog::error("[{}] CSLSPullerManager::start, failed, m_upstreams.size()=0, m_app_uplive={}, m_stream_name={}.",
-					  fmt::ptr(this), m_app_uplive, m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller start failed, no upstreams configured | app={} stream={}",
+						 m_app_uplive, m_stream_name);
+			}
 		return SLS_ERROR;
 	}
 
@@ -112,7 +121,7 @@ int CSLSPullerManager::start()
 	ret = snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", m_app_uplive, m_stream_name);
 	if (ret < 0 || (unsigned)ret >= sizeof(key_stream_name))
 	{
-		spdlog::error("[{}] snprintf failed, ret={}", __func__, ret);
+		spdlog::error("[relay] Puller operation failed, URL too long | ret={}", ret);
 		return SLS_ERROR;
 	}
 	if (NULL != m_map_publisher)
@@ -120,8 +129,8 @@ int CSLSPullerManager::start()
 		CSLSRole *publisher = m_map_publisher->get_publisher(key_stream_name);
 		if (NULL != publisher)
 		{
-			spdlog::error("[{}] CSLSPullerManager::start, failed, key_stream_name={}, publisher={} exist.",
-						  fmt::ptr(this), key_stream_name, fmt::ptr(publisher));
+			spdlog::error("[relay] Puller start failed, publisher already exists | stream={} publisher={}",
+					  key_stream_name, fmt::ptr(publisher));
 			return SLS_ERROR;
 		}
 	}
@@ -136,8 +145,8 @@ int CSLSPullerManager::start()
 	}
 	else
 	{
-		spdlog::error("[{}] CSLSPullerManager::start, failed, wrong m_sri->m_mode={:d}, m_app_uplive={}, m_stream_name={}.",
-					  fmt::ptr(this), m_sri->m_mode, m_app_uplive, m_stream_name);
+		spdlog::error("[relay] Puller start failed, invalid mode | mode={} app={} stream={}",
+				  m_sri->m_mode, m_app_uplive, m_stream_name);
 		ret = SLS_ERROR;
 	}
 	return ret;
@@ -153,20 +162,26 @@ int CSLSPullerManager::check_relay_param()
 {
 	if (NULL == m_role_list)
 	{
-		spdlog::warn("[{}] CSLSRelayManager::check_relay_param, failed, m_role_list is null, stream={}.",
-					 fmt::ptr(this), m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller check_relay_param failed, m_role_list is null | stream={}",
+						 m_stream_name);
+			}
 		return SLS_ERROR;
 	}
 	if (NULL == m_map_publisher)
 	{
-		spdlog::warn("[{}] CSLSRelayManager::check_relay_param, failed, m_map_publisher is null, stream={}.",
-					 fmt::ptr(this), m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller check_relay_param failed, m_map_publisher is null | stream={}",
+						 m_stream_name);
+			}
 		return SLS_ERROR;
 	}
 	if (NULL == m_map_data)
 	{
-		spdlog::warn("[{}] CSLSRelayManager::check_relay_param, failed, m_map_data is null, stream={}.",
-					 fmt::ptr(this), m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller check_relay_param failed, m_map_data is null | stream={}",
+						 m_stream_name);
+			}
 		return SLS_ERROR;
 	}
 	return SLS_OK;
@@ -180,7 +195,7 @@ int CSLSPullerManager::set_relay_param(CSLSRelay *relay)
 	ret = snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", m_app_uplive, m_stream_name);
 	if (ret < 0 || (unsigned)ret >= sizeof(key_stream_name))
 	{
-		spdlog::error("[{}] snprintf failed, ret={}", __func__, ret);
+		spdlog::error("[relay] Puller operation failed, URL too long | ret={}", ret);
 		return SLS_ERROR;
 	}
 
@@ -193,15 +208,19 @@ int CSLSPullerManager::set_relay_param(CSLSRelay *relay)
 
 	if (SLS_OK != m_map_publisher->set_push_2_publisher(key_stream_name, relay))
 	{
-		spdlog::warn("[{}] CSLSRelayManager::set_relay_param, m_map_publisher->set_push_2_publisher, stream={}.",
-					 fmt::ptr(this), key_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller set_relay_param failed, m_map_publisher->set_push_2_publisher failed | stream={}",
+						 key_stream_name);
+			}
 		return SLS_ERROR;
 	}
 
 	if (SLS_OK != m_map_data->add(key_stream_name))
 	{
-		spdlog::warn("[{}] CSLSRelayManager::set_relay_param, m_map_data->add failed, stream={}, remove from relay={}, m_map_publisher.",
-					 fmt::ptr(this), key_stream_name, fmt::ptr(relay));
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller set_relay_param failed, m_map_data->add failed | stream={} relay={}",
+						 key_stream_name, fmt::ptr(relay));
+			}
 		m_map_publisher->remove(relay);
 		return SLS_ERROR;
 	}
@@ -233,25 +252,33 @@ int CSLSPullerManager::reconnect(int64_t cur_tm_ms)
 
 	if (SLS_OK != check_relay_param())
 	{
-		spdlog::warn("[{}] CSLSPullerManager::reconnect, check_relay_param failed, stream={}.",
-					 fmt::ptr(this), m_stream_name);
+		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
+			spdlog::debug("[relay] Puller reconnect check_relay_param failed | stream={}",
+						 m_stream_name);
+			}
 		return SLS_ERROR;
 	}
 
 	ret = snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", m_app_uplive, m_stream_name);
 	if (ret < 0 || (unsigned)ret >= sizeof(key_stream_name))
 	{
-		spdlog::error("[{}] snprintf failed, ret={}", __func__, ret);
+		spdlog::error("[relay] Puller operation failed, URL too long | ret={}", ret);
 		return SLS_ERROR;
 	}
 
 	if (SLS_OK != start())
 	{
-		spdlog::error("[{}] CSLSPullerManager::reconnect, start failed, key_stream_name={}.",
-					  fmt::ptr(this), key_stream_name);
+		CSLSLogRateLimiter::EventStats stats;
+		std::string rate_key = std::string("puller_reconnect_") + key_stream_name;
+		if (sls_get_rate_limiter().should_log(rate_key, stats)) {
+			spdlog::info("[relay] Puller reconnect start failed | stream={} ({}x in {}s)",
+						 key_stream_name, stats.count, sls_get_log_config().rate_limit_window_sec);
+			}
 		return SLS_ERROR;
 	}
-	spdlog::info("[{}] CSLSPullerManager::reconnect, start ok, key_stream_name={}.",
-				 fmt::ptr(this), key_stream_name);
+	if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::info)) {
+			spdlog::info("[relay] Puller reconnect success | stream={}",
+						 key_stream_name);
+			}
 	return SLS_OK;
 }

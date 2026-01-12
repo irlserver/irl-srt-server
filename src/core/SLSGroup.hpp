@@ -30,7 +30,7 @@
 #include "SLSRoleList.hpp"
 #include "SLSRole.hpp"
 #include "SLSMapRelay.hpp"
-#include "HttpClient.hpp"
+
 
 /**
  * CSLSGroup , group of players, publishers and listener
@@ -52,8 +52,6 @@ public:
     virtual int handler();
 
     void set_stat_post_interval(int interval);
-    void set_http_stat_post(CHttpClient *p);
-
     void get_stat_info(vector<stat_info_t> &info);
 
 protected:
