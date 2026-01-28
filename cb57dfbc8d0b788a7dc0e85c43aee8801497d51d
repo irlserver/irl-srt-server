@@ -1,0 +1,25 @@
+src/sls.conf
+  824e653788cfbd78 78-79,83-85,88,91-96,156-157,163,166,169-173
+README.md
+  824e653788cfbd78 44-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.37",
+  "base_commit_sha": "cb57dfbc8d0b788a7dc0e85c43aee8801497d51d",
+  "prompts": {
+    "824e653788cfbd78": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7dee32f6-d729-4da0-b6e8-8ed493eba925",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>",
+      "messages": [],
+      "total_additions": 56,
+      "total_deletions": 10,
+      "accepted_lines": 55,
+      "overriden_lines": 0
+    }
+  }
+}
