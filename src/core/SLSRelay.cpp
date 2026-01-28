@@ -31,7 +31,32 @@
 #include "SLSRelayManager.hpp"
 #include "util.hpp"
 
-#define DEFAULT_LATENCY 100
+#define DEFAULT_LATENCY 120
+
+// SRT option limits
+#define LATENCY_MIN 0
+#define LATENCY_MAX 10000
+#define CONNECT_TIMEOUT_MIN 0
+#define CONNECT_TIMEOUT_MAX 30000
+#define PASSPHRASE_MAX_LEN 79
+#define PBKEYLEN_VALID_0 0
+#define PBKEYLEN_VALID_16 16
+#define PBKEYLEN_VALID_24 24
+#define PBKEYLEN_VALID_32 32
+#define MSS_MIN 76
+#define MSS_MAX 1500
+#define OHEADBW_MIN 5
+#define OHEADBW_MAX 100
+#define LOSSMAXTTL_MIN 0
+#define LOSSMAXTTL_MAX 1000
+#define IPTTL_MIN 1
+#define IPTTL_MAX 255
+#define IPTOS_MIN 0
+#define IPTOS_MAX 255
+#define FC_MIN 32
+#define FC_MAX 1000000
+#define BUFFER_MIN 0
+#define BUFFER_MAX (1024 * 1024 * 1024)  // 1GB max buffer
 
 /**
  * relay conf
@@ -89,13 +114,50 @@ void *CSLSRelay::get_relay_manager()
     return m_relay_manager;
 }
 
-int CSLSRelay::parse_url(char *url, char *host_name, size_t host_name_size, int &port, char *streamid, size_t streamid_size, int &latency)
+// Helper to parse integer with bounds checking
+static bool parse_int_option(const std::string &val, int &out, int min_val, int max_val, const char *name, void *ctx)
+{
+    try {
+        int parsed = std::stoi(val);
+        if (parsed < min_val || parsed > max_val) {
+            spdlog::warn("[{}] CSLSRelay::parse_url {} value {} out of range [{}-{}], ignoring",
+                         fmt::ptr(ctx), name, parsed, min_val, max_val);
+            return false;
+        }
+        out = parsed;
+        return true;
+    } catch (const std::exception &) {
+        spdlog::warn("[{}] CSLSRelay::parse_url invalid {} value '{}', ignoring",
+                     fmt::ptr(ctx), name, val);
+        return false;
+    }
+}
+
+// Helper to parse int64 with bounds checking
+static bool parse_int64_option(const std::string &val, int64_t &out, int64_t min_val, int64_t max_val, const char *name, void *ctx)
+{
+    try {
+        int64_t parsed = std::stoll(val);
+        if (parsed < min_val || parsed > max_val) {
+            spdlog::warn("[{}] CSLSRelay::parse_url {} value {} out of range [{}-{}], ignoring",
+                         fmt::ptr(ctx), name, parsed, min_val, max_val);
+            return false;
+        }
+        out = parsed;
+        return true;
+    } catch (const std::exception &) {
+        spdlog::warn("[{}] CSLSRelay::parse_url invalid {} value '{}', ignoring",
+                     fmt::ptr(ctx), name, val);
+        return false;
+    }
+}
+
+int CSLSRelay::parse_url(char *url, char *host_name, size_t host_name_size, int &port, SRTUrlOptions &options)
 {
     // Parse the URL
     Url parsed_url(url);
     string scheme;
     bool streamid_found = false;
-    bool latency_found = false;
     try
     {
         // Check if URL scheme is correct
@@ -112,25 +174,95 @@ int CSLSRelay::parse_url(char *url, char *host_name, size_t host_name_size, int 
 
         for (Url::KeyVal query_param : parsed_url.query())
         {
-            if (query_param.key().compare("streamid") == 0)
+            const std::string &key = query_param.key();
+            const std::string &val = query_param.val();
+
+            if (key == "streamid")
             {
-                // Set streamid
                 streamid_found = true;
-                strlcpy(streamid, query_param.val().c_str(), streamid_size);
+                strlcpy(options.streamid, val.c_str(), sizeof(options.streamid));
             }
-            else if (query_param.key().compare("latency") == 0)
+            else if (key == "latency")
             {
-                try
-                {
-                    // Set latency
-                    latency = stoi(query_param.val());
-                    latency_found = true;
+                parse_int_option(val, options.latency, LATENCY_MIN, LATENCY_MAX, "latency", this);
+            }
+            else if (key == "connect_timeout" || key == "conntimeo")
+            {
+                parse_int_option(val, options.connect_timeout, CONNECT_TIMEOUT_MIN, CONNECT_TIMEOUT_MAX, "connect_timeout", this);
+            }
+            else if (key == "passphrase")
+            {
+                if (val.length() > PASSPHRASE_MAX_LEN) {
+                    spdlog::warn("[{}] CSLSRelay::parse_url passphrase too long (max {} chars), ignoring",
+                                 fmt::ptr(this), PASSPHRASE_MAX_LEN);
+                } else if (val.length() < 10) {
+                    spdlog::warn("[{}] CSLSRelay::parse_url passphrase too short (min 10 chars), ignoring",
+                                 fmt::ptr(this));
+                } else {
+                    strlcpy(options.passphrase, val.c_str(), sizeof(options.passphrase));
                 }
-                catch (std::overflow_error const &)
-                {
-                    spdlog::error("[{}] CSLSRelay::parse_url invalid latency [latency='{}']", fmt::ptr(this), query_param.val());
-                    return SLS_ERROR;
+            }
+            else if (key == "pbkeylen")
+            {
+                int keylen = 0;
+                if (parse_int_option(val, keylen, 0, 32, "pbkeylen", this)) {
+                    // Only allow valid key lengths: 0, 16, 24, 32
+                    if (keylen == PBKEYLEN_VALID_0 || keylen == PBKEYLEN_VALID_16 ||
+                        keylen == PBKEYLEN_VALID_24 || keylen == PBKEYLEN_VALID_32) {
+                        options.pbkeylen = keylen;
+                    } else {
+                        spdlog::warn("[{}] CSLSRelay::parse_url pbkeylen must be 0, 16, 24, or 32, ignoring value {}",
+                                     fmt::ptr(this), keylen);
+                    }
                 }
+            }
+            else if (key == "maxbw")
+            {
+                parse_int64_option(val, options.maxbw, -1, INT64_MAX, "maxbw", this);
+            }
+            else if (key == "inputbw")
+            {
+                parse_int64_option(val, options.inputbw, 0, INT64_MAX, "inputbw", this);
+            }
+            else if (key == "oheadbw")
+            {
+                parse_int_option(val, options.oheadbw, OHEADBW_MIN, OHEADBW_MAX, "oheadbw", this);
+            }
+            else if (key == "rcvbuf")
+            {
+                parse_int_option(val, options.rcvbuf, BUFFER_MIN, BUFFER_MAX, "rcvbuf", this);
+            }
+            else if (key == "sndbuf")
+            {
+                parse_int_option(val, options.sndbuf, BUFFER_MIN, BUFFER_MAX, "sndbuf", this);
+            }
+            else if (key == "fc")
+            {
+                parse_int_option(val, options.fc, FC_MIN, FC_MAX, "fc", this);
+            }
+            else if (key == "mss")
+            {
+                parse_int_option(val, options.mss, MSS_MIN, MSS_MAX, "mss", this);
+            }
+            else if (key == "lossmaxttl")
+            {
+                parse_int_option(val, options.lossmaxttl, LOSSMAXTTL_MIN, LOSSMAXTTL_MAX, "lossmaxttl", this);
+            }
+            else if (key == "ipttl")
+            {
+                parse_int_option(val, options.ipttl, IPTTL_MIN, IPTTL_MAX, "ipttl", this);
+            }
+            else if (key == "iptos")
+            {
+                parse_int_option(val, options.iptos, IPTOS_MIN, IPTOS_MAX, "iptos", this);
+            }
+            else if (key == "tlpktdrop")
+            {
+                parse_int_option(val, options.tlpktdrop, 0, 1, "tlpktdrop", this);
+            }
+            else if (key == "nakreport")
+            {
+                parse_int_option(val, options.nakreport, 0, 1, "nakreport", this);
             }
         }
     }
@@ -152,29 +284,45 @@ int CSLSRelay::parse_url(char *url, char *host_name, size_t host_name_size, int 
         return SLS_ERROR;
     }
 
-    if (!latency_found)
+    if (options.latency == -1)
     {
-        spdlog::warn("[{}] CSLSRelay::parse_url query parameter 'latency' not found in URL '{}', use default latency {}",
-                     fmt::ptr(this), url, DEFAULT_LATENCY);
+        options.latency = DEFAULT_LATENCY;
+        spdlog::debug("[{}] CSLSRelay::parse_url using default latency {}ms", fmt::ptr(this), DEFAULT_LATENCY);
     }
 
-    spdlog::warn("{}", url);
-    spdlog::warn("{}:{:d} | {}", host_name, port, streamid);
+    spdlog::debug("[{}] CSLSRelay::parse_url parsed URL: {}:{} streamid='{}'", fmt::ptr(this), host_name, port, options.streamid);
 
     return SLS_OK;
 }
 
+// Helper macro for setting socket options with error handling
+#define SET_SOCKOPT(fd, opt, val, desc) do { \
+    if (srt_setsockopt(fd, 0, opt, &val, sizeof(val)) == SRT_ERROR) { \
+        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt {} failure. err={}.", fmt::ptr(this), desc, srt_getlasterror_str()); \
+        srt_close(fd); \
+        return SLS_ERROR; \
+    } \
+} while(0)
+
+#define SET_SOCKOPT_STR(fd, opt, val, len, desc) do { \
+    if (srt_setsockopt(fd, 0, opt, val, len) == SRT_ERROR) { \
+        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt {} failure. err={}.", fmt::ptr(this), desc, srt_getlasterror_str()); \
+        srt_close(fd); \
+        return SLS_ERROR; \
+    } \
+} while(0)
+
 int CSLSRelay::open(const char *srt_url)
 {
-    const int bool_false = 0; // No compound literals in C++, sadly
+    const int bool_false = 0;
+    const int bool_true = 1;
 
     int ret;
     char host_name[HOST_MAX_LEN] = {};
     char server_ip[IP_MAX_LEN] = {};
     int server_port = 0;
-    char streamid[URL_MAX_LEN] = {};
     char url[URL_MAX_LEN] = {};
-    int latency;
+    SRTUrlOptions options;
 
     if (strnlen(srt_url, URL_MAX_LEN) >= URL_MAX_LEN)
     {
@@ -192,13 +340,13 @@ int CSLSRelay::open(const char *srt_url)
     }
 
     // parse url
-    if (SLS_OK != parse_url(url, host_name, sizeof(host_name), server_port, streamid, sizeof(streamid), latency))
+    if (SLS_OK != parse_url(url, host_name, sizeof(host_name), server_port, options))
     {
         return SLS_ERROR;
     }
     spdlog::info("[{}] CSLSRelay::open, parse_url ok, url='{}'.", fmt::ptr(this), m_url);
 
-    if ((ret = strnlen(streamid, URL_MAX_LEN)) == 0)
+    if ((ret = strnlen(options.streamid, URL_MAX_LEN)) == 0)
     {
         spdlog::error("[{}] CSLSRelay::open, url='{}', no 'stream', url must be like 'hostname:port?streamid=your_stream_id'.", fmt::ptr(this), m_url);
         return SLS_ERROR;
@@ -210,78 +358,109 @@ int CSLSRelay::open(const char *srt_url)
     }
 
     SRTSOCKET fd = srt_create_socket();
-
-    int status = srt_setsockopt(fd, 0, SRTO_LATENCY, &latency, sizeof(latency)); // set the latency
-    if (status == SRT_ERROR)
+    if (fd == SRT_INVALID_SOCK)
     {
-        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt SRTO_LATENCY failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
+        spdlog::error("[{}] CSLSRelay::open, srt_create_socket failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
         return SLS_ERROR;
     }
 
-    status = srt_setsockopt(fd, 0, SRTO_SNDSYN, &bool_false, sizeof(bool_false)); // for async write
-    if (status == SRT_ERROR)
-    {
-        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt SRTO_SNDSYN failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
-    }
+    int status;
 
-    status = srt_setsockopt(fd, 0, SRTO_RCVSYN, &bool_false, sizeof(bool_false)); // for async read
-    if (status == SRT_ERROR)
-    {
-        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt SRTO_SNDSYN failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
-    }
+    // === Required options ===
+    SET_SOCKOPT(fd, SRTO_LATENCY, options.latency, "SRTO_LATENCY");
+    SET_SOCKOPT(fd, SRTO_SNDSYN, bool_false, "SRTO_SNDSYN");  // async write
+    SET_SOCKOPT(fd, SRTO_RCVSYN, bool_false, "SRTO_RCVSYN");  // async read
 
+    // === Default socket options ===
     int ipv6Only = 0;
-    int fc = 128 * 1000;
-    int lossmaxttlvalue = 200;
-    int rcv_buf = 100 * 1024 * 1024;
+    int default_fc = 128 * 1000;
+    int default_lossmaxttl = 200;
+    int default_rcv_buf = 100 * 1024 * 1024;
 
-    status = srt_setsockopt(fd, SOL_SOCKET, SRTO_IPV6ONLY, &ipv6Only, sizeof(ipv6Only));
-    if (status < 0) {
-        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt SRTO_IPV6ONLY failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
-    }
+    SET_SOCKOPT(fd, SRTO_IPV6ONLY, ipv6Only, "SRTO_IPV6ONLY");
 
-    status = srt_setsockopt(fd, SOL_SOCKET, SRTO_LOSSMAXTTL, &lossmaxttlvalue, sizeof(lossmaxttlvalue));
-    if (status < 0) {
-        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt SRTO_LOSSMAXTTL failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+    // === Optional URL-specified options ===
+
+    // Connection timeout
+    if (options.connect_timeout >= 0) {
+        SET_SOCKOPT(fd, SRTO_CONNTIMEO, options.connect_timeout, "SRTO_CONNTIMEO");
+        spdlog::debug("[{}] CSLSRelay::open, set connect_timeout={}ms", fmt::ptr(this), options.connect_timeout);
     }
 
-    status = srt_setsockopt(fd, SOL_SOCKET, SRTO_FC, &fc, sizeof(fc));
-    if (status < 0) {
-        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt SRTO_FC failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+    // Encryption options
+    if (strlen(options.passphrase) > 0) {
+        SET_SOCKOPT_STR(fd, SRTO_PASSPHRASE, options.passphrase, strlen(options.passphrase), "SRTO_PASSPHRASE");
+        spdlog::debug("[{}] CSLSRelay::open, set passphrase (length={})", fmt::ptr(this), strlen(options.passphrase));
     }
-    status = srt_setsockopt(fd, SOL_SOCKET, SRTO_RCVBUF, &rcv_buf, sizeof(rcv_buf));
-    if (status < 0) {
-        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt SRTO_RCVBUF failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+    if (options.pbkeylen >= 0) {
+        SET_SOCKOPT(fd, SRTO_PBKEYLEN, options.pbkeylen, "SRTO_PBKEYLEN");
+        spdlog::debug("[{}] CSLSRelay::open, set pbkeylen={}", fmt::ptr(this), options.pbkeylen);
     }
 
-    // srt_setsockflag(fd, SRTO_SENDER, &m_is_write, sizeof m_is_write);
-    /*
-    status = srt_setsockopt(fd, 0, SRTO_TSBPDMODE, &yes, sizeof yes); //
-    if (status == SRT_ERROR) {
-        sls_log(SLS_LOG_ERROR, "[%p]CSLSRelay::open, srt_setsockopt SRTO_TSBPDMODE failure. err=%s.", this, srt_getlasterror_str());
-        return SLS_ERROR;
+    // Bandwidth options
+    if (options.maxbw >= 0) {
+        SET_SOCKOPT(fd, SRTO_MAXBW, options.maxbw, "SRTO_MAXBW");
+        spdlog::debug("[{}] CSLSRelay::open, set maxbw={}", fmt::ptr(this), options.maxbw);
     }
-    */
-    /*
-    SRT_TRANSTYPE tt = SRTT_LIVE;
-    status = srt_setsockopt(fd, 0, SRTO_TRANSTYPE, &tt, sizeof tt);
-    if (status == SRT_ERROR) {
-        sls_log(SLS_LOG_ERROR, "[%p]CSLSRelay::open, srt_setsockopt SRTO_TRANSTYPE failure. err=%s.", this, srt_getlasterror_str());
-        return SLS_ERROR;
+    if (options.inputbw >= 0) {
+        SET_SOCKOPT(fd, SRTO_INPUTBW, options.inputbw, "SRTO_INPUTBW");
+        spdlog::debug("[{}] CSLSRelay::open, set inputbw={}", fmt::ptr(this), options.inputbw);
     }
-    */
+    if (options.oheadbw >= 0) {
+        SET_SOCKOPT(fd, SRTO_OHEADBW, options.oheadbw, "SRTO_OHEADBW");
+        spdlog::debug("[{}] CSLSRelay::open, set oheadbw={}%", fmt::ptr(this), options.oheadbw);
+    }
 
-    if (srt_setsockopt(fd, 0, SRTO_STREAMID, streamid, strlen(streamid)) < 0)
-    {
-        spdlog::error("[{}] CSLSRelay::open, srt_setsockopt SRTO_STREAMID failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+    // Buffer options - use URL values if specified, otherwise defaults
+    int fc_value = (options.fc >= 0) ? options.fc : default_fc;
+    SET_SOCKOPT(fd, SRTO_FC, fc_value, "SRTO_FC");
+    if (options.fc >= 0) {
+        spdlog::debug("[{}] CSLSRelay::open, set fc={}", fmt::ptr(this), options.fc);
     }
+
+    int rcvbuf_value = (options.rcvbuf >= 0) ? options.rcvbuf : default_rcv_buf;
+    SET_SOCKOPT(fd, SRTO_RCVBUF, rcvbuf_value, "SRTO_RCVBUF");
+    if (options.rcvbuf >= 0) {
+        spdlog::debug("[{}] CSLSRelay::open, set rcvbuf={}", fmt::ptr(this), options.rcvbuf);
+    }
+
+    if (options.sndbuf >= 0) {
+        SET_SOCKOPT(fd, SRTO_SNDBUF, options.sndbuf, "SRTO_SNDBUF");
+        spdlog::debug("[{}] CSLSRelay::open, set sndbuf={}", fmt::ptr(this), options.sndbuf);
+    }
+
+    // Network options
+    int lossmaxttl_value = (options.lossmaxttl >= 0) ? options.lossmaxttl : default_lossmaxttl;
+    SET_SOCKOPT(fd, SRTO_LOSSMAXTTL, lossmaxttl_value, "SRTO_LOSSMAXTTL");
+    if (options.lossmaxttl >= 0) {
+        spdlog::debug("[{}] CSLSRelay::open, set lossmaxttl={}", fmt::ptr(this), options.lossmaxttl);
+    }
+
+    if (options.mss >= 0) {
+        SET_SOCKOPT(fd, SRTO_MSS, options.mss, "SRTO_MSS");
+        spdlog::debug("[{}] CSLSRelay::open, set mss={}", fmt::ptr(this), options.mss);
+    }
+    if (options.ipttl >= 0) {
+        SET_SOCKOPT(fd, SRTO_IPTTL, options.ipttl, "SRTO_IPTTL");
+        spdlog::debug("[{}] CSLSRelay::open, set ipttl={}", fmt::ptr(this), options.ipttl);
+    }
+    if (options.iptos >= 0) {
+        SET_SOCKOPT(fd, SRTO_IPTOS, options.iptos, "SRTO_IPTOS");
+        spdlog::debug("[{}] CSLSRelay::open, set iptos={}", fmt::ptr(this), options.iptos);
+    }
+
+    // Reliability options
+    if (options.tlpktdrop >= 0) {
+        SET_SOCKOPT(fd, SRTO_TLPKTDROP, options.tlpktdrop, "SRTO_TLPKTDROP");
+        spdlog::debug("[{}] CSLSRelay::open, set tlpktdrop={}", fmt::ptr(this), options.tlpktdrop);
+    }
+    if (options.nakreport >= 0) {
+        SET_SOCKOPT(fd, SRTO_NAKREPORT, options.nakreport, "SRTO_NAKREPORT");
+        spdlog::debug("[{}] CSLSRelay::open, set nakreport={}", fmt::ptr(this), options.nakreport);
+    }
+
+    // Stream ID (required)
+    SET_SOCKOPT_STR(fd, SRTO_STREAMID, options.streamid, strlen(options.streamid), "SRTO_STREAMID");
 
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof sa);
@@ -292,6 +471,7 @@ int CSLSRelay::open(const char *srt_url)
     if (inet_pton(AF_INET, server_ip, &sa.sin_addr) != 1)
     {
         spdlog::error("[{}] CSLSRelay::open, inet_pton failure. server_ip={}, server_port={:d}.", fmt::ptr(this), server_ip, server_port);
+        srt_close(fd);
         return SLS_ERROR;
     }
 
@@ -299,7 +479,9 @@ int CSLSRelay::open(const char *srt_url)
     status = srt_connect(fd, psa, sizeof sa);
     if (status == SRT_ERROR)
     {
-        spdlog::error("[{}] CSLSRelay::open, srt_connect failure. server_ip={}, server_port={:d}.", fmt::ptr(this), server_ip, server_port);
+        spdlog::error("[{}] CSLSRelay::open, srt_connect failure. server_ip={}, server_port={:d}, err={}.",
+                      fmt::ptr(this), server_ip, server_port, srt_getlasterror_str());
+        srt_close(fd);
         return SLS_ERROR;
     }
     m_srt = new CSLSSrt();
@@ -308,6 +490,9 @@ int CSLSRelay::open(const char *srt_url)
     m_server_port = server_port;
     return status;
 }
+
+#undef SET_SOCKOPT
+#undef SET_SOCKOPT_STR
 
 int CSLSRelay::close()
 {

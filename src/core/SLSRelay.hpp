@@ -28,6 +28,43 @@
 #include "SLSMapPublisher.hpp"
 
 /**
+ * SRT URL options parsed from query parameters
+ * All values of -1 indicate "use default" (not specified in URL)
+ */
+struct SRTUrlOptions {
+    // Stream identification (required)
+    char streamid[URL_MAX_LEN] = {0};
+
+    // Timing options
+    int latency = -1;           // SRTO_LATENCY: latency in ms (0-10000, default 120)
+    int connect_timeout = -1;   // SRTO_CONNTIMEO: connect timeout in ms (0-30000)
+
+    // Encryption options
+    char passphrase[80] = {0};  // SRTO_PASSPHRASE: max 79 chars + null
+    int pbkeylen = -1;          // SRTO_PBKEYLEN: 0 (disabled), 16, 24, or 32
+
+    // Bandwidth options
+    int64_t maxbw = -1;         // SRTO_MAXBW: max bandwidth bytes/sec (0=infinite, -1=auto)
+    int64_t inputbw = -1;       // SRTO_INPUTBW: input bandwidth estimate bytes/sec
+    int oheadbw = -1;           // SRTO_OHEADBW: overhead bandwidth % (5-100)
+
+    // Buffer options
+    int rcvbuf = -1;            // SRTO_RCVBUF: receive buffer size bytes
+    int sndbuf = -1;            // SRTO_SNDBUF: send buffer size bytes
+    int fc = -1;                // SRTO_FC: flight flag size (flow control window)
+
+    // Network options
+    int mss = -1;               // SRTO_MSS: max segment size (76-1500)
+    int lossmaxttl = -1;        // SRTO_LOSSMAXTTL: packet reorder tolerance (0-1000)
+    int ipttl = -1;             // SRTO_IPTTL: IP time-to-live (1-255)
+    int iptos = -1;             // SRTO_IPTOS: IP type of service (0-255)
+
+    // Reliability options
+    int tlpktdrop = -1;         // SRTO_TLPKTDROP: too-late packet drop (0 or 1)
+    int nakreport = -1;         // SRTO_NAKREPORT: periodic NAK reports (0 or 1)
+};
+
+/**
  * sls_conf_relay_t
  */
 
@@ -87,5 +124,5 @@ protected:
     CSLSMapPublisher *m_map_publisher;
     void *m_relay_manager;
 
-    int parse_url(char *url, char *host_name, size_t host_name_size, int &port, char *streamid, size_t streamid_size, int &latency);
+    int parse_url(char *url, char *host_name, size_t host_name_size, int &port, SRTUrlOptions &options);
 };
