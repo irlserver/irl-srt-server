@@ -1,0 +1,31 @@
+README.md
+  824e653788cfbd78 44-65
+src/core/SLSManager.cpp
+  824e653788cfbd78 87,107,113,183-212,239,275,416,421,423,428,431,436,438-439,446-448,451-455,623
+src/core/SLSListener.hpp
+  824e653788cfbd78 52,76-77,117,136
+src/sls.conf
+  824e653788cfbd78 78-79,82-91,94,153-154,160-163,166
+src/core/SLSListenerCore.cpp
+  824e653788cfbd78 27,108-115,180-181,200-203,212-213,215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.37",
+  "base_commit_sha": "ed9a35748bdfef53bc8c3d7d7d507cb16e20dbe0",
+  "prompts": {
+    "824e653788cfbd78": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7dee32f6-d729-4da0-b6e8-8ed493eba925",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 117,
+      "overriden_lines": 0
+    }
+  }
+}
