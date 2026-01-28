@@ -94,7 +94,7 @@ public:
 
     void libsrt_set_context(SRTContext *sc);
 
-    int libsrt_setup(int port);
+    int libsrt_setup(int port, bool srtla_patches = false);
     int libsrt_close();
 
     int libsrt_listen(int backlog);

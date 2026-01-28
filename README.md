@@ -41,6 +41,28 @@ Binaries are created in `build/bin/` directory.
 
 Configuration directives are documented on the [wiki page](https://github.com/rstular/srt-live-server/wiki/Directives).
 
+### SRTLA / Bonded Connection Support
+
+SRT Live Server supports both SRTLA (bonded cellular) and direct SRT connections on the same server using separate publisher ports:
+
+```
+server {
+    listen_player 4000;               # All streams playable here
+    listen_publisher 4001;            # Direct SRT (OBS, FFmpeg)
+    listen_publisher_srtla 4002;      # SRTLA/bonded (via srtla_rec)
+    ...
+}
+```
+
+- `listen_publisher` - For direct SRT connections (standard behavior)
+- `listen_publisher_srtla` - For SRTLA/bonded connections (enables SRTLA patches automatically)
+- `listen_player` - Single port for all playback (streams from both publisher types)
+
+**Why separate ports?**
+SRTLA bonded connections require special SRT patches that disable dynamic reorder tolerance and periodic NAK reports. Using the wrong setting causes glitching:
+- Direct SRT with SRTLA patches = dropped packets
+- SRTLA without patches = spurious retransmissions
+
 ## Testing
 
 srt-live-server only supports the MPEG-TS format streaming.

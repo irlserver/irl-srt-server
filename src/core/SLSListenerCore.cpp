@@ -24,6 +24,7 @@ CSLSListener::CSLSListener()
     m_map_puller = NULL;
     m_map_pusher = NULL;
     m_is_publisher_listener = false;
+    m_is_srtla_listener = false;
     m_is_legacy_listener = false;
     m_idle_streams_timeout = UNLIMITED_TIMEOUT;
     m_idle_streams_timeout_role = 0;
@@ -104,6 +105,14 @@ void CSLSListener::set_listener_type(bool is_publisher)
     }
 }
 
+void CSLSListener::set_srtla_mode(bool is_srtla)
+{
+    m_is_srtla_listener = is_srtla;
+    if (is_srtla && m_is_publisher_listener) {
+        sprintf(m_role_name, "listener-publisher-srtla");
+    }
+}
+
 void CSLSListener::set_legacy_mode(bool is_legacy)
 {
     m_is_legacy_listener = is_legacy;
@@ -168,6 +177,8 @@ int CSLSListener::start()
 
     if (m_is_legacy_listener) {
         m_port = server_conf->listen;
+    } else if (m_is_srtla_listener) {
+        m_port = server_conf->listen_publisher_srtla;
     } else if (m_is_publisher_listener) {
         m_port = server_conf->listen_publisher;
         if (m_port <= 0) {
@@ -186,15 +197,22 @@ int CSLSListener::start()
         return SLS_ERROR;
     }
 
-    ret = m_srt->libsrt_setup(m_port);
+    // SRTLA patches are enabled for SRTLA listeners (bonded connections)
+    // They are disabled for regular publisher listeners (direct SRT)
+    // Player listeners don't need patches (server is sender, not receiver)
+    bool use_srtla_patches = m_is_srtla_listener;
+
+    ret = m_srt->libsrt_setup(m_port, use_srtla_patches);
     if (SLS_OK != ret)
     {
         spdlog::error("[listener] Start failed, libsrt_setup error | port={}", m_port);
         return ret;
     }
 
-    spdlog::info("[listener] Listener started | port={} type={}",
-		m_port, m_is_publisher_listener ? "publisher" : "player");
+    const char* listener_type = m_is_srtla_listener ? "publisher-srtla" :
+                                (m_is_publisher_listener ? "publisher" : "player");
+    spdlog::info("[listener] Listener started | port={} type={} srtla_patches={}",
+		m_port, listener_type, use_srtla_patches ? "on" : "off");
 
     ret = m_srt->libsrt_listen(m_back_log);
     if (SLS_OK != ret)

@@ -49,6 +49,7 @@ char domain_player[URL_MAX_LEN];
 char domain_publisher[URL_MAX_LEN];
 int listen;
 int listen_publisher;
+int listen_publisher_srtla;
 int listen_player;
 int backlog;
 int latency_min;
@@ -72,7 +73,8 @@ SLS_CONF_CMD_DYNAMIC_DECLARE_BEGIN(server)
 SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, string, domain_publisher, "", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, listen, "listen port (legacy, use listen_publisher/listen_player)", 1, 65535),
-    SLS_SET_CONF(server, int, listen_publisher, "publisher listen port", 1, 65535),
+    SLS_SET_CONF(server, int, listen_publisher, "publisher listen port (direct SRT)", 1, 65535),
+    SLS_SET_CONF(server, int, listen_publisher_srtla, "publisher listen port for SRTLA/bonded connections", 1, 65535),
     SLS_SET_CONF(server, int, listen_player, "player listen port", 1, 65535),
     SLS_SET_CONF(server, int, backlog, "how many sockets may be allowed to wait until they are accepted", 1, 1024),
     SLS_SET_CONF(server, int, latency_min, "minimum allowed latency (ms) - enforced on publisher listeners only", 0, 5000),
@@ -112,6 +114,7 @@ public:
     void set_map_pusher(CSLSMapRelay *map_puller);
     void set_record_hls_path_prefix(char *path);
     void set_listener_type(bool is_publisher);
+    void set_srtla_mode(bool is_srtla);
     void set_legacy_mode(bool is_legacy);
     bool should_handle_app(const std::string& app_name, bool is_publisher_connection);
 
@@ -130,6 +133,7 @@ private:
     CSLSMapRelay *m_map_puller;
     CSLSMapRelay *m_map_pusher;
     bool m_is_publisher_listener;
+    bool m_is_srtla_listener;
     bool m_is_legacy_listener;
 
     CSLSMutex m_mutex;
