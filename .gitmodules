@@ -11,3 +11,6 @@
 [submodule "lib/cpp-httplib"]
 	path = lib/cpp-httplib
 	url = https://github.com/yhirose/cpp-httplib.git
+[submodule "lib/CxxUrl"]
+	path = lib/CxxUrl
+	url = https://github.com/chmike/CxxUrl.git

@@ -25,7 +25,7 @@
 #include <errno.h>
 #include "spdlog/spdlog.h"
 
-#include "CxxUrl.hpp"
+#include "url.hpp"
 #include "SLSRelay.hpp"
 #include "SLSLog.hpp"
 #include "SLSRelayManager.hpp"

@@ -45,6 +45,9 @@ target_include_directories(httplib INTERFACE ${PROJECT_SOURCE_DIR}/lib/cpp-httpl
 add_library(BS_thread_pool INTERFACE)
 target_include_directories(BS_thread_pool INTERFACE ${PROJECT_SOURCE_DIR}/lib/thread-pool)
 
+# CxxUrl
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(lib/CxxUrl)
 
 # Use SLS Core
 add_subdirectory(${PROJECT_SOURCE_DIR}/src)

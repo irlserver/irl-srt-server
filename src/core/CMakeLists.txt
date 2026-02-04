@@ -4,8 +4,6 @@ set(sls_core_files
 	conf.cpp
 	conf.hpp
 	constants.hpp
-	CxxUrl.cpp
-	CxxUrl.hpp
 	AsyncHttpClient.cpp
 	AsyncHttpClient.hpp
 	README.md
@@ -86,5 +84,6 @@ target_link_libraries(sls_core
 	httplib
 	BS_thread_pool
 	Threads::Threads
+	CxxUrl
 )
 target_include_directories(sls_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
