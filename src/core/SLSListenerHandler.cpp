@@ -272,8 +272,72 @@ int CSLSListener::handler()
         strlcpy(player_key, stream_part, sizeof(player_key));
         player_key_validation_required = true;
 
-        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], detected player connection with configured format '{}/{}', player_key='{}', validating...",
-                     fmt::ptr(this), peer_name, peer_port, domain, app, player_key);
+        // Check if player key is already cached - if so, we can check stream status first
+        // to reduce log noise from repeated reconnection attempts to offline streams
+        bool key_is_cached = false;
+        bool stream_offline_cached = false;
+        std::string cached_stream_id;
+        {
+            std::lock_guard<std::mutex> lk(m_cache_mutex);
+            auto cache_it = m_player_key_cache.find(std::string(player_key));
+            if (cache_it != m_player_key_cache.end()) {
+                auto now = std::chrono::steady_clock::now();
+                if (now < cache_it->second.expiry_time && cache_it->second.is_valid) {
+                    key_is_cached = true;
+                    cached_stream_id = cache_it->second.resolved_stream_id;
+                }
+            }
+        }
+
+        // If key is cached, check if stream is offline before doing verbose logging
+        if (key_is_cached) {
+            // Parse cached stream ID to check publisher status
+            char cached_sid_buf[1024] = {0};
+            strlcpy(cached_sid_buf, cached_stream_id.c_str(), sizeof(cached_sid_buf));
+            std::map<std::string, std::string> cached_sid_kv = srt->libsrt_parse_sid(cached_sid_buf);
+            if (cached_sid_kv.count("h") && cached_sid_kv.count("sls_app") && cached_sid_kv.count("r")) {
+                char temp_key_app[URL_MAX_LEN] = {0};
+                snprintf(temp_key_app, sizeof(temp_key_app), "%s/%s",
+                         cached_sid_kv.at("h").c_str(), cached_sid_kv.at("sls_app").c_str());
+                std::string temp_uplive = m_map_publisher->get_uplive(temp_key_app);
+                if (temp_uplive.length() > 0) {
+                    char temp_key_stream[URL_MAX_LEN] = {0};
+                    snprintf(temp_key_stream, sizeof(temp_key_stream), "%s/%s",
+                             temp_uplive.c_str(), cached_sid_kv.at("r").c_str());
+                    CSLSRole *temp_pub = m_map_publisher->get_publisher(temp_key_stream);
+                    if (NULL == temp_pub && NULL == m_map_puller) {
+                        stream_offline_cached = true;
+                    }
+                }
+            }
+        }
+
+        // Rate-limit logs for cached keys connecting to offline streams
+        if (key_is_cached && stream_offline_cached) {
+            std::string rate_key = std::string(peer_name) + ":playerkey:" + player_key + ":offline";
+            CSLSLogRateLimiter::EventStats stats;
+            if (sls_get_log_config().rate_limit_enabled &&
+                !sls_get_rate_limiter().should_log(rate_key, stats)) {
+                // Suppressed - just log at debug and reject
+                spdlog::debug("[connection:{}] Player key '{}' from {}:{} - stream offline (suppressed, {} attempts)",
+                             session_id, player_key, peer_name, peer_port, stats.count);
+                srt->libsrt_close();
+                delete srt;
+                return client_count;
+            }
+            // First in window or rate limiting disabled - log at info but note it's offline
+            spdlog::info("[connection:{}] Player key '{}' from {}:{} - stream currently offline",
+                        session_id, player_key, peer_name, peer_port);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+
+        // Not cached or stream is online - proceed with normal validation
+        if (!key_is_cached) {
+            spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], detected player connection with configured format '{}/{}', player_key='{}', validating...",
+                         fmt::ptr(this), peer_name, peer_port, domain, app, player_key);
+        }
 
         int validation_result = validate_player_key(player_key, validated_stream_id, sizeof(validated_stream_id), peer_name);
         if (validation_result != SLS_OK) {
@@ -284,12 +348,16 @@ int CSLSListener::handler()
             return client_count;
         }
 
-        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], player key validation SUCCESS, resolved to stream_id='{}'",
-                     fmt::ptr(this), peer_name, peer_port, validated_stream_id);
+        if (!key_is_cached) {
+            spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], player key validation SUCCESS, resolved to stream_id='{}'",
+                         fmt::ptr(this), peer_name, peer_port, validated_stream_id);
+        }
 
         strlcpy(sid, validated_stream_id, sizeof(sid));
-        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], updated stream_id to: '{}'",
-                     fmt::ptr(this), peer_name, peer_port, sid);
+        if (!key_is_cached) {
+            spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], updated stream_id to: '{}'",
+                         fmt::ptr(this), peer_name, peer_port, sid);
+        }
 
         sid_kv = srt->libsrt_parse_sid(sid);
         bool validated_sid_valid = true;
@@ -320,8 +388,10 @@ int CSLSListener::handler()
 
         snprintf(key_app, sizeof(key_app), "%s/%s", host_name, app_name);
 
-        spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], re-parsed validated stream: '{}/{}/{}'",
-                     fmt::ptr(this), peer_name, peer_port, host_name, app_name, stream_name);
+        if (!key_is_cached) {
+            spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], re-parsed validated stream: '{}/{}/{}'",
+                         fmt::ptr(this), peer_name, peer_port, host_name, app_name, stream_name);
+        }
     }
 
     if (app_uplive.length() > 0) {
@@ -353,8 +423,17 @@ int CSLSListener::handler()
         CSLSRole *pub = m_map_publisher->get_publisher(key_stream_name);
         if (NULL == pub) {
             if (NULL == m_map_puller) {
-                spdlog::info("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream='{}', publisher is NULL and m_map_puller is NULL.",
-                             fmt::ptr(this), peer_name, peer_port, key_stream_name);
+                // Rate-limit "stream offline" logs to reduce noise from repeated reconnection attempts
+                std::string rate_key = std::string(peer_name) + ":stream_offline:" + key_stream_name;
+                CSLSLogRateLimiter::EventStats stats;
+                if (sls_get_log_config().rate_limit_enabled &&
+                    !sls_get_rate_limiter().should_log(rate_key, stats)) {
+                    spdlog::debug("[connection:{}] Stream '{}' offline, refusing {}:{} (suppressed, {} attempts)",
+                                 session_id, key_stream_name, peer_name, peer_port, stats.count);
+                } else {
+                    spdlog::info("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream='{}', publisher is NULL and m_map_puller is NULL.",
+                                 fmt::ptr(this), peer_name, peer_port, key_stream_name);
+                }
                 srt->libsrt_close();
                 delete srt;
                 return client_count;
@@ -385,8 +464,17 @@ int CSLSListener::handler()
 
             pub = m_map_publisher->get_publisher(key_stream_name);
             if (NULL == pub) {
-                spdlog::warn("[{}] CSLSListener::handler, publisher not ready after puller start, new client[{}:{:d}], stream='{}'. Client should retry.",
-                             fmt::ptr(this), peer_name, peer_port, key_stream_name);
+                // Rate-limit "publisher not ready" logs to reduce noise from repeated reconnection attempts
+                std::string rate_key = std::string(peer_name) + ":pub_not_ready:" + key_stream_name;
+                CSLSLogRateLimiter::EventStats stats;
+                if (sls_get_log_config().rate_limit_enabled &&
+                    !sls_get_rate_limiter().should_log(rate_key, stats)) {
+                    spdlog::debug("[connection:{}] Publisher not ready for '{}', refusing {}:{} (suppressed, {} attempts)",
+                                 session_id, key_stream_name, peer_name, peer_port, stats.count);
+                } else {
+                    spdlog::warn("[{}] CSLSListener::handler, publisher not ready after puller start, new client[{}:{:d}], stream='{}'. Client should retry.",
+                                 fmt::ptr(this), peer_name, peer_port, key_stream_name);
+                }
                 srt->libsrt_close();
                 delete srt;
                 return client_count;
