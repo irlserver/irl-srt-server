@@ -1,0 +1,43 @@
+src/core/SLSMapData.hpp
+  c5ccc68b96a325b2 32,45,58-59
+src/sls.conf
+  c5ccc68b96a325b2 149-152
+src/core/common.hpp
+  c5ccc68b96a325b2 160-172,176
+src/core/SLSAudioGapFiller.hpp
+  c5ccc68b96a325b2 1-88
+src/core/SLSMapData.cpp
+  c5ccc68b96a325b2 196-201,301-391
+AUDIO_GAP_FILLING.md
+  c5ccc68b96a325b2 1-162
+src/core/common.cpp
+  c5ccc68b96a325b2 896-930,960-971,1050-1060
+src/core/SLSPublisher.cpp
+  c5ccc68b96a325b2 47,49,60,71-76
+src/core/CMakeLists.txt
+  c5ccc68b96a325b2 12-13
+src/core/SLSPublisher.hpp
+  c5ccc68b96a325b2 46,63
+src/core/SLSAudioGapFiller.cpp
+  c5ccc68b96a325b2 1-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "d36d95d76a04e42d85922f39cdec43bb360f0bd0",
+  "prompts": {
+    "c5ccc68b96a325b2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b027971f-74c9-4b1b-8166-ec95888d63e3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>",
+      "messages": [],
+      "total_additions": 762,
+      "total_deletions": 81,
+      "accepted_lines": 684,
+      "overriden_lines": 0
+    }
+  }
+}
