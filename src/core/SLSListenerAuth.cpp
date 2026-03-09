@@ -165,9 +165,6 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         return SLS_ERROR;
     }
 
-    spdlog::info("[{}] CSLSListener::validate_player_key, validating player_key='{}' at URL='{}' (async), timeout={}ms.",
-                 fmt::ptr(this), player_key, auth_url, m_player_key_auth_timeout);
-
     // Use AsyncHttpClient - this executes in thread pool
     int timeout_sec = (m_player_key_auth_timeout + 999) / 1000; // Round up to seconds
     auto future = AsyncHttpClient::instance().get_async(auth_url, timeout_sec);
@@ -213,7 +210,6 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     }
 
     std::string response_content = response.body;
-    spdlog::info("[{}] CSLSListener::validate_player_key, API response: '{}'.", fmt::ptr(this), response_content.c_str());
 
     std::string stream_id;
     int json_max_players_override = -1;
@@ -261,8 +257,6 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
                  cache_entry.has_max_players_override ? " (with per-key max_players_per_stream override)" : "");
 
     strlcpy(resolved_stream_id, stream_id.c_str(), resolved_stream_id_size);
-    spdlog::info("[{}] CSLSListener::validate_player_key, player_key='{}' validated successfully, resolved to stream_id='{}'.",
-                 fmt::ptr(this), player_key, resolved_stream_id);
 
     return SLS_OK;
 }

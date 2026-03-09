@@ -415,8 +415,6 @@ int CSLSListener::handler()
                     stream_entry.max_players_per_stream = entry.max_players_per_stream_override;
                     stream_entry.expiry_time = entry.expiry_time;
                     m_stream_player_limit_map[std::string(key_stream_name)] = stream_entry;
-                    spdlog::info("[{}] CSLSListener::handler, applied per-stream cap override for stream='{}' to {} (from key).",
-                                 fmt::ptr(this), key_stream_name, stream_entry.max_players_per_stream);
                 }
             }
         }
@@ -440,8 +438,6 @@ int CSLSListener::handler()
             }
             CSLSRelayManager *puller_manager = m_map_puller->add_relay_manager(app_uplive.c_str(), stream_name);
             if (NULL == puller_manager) {
-                spdlog::info("[{}] CSLSListener::handler, m_map_puller->add_relay_manager failed, new role[{}:{:d}], stream='{}', publisher is NULL, no puller_manager.",
-                             fmt::ptr(this), peer_name, peer_port, key_stream_name);
                 srt->libsrt_close();
                 delete srt;
                 return client_count;

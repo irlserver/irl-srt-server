@@ -304,9 +304,6 @@ int CSLSSrt::libsrt_accept()
     } 
     addrtmp = (struct sockaddr_in6 *)&scl;
     inet_ntop(AF_INET6, &addrtmp->sin6_addr, ip, INET6_ADDRSTRLEN);
-    spdlog::info("[{}] CSLSSrt::libsrt_accept ok, new sock={:d}, {}:{:d}.",
-                 fmt::ptr(this), new_sock, ip, ntohs(addrtmp->sin6_port));
-
     return new_sock;
 }
 
@@ -314,7 +311,6 @@ int CSLSSrt::libsrt_close()
 {
     if (m_sc.fd)
     {
-        spdlog::info("[{}] CSLSSrt::libsrt_close, fd={:d}.", fmt::ptr(this), m_sc.fd);
         srt_close(m_sc.fd);
         m_sc.fd = 0;
     }
