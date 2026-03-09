@@ -28,11 +28,16 @@
 #include "SLSAudioGapFiller.hpp"
 
 // Minimal silent AAC payload - single channel element with all-zero spectral data
-// This is codec-agnostic within AAC-LC; the ADTS header specifies the actual format
 static const uint8_t SILENT_AAC_PAYLOAD[] = {
     0x21, 0x10, 0x05, 0x00, 0xA0, 0x19
 };
 static const int SILENT_AAC_PAYLOAD_LEN = sizeof(SILENT_AAC_PAYLOAD);
+
+bool SLSAudioGapFiller::is_supported_audio(int stream_type)
+{
+    return stream_type == 0x0F || stream_type == 0x11 || // AAC
+           stream_type == 0x03 || stream_type == 0x04;   // MP3
+}
 
 int64_t SLSAudioGapFiller::frame_pts_duration(int sample_rate, int stream_type)
 {
@@ -45,11 +50,10 @@ int64_t SLSAudioGapFiller::frame_pts_duration(int sample_rate, int stream_type)
     else
         samples_per_frame = AAC_SAMPLES_PER_FRAME;
 
-    // PTS ticks = samples_per_frame / sample_rate * 90000
     return (int64_t)samples_per_frame * 90000 / sample_rate;
 }
 
-bool SLSAudioGapFiller::detect_adts_format(const uint8_t *es_data, int es_len, ts_info *ti)
+bool SLSAudioGapFiller::detect_adts_format(const uint8_t *es_data, int es_len, audio_track_info *at)
 {
     if (es_len < 7)
         return false;
@@ -58,8 +62,7 @@ bool SLSAudioGapFiller::detect_adts_format(const uint8_t *es_data, int es_len, t
     if (es_data[0] != 0xFF || (es_data[1] & 0xF0) != 0xF0)
         return false;
 
-    // Parse ADTS header
-    int profile = ((es_data[2] >> 6) & 0x03) + 1; // Object type = profile + 1 in ADTS
+    int profile = ((es_data[2] >> 6) & 0x03) + 1;
     int sample_rate_index = (es_data[2] >> 2) & 0x0F;
     int channel_config = ((es_data[2] & 0x01) << 2) | ((es_data[3] >> 6) & 0x03);
 
@@ -68,17 +71,68 @@ bool SLSAudioGapFiller::detect_adts_format(const uint8_t *es_data, int es_len, t
     if (channel_config == 0 || channel_config > 7)
         return false;
 
-    ti->audio_profile = profile;
-    ti->audio_sample_rate_index = sample_rate_index;
-    ti->audio_sample_rate = ADTS_SAMPLE_RATES[sample_rate_index];
-    ti->audio_channel_config = channel_config;
-    ti->audio_channels = (channel_config == 7) ? 8 : channel_config;
-    ti->audio_format_detected = true;
+    at->profile = profile;
+    at->sample_rate_index = sample_rate_index;
+    at->sample_rate = ADTS_SAMPLE_RATES[sample_rate_index];
+    at->channel_config = channel_config;
+    at->channels = (channel_config == 7) ? 8 : channel_config;
+    at->format_detected = true;
 
-    spdlog::info("SLSAudioGapFiller: detected audio format - profile={}, sample_rate={}Hz, channels={}, sr_index={}",
-                 profile, ti->audio_sample_rate, ti->audio_channels, sample_rate_index);
-
+    spdlog::info("SLSAudioGapFiller: detected AAC format on PID={} - profile={}, sample_rate={}Hz, channels={}",
+                 at->pid, profile, at->sample_rate, at->channels);
     return true;
+}
+
+bool SLSAudioGapFiller::detect_mp3_format(const uint8_t *es_data, int es_len, audio_track_info *at)
+{
+    if (es_len < 4)
+        return false;
+
+    // MP3 frame sync: 11 set bits (0xFFE0 mask)
+    if (es_data[0] != 0xFF || (es_data[1] & 0xE0) != 0xE0)
+        return false;
+
+    // Parse MPEG audio header
+    int mpeg_version = (es_data[1] >> 3) & 0x03; // 00=2.5, 01=reserved, 10=2, 11=1
+    int layer = (es_data[1] >> 1) & 0x03;         // 01=Layer III, 10=Layer II, 11=Layer I
+    int bitrate_index = (es_data[2] >> 4) & 0x0F;
+    int sr_index = (es_data[2] >> 2) & 0x03;
+    int channel_mode = (es_data[3] >> 6) & 0x03;  // 00=stereo, 01=joint, 10=dual, 11=mono
+
+    if (mpeg_version == 1 || layer == 0 || sr_index == 3 || bitrate_index == 0 || bitrate_index == 15)
+        return false; // reserved/invalid values
+
+    int sample_rate = 0;
+    if (mpeg_version == 3) // MPEG-1
+        sample_rate = MP3_SAMPLE_RATES_MPEG1[sr_index];
+    else if (mpeg_version == 2) // MPEG-2
+        sample_rate = MP3_SAMPLE_RATES_MPEG2[sr_index];
+    else if (mpeg_version == 0) // MPEG-2.5
+        sample_rate = MP3_SAMPLE_RATES_MPEG25[sr_index];
+
+    if (sample_rate == 0)
+        return false;
+
+    at->profile = mpeg_version; // store MPEG version
+    at->sample_rate_index = sr_index;
+    at->sample_rate = sample_rate;
+    at->channel_config = channel_mode;
+    at->channels = (channel_mode == 3) ? 1 : 2;
+    at->bitrate_index = bitrate_index;
+    at->format_detected = true;
+
+    spdlog::info("SLSAudioGapFiller: detected MP3 format on PID={} - mpeg_ver={}, layer={}, sample_rate={}Hz, channels={}",
+                 at->pid, mpeg_version, layer, at->sample_rate, at->channels);
+    return true;
+}
+
+bool SLSAudioGapFiller::detect_format(const uint8_t *es_data, int es_len, audio_track_info *at)
+{
+    if (at->stream_type == 0x0F || at->stream_type == 0x11)
+        return detect_adts_format(es_data, es_len, at);
+    else if (at->stream_type == 0x03 || at->stream_type == 0x04)
+        return detect_mp3_format(es_data, es_len, at);
+    return false;
 }
 
 int SLSAudioGapFiller::build_silent_adts_frame(
@@ -87,31 +141,68 @@ int SLSAudioGapFiller::build_silent_adts_frame(
     int sample_rate_index,
     int channel_config)
 {
-    int frame_len = 7 + SILENT_AAC_PAYLOAD_LEN; // ADTS header + payload
+    int frame_len = 7 + SILENT_AAC_PAYLOAD_LEN;
 
-    // ADTS header (7 bytes, no CRC)
     out_buf[0] = 0xFF;
-    out_buf[1] = 0xF1; // MPEG-4, Layer 0, no CRC protection
+    out_buf[1] = 0xF1; // MPEG-4, Layer 0, no CRC
 
-    // profile (2 bits) | sample_rate_index (4 bits) | private (1 bit) | channel_config high (1 bit)
-    out_buf[2] = ((profile - 1) << 6) | (sample_rate_index << 2) | (0 << 1) | ((channel_config >> 2) & 0x01);
-
-    // channel_config low (2 bits) | original (1) | home (1) | copyright_id (1) | copyright_start (1) | frame_length high (2 bits)
+    out_buf[2] = ((profile - 1) << 6) | (sample_rate_index << 2) | ((channel_config >> 2) & 0x01);
     out_buf[3] = ((channel_config & 0x03) << 6) | ((frame_len >> 11) & 0x03);
-
-    // frame_length mid (8 bits)
     out_buf[4] = (frame_len >> 3) & 0xFF;
+    out_buf[5] = ((frame_len & 0x07) << 5) | 0x1F;
+    out_buf[6] = 0xFC;
 
-    // frame_length low (3 bits) | buffer_fullness high (5 bits)
-    out_buf[5] = ((frame_len & 0x07) << 5) | 0x1F; // buffer fullness = 0x7FF (VBR)
-
-    // buffer_fullness low (6 bits) | number_of_raw_data_blocks (2 bits)
-    out_buf[6] = 0xFC; // buffer fullness continued + 0 raw data blocks
-
-    // Silent payload
     memcpy(out_buf + 7, SILENT_AAC_PAYLOAD, SILENT_AAC_PAYLOAD_LEN);
-
     return frame_len;
+}
+
+int SLSAudioGapFiller::build_silent_mp3_frame(
+    uint8_t *out_buf,
+    const audio_track_info *track)
+{
+    // Build a valid MP3 frame header with zero audio data (silence)
+    // MPEG-1 Layer III frame structure:
+    //   Header (4 bytes) + side information (17 or 32 bytes) + main data (zero = silence)
+
+    int mpeg_version = track->profile; // 3=MPEG-1, 2=MPEG-2, 0=MPEG-2.5
+    int sr_index = track->sample_rate_index;
+    int channel_mode = track->channel_config;
+    bool is_mono = (channel_mode == 3);
+
+    // Use a low bitrate for the silent frame (index 1 = 32kbps for MPEG-1 L3)
+    int bitrate_index = 1;
+
+    // Calculate frame size: frame_size = 144 * bitrate / sample_rate + padding
+    int bitrate = MP3_BITRATES_MPEG1_L3[bitrate_index] * 1000;
+    int frame_size = 144 * bitrate / track->sample_rate;
+    // No padding for our silent frame
+
+    if (frame_size < 4 || frame_size > 188)
+        return 0;
+
+    memset(out_buf, 0, frame_size);
+
+    // Frame sync (11 bits = 1)
+    out_buf[0] = 0xFF;
+
+    // sync cont (3 bits) | mpeg_version (2 bits) | layer (2 bits=01 for L3) | protection (1 bit=1 no CRC)
+    uint8_t byte1 = 0xE0; // sync bits continued
+    byte1 |= (mpeg_version & 0x03) << 3;
+    byte1 |= 0x02; // Layer III = 01, shifted left by 1
+    byte1 |= 0x01; // no CRC
+    out_buf[1] = byte1;
+
+    // bitrate_index (4 bits) | sr_index (2 bits) | padding (1 bit=0) | private (1 bit=0)
+    out_buf[2] = (bitrate_index << 4) | (sr_index << 2);
+
+    // channel_mode (2 bits) | mode_ext (2 bits=0) | copyright (1=0) | original (1=1) | emphasis (2=0)
+    out_buf[3] = (channel_mode << 6) | 0x04; // original=1
+
+    // Side information follows (17 bytes mono, 32 bytes stereo for MPEG-1)
+    // All zeros = silence (no main data, no scalefactors)
+    // Already zeroed by memset
+
+    return frame_size;
 }
 
 void SLSAudioGapFiller::write_pes_pts(uint8_t *buf, int64_t pts, int marker_bits)
@@ -123,61 +214,72 @@ void SLSAudioGapFiller::write_pes_pts(uint8_t *buf, int64_t pts, int marker_bits
     buf[4] = (((pts) & 0x7F) << 1) | 1;
 }
 
-void SLSAudioGapFiller::build_silent_aac_ts_packet(
+void SLSAudioGapFiller::build_silent_ts_packet(
     uint8_t *out_packet,
-    const ts_info *ti,
+    const audio_track_info *track,
     int64_t pts,
     uint8_t &cc)
 {
     memset(out_packet, 0xFF, TS_PACK_LEN);
 
-    // Build the ADTS frame with the stream's actual format
-    uint8_t adts_frame[64];
-    int adts_len = build_silent_adts_frame(
-        adts_frame,
-        ti->audio_profile,
-        ti->audio_sample_rate_index,
-        ti->audio_channel_config);
+    // Build the silent audio frame based on codec type
+    uint8_t audio_frame[188];
+    int audio_frame_len = 0;
 
-    // PES header: 00 00 01 C0 <len_hi> <len_lo> 80 80 05 <pts 5 bytes>
-    int pes_header_len = 14; // 3 (start code) + 1 (stream_id) + 2 (length) + 3 (flags+hdr_len) + 5 (PTS)
-    int pes_payload_len = pes_header_len + adts_len;
+    if (track->stream_type == 0x0F || track->stream_type == 0x11)
+    {
+        audio_frame_len = build_silent_adts_frame(
+            audio_frame, track->profile, track->sample_rate_index, track->channel_config);
+    }
+    else if (track->stream_type == 0x03 || track->stream_type == 0x04)
+    {
+        audio_frame_len = build_silent_mp3_frame(audio_frame, track);
+    }
+
+    if (audio_frame_len <= 0)
+        return;
+
+    // PES header size: 3 (start code) + 1 (stream_id) + 2 (length) + 3 (flags+hdr_len) + 5 (PTS) = 14
+    int pes_header_len = 14;
+    int pes_payload_len = pes_header_len + audio_frame_len;
     int ts_payload_capacity = TS_PACK_LEN - 4; // 184
     int stuffing_needed = ts_payload_capacity - pes_payload_len;
+
+    // If the audio frame is too large for a single TS packet, skip it
+    if (stuffing_needed < 0)
+        return;
 
     int pos = 0;
 
     // TS header
     out_packet[pos++] = TS_SYNC_BYTE;
-    out_packet[pos++] = 0x40 | ((ti->audio_pid >> 8) & 0x1F); // PUSI=1 + PID high
-    out_packet[pos++] = ti->audio_pid & 0xFF;                  // PID low
+    out_packet[pos++] = 0x40 | ((track->pid >> 8) & 0x1F);
+    out_packet[pos++] = track->pid & 0xFF;
 
     if (stuffing_needed > 0)
     {
-        out_packet[pos++] = 0x30 | (cc & 0x0F); // adaptation + payload
+        out_packet[pos++] = 0x30 | (cc & 0x0F);
         cc = (cc + 1) & 0x0F;
-
-        out_packet[pos++] = stuffing_needed - 1; // adaptation field length
+        out_packet[pos++] = stuffing_needed - 1;
         if (stuffing_needed > 1)
         {
-            out_packet[pos++] = 0x00; // flags
-            // Rest is 0xFF (already from memset)
+            out_packet[pos++] = 0x00;
             pos += stuffing_needed - 2;
         }
     }
     else
     {
-        out_packet[pos++] = 0x10 | (cc & 0x0F); // payload only
+        out_packet[pos++] = 0x10 | (cc & 0x0F);
         cc = (cc + 1) & 0x0F;
     }
 
     // PES header
-    out_packet[pos++] = 0x00; // start code
+    out_packet[pos++] = 0x00;
     out_packet[pos++] = 0x00;
     out_packet[pos++] = 0x01;
-    out_packet[pos++] = 0xC0; // audio stream_id
+    out_packet[pos++] = track->stream_id;
 
-    int pes_remaining = 3 + 5 + adts_len; // flags(2) + hdr_data_len(1) + pts(5) + payload
+    int pes_remaining = 3 + 5 + audio_frame_len;
     out_packet[pos++] = (pes_remaining >> 8) & 0xFF;
     out_packet[pos++] = pes_remaining & 0xFF;
 
@@ -188,12 +290,12 @@ void SLSAudioGapFiller::build_silent_aac_ts_packet(
     write_pes_pts(out_packet + pos, pts, 0x2);
     pos += 5;
 
-    // ADTS silent frame
-    memcpy(out_packet + pos, adts_frame, adts_len);
+    // Audio frame
+    memcpy(out_packet + pos, audio_frame, audio_frame_len);
 }
 
 std::vector<uint8_t> SLSAudioGapFiller::generate_gap_packets(
-    const ts_info *ti,
+    const audio_track_info *track,
     int64_t last_pts,
     int64_t current_pts,
     uint8_t &cc)
@@ -203,23 +305,20 @@ std::vector<uint8_t> SLSAudioGapFiller::generate_gap_packets(
     if (last_pts == INVALID_DTS_PTS || current_pts == INVALID_DTS_PTS)
         return result;
 
-    if (!ti->audio_format_detected || ti->audio_sample_rate <= 0)
+    if (!track->format_detected || track->sample_rate <= 0)
         return result;
 
-    // Only support AAC gap filling (stream types 0x0F and 0x11)
-    if (ti->audio_stream_type != 0x0F && ti->audio_stream_type != 0x11)
+    if (!is_supported_audio(track->stream_type))
         return result;
 
-    int64_t frame_duration = frame_pts_duration(ti->audio_sample_rate, ti->audio_stream_type);
+    int64_t frame_duration = frame_pts_duration(track->sample_rate, track->stream_type);
     if (frame_duration <= 0)
         return result;
 
-    // Calculate PTS delta with wraparound handling
     int64_t pts_delta = current_pts - last_pts;
     if (pts_delta < 0)
         pts_delta += PTS_WRAP;
 
-    // Ignore very large gaps (likely stream restart)
     if (pts_delta > MAX_PTS_GAP || pts_delta <= frame_duration)
         return result;
 
@@ -229,15 +328,15 @@ std::vector<uint8_t> SLSAudioGapFiller::generate_gap_packets(
     if (num_gap_frames > MAX_GAP_FRAMES)
         num_gap_frames = MAX_GAP_FRAMES;
 
-    spdlog::debug("SLSAudioGapFiller: filling {} silent frames ({}Hz), pts_delta={}, last_pts={}, current_pts={}",
-                  num_gap_frames, ti->audio_sample_rate, pts_delta, last_pts, current_pts);
+    spdlog::debug("SLSAudioGapFiller: PID={} filling {} silent frames ({}Hz, type={:#x}), pts_delta={}",
+                  track->pid, num_gap_frames, track->sample_rate, track->stream_type, pts_delta);
 
     result.resize(num_gap_frames * TS_PACK_LEN);
 
     for (int i = 0; i < num_gap_frames; i++)
     {
         int64_t fill_pts = (last_pts + (int64_t)(i + 1) * frame_duration) % PTS_WRAP;
-        build_silent_aac_ts_packet(result.data() + i * TS_PACK_LEN, ti, fill_pts, cc);
+        build_silent_ts_packet(result.data() + i * TS_PACK_LEN, track, fill_pts, cc);
     }
 
     return result;

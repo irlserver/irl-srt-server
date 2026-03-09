@@ -306,10 +306,10 @@ void CSLSMapData::set_audio_gap_fill(bool enabled)
 
 void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleArray *array_data)
 {
-    if (ti->audio_pid == INVALID_PID || !ti->pmt_parsed)
+    if (!ti->pmt_parsed || ti->audio_track_count == 0)
         return;
 
-    // Scan TS packets for audio PES with PTS
+    // Scan TS packets for audio PES with PTS on any tracked audio track
     for (int i = 0; i < len; i += TS_PACK_LEN)
     {
         const uint8_t *pkt = (const uint8_t *)data + i;
@@ -317,24 +317,33 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
             continue;
 
         int pid = ((pkt[1] & 0x1F) << 8) | (pkt[2] & 0xFF);
-        if (pid != ti->audio_pid)
+
+        // Find which audio track this PID belongs to
+        audio_track_info *track = NULL;
+        for (int t = 0; t < ti->audio_track_count; t++)
+        {
+            if (ti->audio_tracks[t].pid == pid)
+            {
+                track = &ti->audio_tracks[t];
+                break;
+            }
+        }
+        if (!track)
             continue;
 
         int is_start = pkt[1] & 0x40;
         if (!is_start)
         {
-            // Track continuity counter from incoming audio packets
-            ti->audio_cc = (pkt[3] & 0x0F);
+            track->cc = (pkt[3] & 0x0F);
             continue;
         }
 
-        // Track continuity counter
-        ti->audio_cc = (pkt[3] & 0x0F);
+        track->cc = (pkt[3] & 0x0F);
 
         // Find PES payload
         int afc = (pkt[3] >> 4) & 3;
         int pos = 4;
-        if (afc & 2) // adaptation field present
+        if (afc & 2)
             pos += 1 + (pkt[pos] & 0xFF);
         if (pos + 9 >= TS_PACK_LEN)
             continue;
@@ -346,10 +355,13 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
         if (stream_id < 0xC0 || stream_id > 0xDF)
             continue;
 
+        // Record the actual stream_id from the PES header
+        track->stream_id = stream_id;
+
         // Parse PTS
         int flags = pkt[pos + 7] & 0xFF;
         if ((flags & 0x80) == 0)
-            continue; // no PTS
+            continue;
 
         int64_t current_pts = 0;
         const uint8_t *pts_buf = pkt + pos + 9;
@@ -359,33 +371,33 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
                       ((int64_t)(pts_buf[3] & 0xFF) << 7) |
                       ((int64_t)(pts_buf[4] & 0xFE) >> 1);
 
-        // Try to detect ADTS audio format from the ES payload if not yet detected
-        if (!ti->audio_format_detected)
+        // Try to detect audio format from ES payload if not yet detected
+        if (!track->format_detected)
         {
             int pes_header_len = pkt[pos + 8] & 0xFF;
             int es_offset = pos + 9 + pes_header_len;
             if (es_offset < TS_PACK_LEN)
             {
-                SLSAudioGapFiller::detect_adts_format(
-                    pkt + es_offset, TS_PACK_LEN - es_offset, ti);
+                SLSAudioGapFiller::detect_format(
+                    pkt + es_offset, TS_PACK_LEN - es_offset, track);
             }
         }
 
         // Generate gap fill packets if there's a gap
-        if (ti->last_audio_pts != INVALID_DTS_PTS && ti->audio_format_detected)
+        if (track->last_pts != INVALID_DTS_PTS && track->format_detected)
         {
-            uint8_t fill_cc = (ti->audio_cc + 1) & 0x0F;
+            uint8_t fill_cc = (track->cc + 1) & 0x0F;
             std::vector<uint8_t> gap_packets = SLSAudioGapFiller::generate_gap_packets(
-                ti, ti->last_audio_pts, current_pts, fill_cc);
+                track, track->last_pts, current_pts, fill_cc);
 
             if (!gap_packets.empty())
             {
                 array_data->put((char *)gap_packets.data(), gap_packets.size());
-                spdlog::info("CSLSMapData::check_audio_gap: inserted {} silent packets ({} bytes)",
-                             gap_packets.size() / TS_PACK_LEN, gap_packets.size());
+                spdlog::info("CSLSMapData::check_audio_gap: PID={} inserted {} silent packets ({} bytes)",
+                             track->pid, gap_packets.size() / TS_PACK_LEN, gap_packets.size());
             }
         }
 
-        ti->last_audio_pts = current_pts;
+        track->last_pts = current_pts;
     }
 }

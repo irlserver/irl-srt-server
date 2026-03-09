@@ -141,6 +141,26 @@ struct stat_info_t
 #define INVALID_DTS_PTS -1
 #define MAX_PES_PAYLOAD 200 * 1024
 
+// Maximum number of audio tracks we can track per stream
+#define MAX_AUDIO_TRACKS 4
+
+// Per-audio-track state for gap filling
+struct audio_track_info
+{
+    int pid;                    // Audio elementary stream PID (from PMT)
+    int stream_type;            // Stream type (0x0F=AAC, 0x03=MP3, 0x06=private/Opus, etc.)
+    uint8_t stream_id;          // PES stream_id for this track (0xC0, 0xC1, etc.)
+    int64_t last_pts;           // Last seen audio PTS (90kHz clock)
+    uint8_t cc;                 // Continuity counter for generated audio packets
+    int sample_rate;            // Detected sample rate (e.g. 44100, 48000)
+    int channels;               // Detected channel count (1=mono, 2=stereo, etc.)
+    int sample_rate_index;      // ADTS sample rate index (0-12), or MP3 sr index
+    int channel_config;         // ADTS channel configuration (1-7)
+    int profile;                // AAC profile (1=AAC-LC, etc.), or MP3 layer
+    int bitrate_index;          // MP3 bitrate index (for frame size calculation)
+    bool format_detected;       // Whether we've captured the audio format from headers
+};
+
 struct ts_info
 {
     int es_pid;
@@ -159,18 +179,11 @@ struct ts_info
     int pmt_len;
 
     // Audio gap filling fields
-    int audio_pid;              // Audio elementary stream PID (from PMT)
-    int audio_stream_type;      // Stream type (0x0F=AAC, 0x03=MP3, etc.)
-    int64_t last_audio_pts;     // Last seen audio PTS (90kHz clock)
-    uint8_t audio_cc;           // Continuity counter for generated audio packets
-    bool pmt_parsed;            // Whether PMT has been parsed for audio PID
-    int audio_sample_rate;      // Detected sample rate (e.g. 44100, 48000)
-    int audio_channels;         // Detected channel count (1=mono, 2=stereo, etc.)
-    int audio_sample_rate_index; // ADTS sample rate index (0-12)
-    int audio_channel_config;   // ADTS channel configuration (1-7)
-    int audio_profile;          // AAC profile (1=AAC-LC, etc.)
-    bool audio_format_detected; // Whether we've captured the audio format from ADTS
+    bool pmt_parsed;            // Whether PMT has been parsed for audio PIDs
+    int audio_track_count;      // Number of audio tracks found in PMT
+    audio_track_info audio_tracks[MAX_AUDIO_TRACKS]; // Per-track state
 };
 void sls_init_ts_info(ts_info *ti);
+void sls_init_audio_track(audio_track_info *at);
 int sls_parse_ts_info(const uint8_t *packet, ts_info *ti);
 int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti);

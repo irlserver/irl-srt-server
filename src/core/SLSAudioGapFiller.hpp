@@ -39,7 +39,7 @@ static const int64_t MAX_PTS_GAP = 2 * 90000;
 // AAC samples per frame (AAC-LC always uses 1024 samples per frame)
 static const int AAC_SAMPLES_PER_FRAME = 1024;
 
-// MPEG-2 Audio (MP3) samples per frame
+// MPEG-1/2 Audio Layer III (MP3) samples per frame
 static const int MP3_SAMPLES_PER_FRAME = 1152;
 
 // ADTS sample rate table (ISO 14496-3)
@@ -49,39 +49,63 @@ static const int ADTS_SAMPLE_RATES[] = {
 };
 static const int ADTS_SAMPLE_RATE_COUNT = 13;
 
+// MP3 sample rate table (MPEG-1)
+static const int MP3_SAMPLE_RATES_MPEG1[] = {44100, 48000, 32000};
+// MP3 sample rate table (MPEG-2)
+static const int MP3_SAMPLE_RATES_MPEG2[] = {22050, 24000, 16000};
+// MP3 sample rate table (MPEG-2.5)
+static const int MP3_SAMPLE_RATES_MPEG25[] = {11025, 12000, 8000};
+
+// MP3 bitrate table for MPEG-1 Layer III (kbps), index 0 = free, 15 = bad
+static const int MP3_BITRATES_MPEG1_L3[] = {
+    0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0
+};
+
 class SLSAudioGapFiller
 {
 public:
     // Calculate PTS duration of one audio frame based on sample rate and codec
     static int64_t frame_pts_duration(int sample_rate, int stream_type);
 
-    // Generate silent AAC MPEG-TS packets to fill a gap between lastPTS and currentPTS.
-    // Uses the audio format from ts_info to build matching silent frames.
-    // Returns the generated TS data (multiple of TS_PACK_LEN bytes).
+    // Generate silent MPEG-TS packets for a specific audio track to fill a PTS gap.
+    // Supports AAC (ADTS) and MP3. Returns TS data (multiple of TS_PACK_LEN bytes).
     static std::vector<uint8_t> generate_gap_packets(
-        const ts_info *ti,
+        const audio_track_info *track,
         int64_t last_pts,
         int64_t current_pts,
         uint8_t &cc);
 
-    // Try to detect audio format (sample rate, channels) from an ADTS header
-    // in the ES payload. Returns true if format was detected.
-    static bool detect_adts_format(const uint8_t *es_data, int es_len, ts_info *ti);
+    // Try to detect audio format from an ADTS header in the ES payload.
+    static bool detect_adts_format(const uint8_t *es_data, int es_len, audio_track_info *at);
+
+    // Try to detect audio format from an MP3 frame header in the ES payload.
+    static bool detect_mp3_format(const uint8_t *es_data, int es_len, audio_track_info *at);
+
+    // Try to auto-detect format based on stream type and ES data.
+    static bool detect_format(const uint8_t *es_data, int es_len, audio_track_info *at);
+
+    // Check if a stream type is a supported audio codec for gap filling
+    static bool is_supported_audio(int stream_type);
 
 private:
-    // Build a single silent AAC TS packet with the given PTS
-    static void build_silent_aac_ts_packet(
+    // Build a single silent TS packet with the given PTS for the given track
+    static void build_silent_ts_packet(
         uint8_t *out_packet,
-        const ts_info *ti,
+        const audio_track_info *track,
         int64_t pts,
         uint8_t &cc);
 
-    // Build the silent AAC ADTS frame for the given format
+    // Build a silent AAC ADTS frame for the given format. Returns frame length.
     static int build_silent_adts_frame(
         uint8_t *out_buf,
         int profile,
         int sample_rate_index,
         int channel_config);
+
+    // Build a silent MP3 frame for the given format. Returns frame length.
+    static int build_silent_mp3_frame(
+        uint8_t *out_buf,
+        const audio_track_info *track);
 
     // Write PTS into a PES header buffer (5 bytes)
     static void write_pes_pts(uint8_t *buf, int64_t pts, int marker_bits);

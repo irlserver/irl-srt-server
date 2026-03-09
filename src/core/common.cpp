@@ -905,25 +905,74 @@ int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
     int pos = 12 + program_info_length;
     int end = 3 + section_length - 4; // exclude CRC
 
+    ti->audio_track_count = 0;
+    uint8_t next_stream_id = 0xC0; // audio stream IDs are 0xC0-0xDF
+
     while (pos + 5 <= end && pos + 5 <= len)
     {
         int stream_type = buffer[pos];
         int elementary_pid = ((buffer[pos + 1] & 0x1F) << 8) | buffer[pos + 2];
         int es_info_length = ((buffer[pos + 3] & 0x0F) << 8) | buffer[pos + 4];
 
-        // Audio stream types: 0x03=MP3, 0x04=MP3, 0x0F=AAC-ADTS, 0x11=AAC-LATM
+        bool is_audio = false;
+
+        // Known audio stream types:
+        // 0x03 = MPEG-1 Audio (MP3)
+        // 0x04 = MPEG-2 Audio (MP3)
+        // 0x0F = AAC (ADTS)
+        // 0x11 = AAC (LATM/LOAS)
+        // 0x81 = AC-3 (Dolby Digital) - common in ATSC
+        // 0x06 = Private data (may contain Opus, AC-3, or other codecs via descriptors)
         if (stream_type == 0x0F || stream_type == 0x11 ||
-            stream_type == 0x03 || stream_type == 0x04)
+            stream_type == 0x03 || stream_type == 0x04 ||
+            stream_type == 0x81)
         {
-            ti->audio_pid = elementary_pid;
-            ti->audio_stream_type = stream_type;
-            ti->pmt_parsed = true;
-            spdlog::debug("sls_parse_pmt_for_audio: found audio PID={}, stream_type={:#x}",
-                          elementary_pid, stream_type);
-            return SLS_OK;
+            is_audio = true;
+        }
+        else if (stream_type == 0x06 && es_info_length > 0)
+        {
+            // Check ES descriptors for audio codec identifiers
+            int desc_pos = pos + 5;
+            int desc_end = desc_pos + es_info_length;
+            while (desc_pos + 2 <= desc_end && desc_pos + 2 <= len)
+            {
+                int desc_tag = buffer[desc_pos];
+                int desc_len = buffer[desc_pos + 1];
+                // 0x05 = Registration descriptor (check for 'Opus')
+                // 0x7F = Extension descriptor (check for Opus sub-descriptor 0x80)
+                if (desc_tag == 0x05 && desc_len >= 4 && desc_pos + 6 <= len)
+                {
+                    if (buffer[desc_pos + 2] == 'O' && buffer[desc_pos + 3] == 'p' &&
+                        buffer[desc_pos + 4] == 'u' && buffer[desc_pos + 5] == 's')
+                    {
+                        is_audio = true;
+                    }
+                }
+                desc_pos += 2 + desc_len;
+            }
+        }
+
+        if (is_audio && ti->audio_track_count < MAX_AUDIO_TRACKS)
+        {
+            audio_track_info *at = &ti->audio_tracks[ti->audio_track_count];
+            sls_init_audio_track(at);
+            at->pid = elementary_pid;
+            at->stream_type = stream_type;
+            at->stream_id = next_stream_id++;
+            ti->audio_track_count++;
+
+            spdlog::debug("sls_parse_pmt_for_audio: found audio track {} - PID={}, stream_type={:#x}",
+                          ti->audio_track_count, elementary_pid, stream_type);
         }
 
         pos += 5 + es_info_length;
+    }
+
+    if (ti->audio_track_count > 0)
+    {
+        ti->pmt_parsed = true;
+        spdlog::info("sls_parse_pmt_for_audio: found {} audio track(s)", ti->audio_track_count);
+        return SLS_OK;
     }
     return SLS_ERROR;
 }
@@ -1034,6 +1083,25 @@ int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
     return ret;
 }
 
+void sls_init_audio_track(audio_track_info *at)
+{
+    if (at)
+    {
+        at->pid = INVALID_PID;
+        at->stream_type = 0;
+        at->stream_id = 0xC0;
+        at->last_pts = INVALID_DTS_PTS;
+        at->cc = 0;
+        at->sample_rate = 0;
+        at->channels = 0;
+        at->sample_rate_index = 0;
+        at->channel_config = 0;
+        at->profile = 0;
+        at->bitrate_index = 0;
+        at->format_detected = false;
+    }
+}
+
 void sls_init_ts_info(ts_info *ti)
 {
     if (NULL != ti)
@@ -1047,17 +1115,10 @@ void sls_init_ts_info(ts_info *ti)
         ti->pmt_len = 0;
         ti->pmt_pid = INVALID_PID;
         ti->need_spspps = false;
-        ti->audio_pid = INVALID_PID;
-        ti->audio_stream_type = 0;
-        ti->last_audio_pts = INVALID_DTS_PTS;
-        ti->audio_cc = 0;
         ti->pmt_parsed = false;
-        ti->audio_sample_rate = 0;
-        ti->audio_channels = 0;
-        ti->audio_sample_rate_index = 0;
-        ti->audio_channel_config = 0;
-        ti->audio_profile = 0;
-        ti->audio_format_detected = false;
+        ti->audio_track_count = 0;
+        for (int t = 0; t < MAX_AUDIO_TRACKS; t++)
+            sls_init_audio_track(&ti->audio_tracks[t]);
 
         memset(ti->ts_data, 0, TS_UDP_LEN);
 
