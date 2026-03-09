@@ -9,6 +9,8 @@ set(sls_core_files
 	README.md
 	SLSArray.cpp
 	SLSArray.hpp
+	SLSAudioGapFiller.cpp
+	SLSAudioGapFiller.hpp
 	SLSBitrateLimit.cpp
 	SLSBitrateLimit.hpp
 	SLSClient.cpp

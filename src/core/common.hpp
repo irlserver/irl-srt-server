@@ -157,6 +157,20 @@ struct ts_info
     int pmt_pid;
     uint8_t pmt[TS_PACK_LEN];
     int pmt_len;
+
+    // Audio gap filling fields
+    int audio_pid;              // Audio elementary stream PID (from PMT)
+    int audio_stream_type;      // Stream type (0x0F=AAC, 0x03=MP3, etc.)
+    int64_t last_audio_pts;     // Last seen audio PTS (90kHz clock)
+    uint8_t audio_cc;           // Continuity counter for generated audio packets
+    bool pmt_parsed;            // Whether PMT has been parsed for audio PID
+    int audio_sample_rate;      // Detected sample rate (e.g. 44100, 48000)
+    int audio_channels;         // Detected channel count (1=mono, 2=stereo, etc.)
+    int audio_sample_rate_index; // ADTS sample rate index (0-12)
+    int audio_channel_config;   // ADTS channel configuration (1-7)
+    int audio_profile;          // AAC profile (1=AAC-LC, etc.)
+    bool audio_format_detected; // Whether we've captured the audio format from ADTS
 };
 void sls_init_ts_info(ts_info *ti);
 int sls_parse_ts_info(const uint8_t *packet, ts_info *ti);
+int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti);

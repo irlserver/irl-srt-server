@@ -29,6 +29,7 @@
 
 #include "SLSRecycleArray.hpp"
 #include "SLSLock.hpp"
+#include "SLSAudioGapFiller.hpp"
 
 class CSLSMapData
 {
@@ -41,6 +42,7 @@ public:
     void clear();
 
     int put(char *key, char *data, int len, int64_t *last_read_time = NULL);
+    void set_audio_gap_fill(bool enabled);
     int get(char *key, char *data, int len, SLSRecycleArrayID *read_id, int aligned = 0);
 
     bool is_exist(char *key);
@@ -53,4 +55,6 @@ private:
     CSLSRWLock m_rwclock;
 
     int check_ts_info(char *data, int len, ts_info *ti);
+    void check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleArray *array_data);
+    bool m_audio_gap_fill_enabled = false;
 };

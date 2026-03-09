@@ -893,6 +893,41 @@ static int sls_parse_pat(const uint8_t *pat_data, int len, ts_info *ti)
     return SLS_OK;
 }
 
+int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
+{
+    if (len < 12)
+        return SLS_ERROR;
+
+    uint8_t *buffer = (uint8_t *)pmt_data;
+    int section_length = (buffer[1] & 0x0F) << 8 | buffer[2];
+    int program_info_length = (buffer[10] & 0x0F) << 8 | buffer[11];
+
+    int pos = 12 + program_info_length;
+    int end = 3 + section_length - 4; // exclude CRC
+
+    while (pos + 5 <= end && pos + 5 <= len)
+    {
+        int stream_type = buffer[pos];
+        int elementary_pid = ((buffer[pos + 1] & 0x1F) << 8) | buffer[pos + 2];
+        int es_info_length = ((buffer[pos + 3] & 0x0F) << 8) | buffer[pos + 4];
+
+        // Audio stream types: 0x03=MP3, 0x04=MP3, 0x0F=AAC-ADTS, 0x11=AAC-LATM
+        if (stream_type == 0x0F || stream_type == 0x11 ||
+            stream_type == 0x03 || stream_type == 0x04)
+        {
+            ti->audio_pid = elementary_pid;
+            ti->audio_stream_type = stream_type;
+            ti->pmt_parsed = true;
+            spdlog::debug("sls_parse_pmt_for_audio: found audio PID={}, stream_type={:#x}",
+                          elementary_pid, stream_type);
+            return SLS_OK;
+        }
+
+        pos += 5 + es_info_length;
+    }
+    return SLS_ERROR;
+}
+
 int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
 {
 
@@ -922,6 +957,18 @@ int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
         {
             memcpy(ti->pmt, packet, TS_PACK_LEN);
             ti->pmt_len = TS_PACK_LEN;
+            // Parse PMT to find audio PID if not yet done
+            if (!ti->pmt_parsed)
+            {
+                int pmt_payload_offset = 4;
+                int afc_pmt = (packet[3] >> 4) & 3;
+                if (afc_pmt & 2)
+                    pmt_payload_offset += 1 + (packet[4] & 0xFF);
+                if (packet[1] & 0x40) // payload unit start
+                    pmt_payload_offset++; // skip pointer field
+                if (pmt_payload_offset < TS_PACK_LEN)
+                    sls_parse_pmt_for_audio(packet + pmt_payload_offset, TS_PACK_LEN - pmt_payload_offset, ti);
+            }
             return SLS_OK;
         }
         if (INVALID_PID != ti->es_pid)
@@ -1000,6 +1047,17 @@ void sls_init_ts_info(ts_info *ti)
         ti->pmt_len = 0;
         ti->pmt_pid = INVALID_PID;
         ti->need_spspps = false;
+        ti->audio_pid = INVALID_PID;
+        ti->audio_stream_type = 0;
+        ti->last_audio_pts = INVALID_DTS_PTS;
+        ti->audio_cc = 0;
+        ti->pmt_parsed = false;
+        ti->audio_sample_rate = 0;
+        ti->audio_channels = 0;
+        ti->audio_sample_rate_index = 0;
+        ti->audio_channel_config = 0;
+        ti->audio_profile = 0;
+        ti->audio_format_detected = false;
 
         memset(ti->ts_data, 0, TS_UDP_LEN);
 

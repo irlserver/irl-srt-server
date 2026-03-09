@@ -43,6 +43,7 @@ int max_input_bitrate_kbps;
 int max_input_bitrate_violation_timeout;
 int max_players_per_stream;
 sls_ip_acl_t ip_actions;
+bool audio_gap_fill;
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -59,6 +60,7 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(app, int, max_players_per_stream, "maximum number of players per stream", -1, 10000),
     SLS_SET_CONF2(app, ipset, ip_actions, allow, "allow address(es) to play/publish a stream", 1, 256),
     SLS_SET_CONF2(app, ipset, ip_actions, deny, "deny address(es) from playing/publishing a stream", 1, 256),
+    SLS_SET_CONF(app, bool, audio_gap_fill, "fill audio gaps with silence to prevent OBS audio breaking", 0, 0),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**
