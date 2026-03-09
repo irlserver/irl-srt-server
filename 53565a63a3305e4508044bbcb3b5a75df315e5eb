@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "53565a63a3305e4508044bbcb3b5a75df315e5eb",
+  "prompts": {
+    "e5b6d1c7c57e5e6f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07c29916-188b-4de0-9242-5eb1977f3978",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>",
+      "messages": [],
+      "total_additions": 15,
+      "total_deletions": 31,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
