@@ -27,14 +27,14 @@
 #include <vector>
 #include "common.hpp"
 
-// Maximum gap to fill (about 2 seconds) - larger gaps are likely stream restarts
-static const int MAX_GAP_FRAMES = 100;
+// Maximum gap to fill (about 5 seconds) - covers cellular handoffs on bonded SRTLA
+static const int MAX_GAP_FRAMES = 250;
 
 // PTS is 33-bit, wraps at 2^33
 static const int64_t PTS_WRAP = (int64_t)1 << 33;
 
-// Maximum reasonable PTS delta (about 2 seconds)
-static const int64_t MAX_PTS_GAP = 2 * 90000;
+// Maximum reasonable PTS delta (about 5 seconds) - covers SRTLA reconnections
+static const int64_t MAX_PTS_GAP = 5 * 90000;
 
 // AAC samples per frame (AAC-LC always uses 1024 samples per frame)
 static const int AAC_SAMPLES_PER_FRAME = 1024;
