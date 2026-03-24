@@ -1,0 +1,33 @@
+src/sls.conf
+  a3cfa498d9ba8cae 201-205
+src/core/SLSRole.hpp
+  a3cfa498d9ba8cae 29-37,110,144-146
+src/core/SLSPublisher.cpp
+  a3cfa498d9ba8cae 83-86,88
+src/core/SLSPublisher.hpp
+  a3cfa498d9ba8cae 44,61
+src/core/SLSRole.cpp
+  a3cfa498d9ba8cae 69-72,84,108-113,123-134,136-140,202-232,235-246,333-338,602-700,702-703,731-799,801-806,808,811,813,817,823-824,831-833,842-844
+BITRATE_LIMITING.md
+  a3cfa498d9ba8cae 1,3,7,11-14,19,25-29,38,40,43-49,54-58,62-67,69-72,74-77,84-88,91,93-98,103-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "425db7887c79225b9064c96b915979a3f2d352a0",
+  "prompts": {
+    "a3cfa498d9ba8cae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59f2812d-0079-4731-8f50-be148780e027",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>",
+      "messages": [],
+      "total_additions": 531,
+      "total_deletions": 579,
+      "accepted_lines": 400,
+      "overriden_lines": 0
+    }
+  }
+}
