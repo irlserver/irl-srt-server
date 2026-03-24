@@ -80,7 +80,12 @@ int CSLSPublisher::init()
             if (violation_timeout <= 0) {
                 violation_timeout = 30; // Default to 30 seconds if not configured
             }
-            ret = init_bitrate_limiter(app_conf->max_input_bitrate_kbps, violation_timeout);
+            // Spike tolerance: config is percentage (e.g. 120 = 1.2x), default to 120 if not set
+            float spike_tolerance = 1.2f;
+            if (app_conf->max_input_bitrate_spike_tolerance > 0) {
+                spike_tolerance = app_conf->max_input_bitrate_spike_tolerance / 100.0f;
+            }
+            ret = init_bitrate_limiter(app_conf->max_input_bitrate_kbps, violation_timeout, spike_tolerance);
             if (ret != SLS_OK) {
                 spdlog::error("[{}] CSLSPublisher::init, failed to initialize bitrate limiter", fmt::ptr(this));
                 return ret;

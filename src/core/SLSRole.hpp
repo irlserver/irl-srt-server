@@ -107,7 +107,7 @@ public:
     void set_record_hls_path(const char *hls_path);
 
     // Bitrate limiting methods
-    int init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds = 30);
+    int init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds = 30, float spike_tolerance = 2.0f);
     void cleanup_bitrate_limiter();
     CSLSBitrateLimit::BitrateStats get_bitrate_stats() const;
 
