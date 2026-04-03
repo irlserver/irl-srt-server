@@ -151,7 +151,10 @@ struct audio_track_info
     int stream_type;            // Stream type (0x0F=AAC, 0x03=MP3, 0x06=private/Opus, etc.)
     uint8_t stream_id;          // PES stream_id for this track (0xC0, 0xC1, etc.)
     int64_t last_pts;           // Last seen audio PTS (90kHz clock)
-    uint8_t cc;                 // Continuity counter for generated audio packets
+    uint8_t cc;                 // Continuity counter from the actual stream
+    uint8_t expected_cc;        // Expected CC for rewriting (sequential, no gaps)
+    bool cc_initialized;        // Whether expected_cc has been initialized from stream
+    bool in_gap;                // True after gap detection until a clean PES start arrives
     int sample_rate;            // Detected sample rate (e.g. 44100, 48000)
     int channels;               // Detected channel count (1=mono, 2=stereo, etc.)
     int sample_rate_index;      // ADTS sample rate index (0-12), or MP3 sr index
@@ -165,6 +168,7 @@ struct audio_track_info
     uint64_t silent_bytes_inserted;   // Number of TS bytes inserted for this track
     int64_t last_gap_pts_delta; // Most recent detected PTS delta that triggered filling
     int last_gap_frames;        // Number of frames inserted for the most recent detected gap
+    uint64_t partial_pes_dropped; // Number of partial PES continuation packets dropped
 };
 
 struct ts_info

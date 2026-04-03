@@ -160,12 +160,6 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
                       fmt::ptr(this), key);
     }
 
-    ret = array_data->put(data, len);
-    if (ret != len)
-    {
-        spdlog::error("[{}] CSLSMapData::put, key={}, array_data->put failed, len={:d}, but ret={:d}.",
-                      fmt::ptr(this), key, len, ret);
-    }
     if (NULL != last_read_time)
     {
         *last_read_time = array_data->get_last_read_time();
@@ -193,10 +187,18 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
                      fmt::ptr(this), key);
     }
 
-    // Audio gap filling: detect and insert silent packets
+    // Audio gap filling: detect gaps and insert silence BEFORE the current data,
+    // then rewrite audio CCs and drop partial PES packets in the current data.
     if (ti->audio_gap_fill_enabled)
     {
         check_audio_gap(data, len, ti, array_data);
+    }
+
+    ret = array_data->put(data, len);
+    if (ret != len)
+    {
+        spdlog::error("[{}] CSLSMapData::put, key={}, array_data->put failed, len={:d}, but ret={:d}.",
+                      fmt::ptr(this), key, len, ret);
     }
 
     return ret;
@@ -393,10 +395,11 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
     if (!ti->pmt_parsed || ti->audio_track_count == 0)
         return;
 
-    // Scan TS packets for audio PES with PTS on any tracked audio track
+    // Single pass over all TS packets: detect gaps, insert silence, rewrite CCs,
+    // and drop partial PES continuation packets after gaps.
     for (int i = 0; i < len; i += TS_PACK_LEN)
     {
-        const uint8_t *pkt = (const uint8_t *)data + i;
+        uint8_t *pkt = (uint8_t *)data + i;
         if (pkt[0] != TS_SYNC_BYTE)
             continue;
 
@@ -415,14 +418,42 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
         if (!track)
             continue;
 
-        int is_start = pkt[1] & 0x40;
-        if (!is_start)
+        int is_start = pkt[1] & 0x40; // PUSI flag
+
+        // Drop partial PES continuation packets after a gap. These are the tail
+        // end of a PES that started before the gap, delivering a corrupt/partial
+        // audio frame to the decoder. Replace with a null TS packet.
+        if (track->in_gap && !is_start)
         {
-            track->cc = (pkt[3] & 0x0F);
+            // Convert to null packet (PID 0x1FFF) so downstream ignores it
+            pkt[1] = (pkt[1] & 0xE0) | 0x1F;
+            pkt[2] = 0xFF;
+            track->partial_pes_dropped++;
             continue;
         }
 
-        track->cc = (pkt[3] & 0x0F);
+        if (is_start)
+        {
+            // A new PES start clears the gap state
+            track->in_gap = false;
+        }
+
+        // Rewrite CC to be sequential. This eliminates CC discontinuity errors
+        // in downstream demuxers (FFmpeg/OBS) that would otherwise cause them
+        // to discard audio packets or enter a permanently broken state.
+        if (!track->cc_initialized)
+        {
+            track->expected_cc = pkt[3] & 0x0F;
+            track->cc_initialized = true;
+        }
+        // Preserve adaptation_field_control bits, only rewrite the CC nibble
+        pkt[3] = (pkt[3] & 0xF0) | (track->expected_cc & 0x0F);
+        track->expected_cc = (track->expected_cc + 1) & 0x0F;
+
+        track->cc = pkt[3] & 0x0F;
+
+        if (!is_start)
+            continue;
 
         // Find PES payload
         int afc = (pkt[3] >> 4) & 3;
@@ -467,17 +498,34 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
             }
         }
 
-        // Generate gap fill packets if there's a gap
+        // Generate gap fill packets if there's a PTS gap
         if (track->last_pts != INVALID_DTS_PTS && track->format_detected)
         {
-            uint8_t fill_cc = (track->cc + 1) & 0x0F;
+            // Use expected_cc for gap fill so CCs are sequential with the rewritten stream
+            uint8_t fill_cc = track->expected_cc;
             std::vector<uint8_t> gap_packets = SLSAudioGapFiller::generate_gap_packets(
                 track, track->last_pts, current_pts, fill_cc);
 
             if (!gap_packets.empty())
             {
                 uint64_t inserted_packets = gap_packets.size() / TS_PACK_LEN;
+
+                // Insert silence BEFORE the current data chunk (already in buffer
+                // before this function returns, since put() calls us first now)
                 array_data->put((char *)gap_packets.data(), gap_packets.size());
+
+                // Advance expected_cc past the gap fill packets
+                track->expected_cc = fill_cc;
+                // Rewrite the current packet's CC to continue the sequence
+                pkt[3] = (pkt[3] & 0xF0) | (track->expected_cc & 0x0F);
+                track->expected_cc = (track->expected_cc + 1) & 0x0F;
+                track->cc = pkt[3] & 0x0F;
+
+                // Mark that we had a gap (for dropping continuation packets
+                // of the incomplete PES before this start packet, if any
+                // arrive in subsequent data chunks)
+                track->in_gap = true;
+
                 track->gap_count++;
                 track->silent_frames_inserted += inserted_packets;
                 track->silent_packets_inserted += inserted_packets;
@@ -489,8 +537,9 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
                 ti->silent_frames_inserted += inserted_packets;
                 ti->silent_packets_inserted += inserted_packets;
                 ti->silent_bytes_inserted += gap_packets.size();
-                spdlog::info("CSLSMapData::check_audio_gap: PID={} inserted {} silent packets ({} bytes)",
-                             track->pid, gap_packets.size() / TS_PACK_LEN, gap_packets.size());
+                spdlog::info("CSLSMapData::check_audio_gap: PID={} inserted {} silent packets ({} bytes), dropped {} partial PES packets",
+                             track->pid, inserted_packets, gap_packets.size(), track->partial_pes_dropped);
+                track->partial_pes_dropped = 0;
             }
         }
 

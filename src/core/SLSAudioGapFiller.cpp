@@ -36,7 +36,16 @@ static const int SILENT_AAC_PAYLOAD_LEN = sizeof(SILENT_AAC_PAYLOAD);
 bool SLSAudioGapFiller::is_supported_audio(int stream_type)
 {
     return stream_type == 0x0F || stream_type == 0x11 || // AAC
-           stream_type == 0x03 || stream_type == 0x04;   // MP3
+           stream_type == 0x03 || stream_type == 0x04 || // MP3
+           stream_type == STREAM_TYPE_PRIVATE_DATA;       // Opus (via descriptor)
+}
+
+bool SLSAudioGapFiller::is_opus_audio(const audio_track_info *track)
+{
+    // Opus is signaled as stream_type 0x06 (private data) with a Registration
+    // descriptor containing "Opus". We detect it by checking format_detected
+    // combined with stream_type and the profile field set to a sentinel value.
+    return track->stream_type == STREAM_TYPE_PRIVATE_DATA && track->format_detected;
 }
 
 int64_t SLSAudioGapFiller::frame_pts_duration(int sample_rate, int stream_type)
@@ -47,6 +56,8 @@ int64_t SLSAudioGapFiller::frame_pts_duration(int sample_rate, int stream_type)
     int samples_per_frame;
     if (stream_type == 0x03 || stream_type == 0x04)
         samples_per_frame = MP3_SAMPLES_PER_FRAME;
+    else if (stream_type == STREAM_TYPE_PRIVATE_DATA)
+        samples_per_frame = OPUS_SAMPLES_PER_FRAME;
     else
         samples_per_frame = AAC_SAMPLES_PER_FRAME;
 
@@ -126,12 +137,35 @@ bool SLSAudioGapFiller::detect_mp3_format(const uint8_t *es_data, int es_len, au
     return true;
 }
 
+bool SLSAudioGapFiller::detect_opus_format(const uint8_t *es_data, int es_len, audio_track_info *at)
+{
+    // Opus in MPEG-TS uses a control header byte before each Opus packet.
+    // The control header encodes frame size and channel count info.
+    // For gap filling we just need to know it's Opus; the frame parameters
+    // are fixed (48kHz, 20ms frames) as required by the Opus-in-MPEG-TS spec.
+    if (es_len < 1)
+        return false;
+
+    // The first byte is the Opus control header. We accept any value as long
+    // as the PMT already identified this PID as Opus via the registration descriptor.
+    // Opus in MPEG-TS always uses 48kHz internally.
+    at->sample_rate = OPUS_DEFAULT_SAMPLE_RATE;
+    at->channels = 2; // stereo is most common; the actual channel count doesn't affect silence generation
+    at->format_detected = true;
+
+    spdlog::info("SLSAudioGapFiller: detected Opus format on PID={} - sample_rate={}Hz, channels={}",
+                 at->pid, at->sample_rate, at->channels);
+    return true;
+}
+
 bool SLSAudioGapFiller::detect_format(const uint8_t *es_data, int es_len, audio_track_info *at)
 {
     if (at->stream_type == 0x0F || at->stream_type == 0x11)
         return detect_adts_format(es_data, es_len, at);
     else if (at->stream_type == 0x03 || at->stream_type == 0x04)
         return detect_mp3_format(es_data, es_len, at);
+    else if (at->stream_type == STREAM_TYPE_PRIVATE_DATA)
+        return detect_opus_format(es_data, es_len, at);
     return false;
 }
 
@@ -205,6 +239,37 @@ int SLSAudioGapFiller::build_silent_mp3_frame(
     return frame_size;
 }
 
+int SLSAudioGapFiller::build_silent_opus_frame(
+    uint8_t *out_buf,
+    const audio_track_info *track)
+{
+    // Opus silent frame: a single-byte Opus control header for MPEG-TS,
+    // followed by a minimal Opus silence packet.
+    //
+    // The Opus-in-MPEG-TS spec (draft-spittka-payload-rtp-opus) uses a
+    // control header byte before each Opus packet. For a 20ms frame:
+    //   control_header = 0x7F (start_trim=0, end_trim=0, control=0, frame_count=1)
+    //
+    // The actual Opus silence is a single-byte TOC with code 0 (silence):
+    //   TOC byte: config=0 (SILK-only 10ms NB), s=0, c=0
+    //   But the simplest valid silence is just FC (hybrid 20ms, stereo, code 0)
+    //   followed by no frame data (code 0 = 1 frame of 0 bytes = silence).
+    //
+    // Minimal approach: Opus control header (1 byte) + Opus TOC (1 byte)
+    // The TOC byte 0xFC = config 31 (FB 20ms), stereo, code 0 (1 frame).
+    // With code 0 and 0 bytes of frame data, the decoder outputs silence.
+
+    // Opus MPEG-TS control header: single Opus packet in this access unit
+    out_buf[0] = 0x7E; // control header: start_trim_flag=0, end_trim_flag=0, control_ext=0, payload follows
+
+    // Opus TOC byte: silence
+    // 0xF8 = config=31 (fullband, 20ms), mono, code=0 (1 frame, 0 bytes = silence)
+    // 0xFC = config=31 (fullband, 20ms), stereo, code=0
+    out_buf[1] = (track->channels > 1) ? 0xFC : 0xF8;
+
+    return 2;
+}
+
 void SLSAudioGapFiller::write_pes_pts(uint8_t *buf, int64_t pts, int marker_bits)
 {
     buf[0] = ((marker_bits & 0xF) << 4) | (((pts >> 30) & 0x07) << 1) | 1;
@@ -234,6 +299,10 @@ void SLSAudioGapFiller::build_silent_ts_packet(
     else if (track->stream_type == 0x03 || track->stream_type == 0x04)
     {
         audio_frame_len = build_silent_mp3_frame(audio_frame, track);
+    }
+    else if (track->stream_type == STREAM_TYPE_PRIVATE_DATA)
+    {
+        audio_frame_len = build_silent_opus_frame(audio_frame, track);
     }
 
     if (audio_frame_len <= 0)

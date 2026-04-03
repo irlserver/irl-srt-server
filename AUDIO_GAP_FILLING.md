@@ -19,7 +19,7 @@ When a publisher connects and starts streaming, the server parses the MPEG-TS Pr
 | `0x03` | MPEG-1 Audio (MP3) | Supported | MP3 frame header parsing |
 | `0x04` | MPEG-2 Audio (MP3) | Supported | MP3 frame header parsing |
 | `0x81` | AC-3 (Dolby Digital) | Detected, not filled | — |
-| `0x06` + Opus descriptor | Opus | Detected, not filled | — |
+| `0x06` + Opus descriptor | Opus | Supported | Control header detection |
 
 ### 2. Multi-Track Support
 
@@ -80,12 +80,20 @@ PTS is a 33-bit value that wraps at 2^33 (8,589,934,592 ticks, about 26.5 hours)
 
 Gaps larger than 2 seconds (180,000 PTS ticks) are ignored — these likely indicate a stream restart or encoder reconnection rather than packet loss.
 
-### 7. Safety Limits
+### 7. CC Rewriting
 
-- Maximum gap fill: **100 frames** per gap (~2 seconds of silence)
-- Maximum PTS gap considered: **2 seconds**
+All audio PID continuity counters are rewritten to be sequential. When packets are lost during transport, the original CC values have gaps that cause downstream demuxers (FFmpeg/OBS) to flag CC discontinuity errors and discard audio data. CC rewriting eliminates this by maintaining an independent sequential counter per audio PID, making the stream appear perfectly continuous to downstream consumers.
+
+### 8. Partial PES Dropping
+
+When a PTS gap is detected, any subsequent audio TS packets that are continuation packets (no Payload Unit Start Indicator) are converted to null packets (PID 0x1FFF). These are the tail end of a PES that started before the gap. Without this protection, incomplete audio frames reach the decoder and corrupt its internal state, causing "robotic" audio artifacts that persist indefinitely.
+
+### 9. Safety Limits
+
+- Maximum gap fill: **250 frames** per gap (~5 seconds of silence)
+- Maximum PTS gap considered: **5 seconds**
 - Maximum audio tracks: **4** per stream
-- Unsupported codecs (AC-3, Opus) are detected in PMT but not gap-filled
+- Unsupported codecs (AC-3) are detected in PMT but not gap-filled
 
 ## Configuration
 
@@ -121,14 +129,16 @@ Publisher (SRT) → libsrt_read() → handler_read_data()
                                         ↓
                                   check_ts_info()     ← parses PAT/PMT, finds audio PIDs
                                         ↓
-                                  check_audio_gap()   ← detects PTS gaps per audio track
-                                        ↓
+                                  check_audio_gap()   ← detects PTS gaps, rewrites CCs,
+                                        ↓               drops partial PES packets
                               SLSAudioGapFiller::     ← generates silent TS packets
-                              generate_gap_packets()    (AAC or MP3, per track)
+                              generate_gap_packets()    (AAC, MP3, or Opus, per track)
                                         ↓
-                                  array_data->put()   ← inserts silent packets into buffer
+                                  array_data->put()   ← inserts silent packets BEFORE data
                                         ↓
-                                  Players read from buffer (gap-filled stream)
+                                  array_data->put()   ← inserts original data (CCs rewritten)
+                                        ↓
+                                  Players read from buffer (clean, gap-filled stream)
 ```
 
 Gap filling happens at the publisher/buffer level, so it benefits all connected players simultaneously.
@@ -164,10 +174,10 @@ Example log output:
 
 ## Limitations
 
-- **AC-3 and Opus not filled** — These codecs are detected in the PMT but silent frame generation is not implemented for them. AC-3 has a complex frame structure, and Opus uses variable frame sizes.
-- **Not a codec fix** — This inserts silence at the transport level. If the audio decoder itself has state corruption from lost data, a brief glitch may still occur at the gap boundaries.
+- **AC-3 not filled** — AC-3 is detected in the PMT but silent frame generation is not implemented. AC-3 has a complex frame structure.
 - **Assumes standard framing** — AAC detection looks for ADTS sync words; MP3 detection looks for MPEG audio frame sync. Non-standard framing won't be detected.
 - **MP3 silent frames use 32kbps** — Silent MP3 frames are generated at the lowest standard bitrate (32kbps MPEG-1 Layer III) regardless of the stream's actual bitrate. This produces the smallest valid silent frame.
+- **Opus assumes 20ms frames at 48kHz** — Per the Opus-in-MPEG-TS specification. Most Opus encoders (including Moblin) use this configuration.
 
 ## Verification
 

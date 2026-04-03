@@ -1092,6 +1092,9 @@ void sls_init_audio_track(audio_track_info *at)
         at->stream_id = 0xC0;
         at->last_pts = INVALID_DTS_PTS;
         at->cc = 0;
+        at->expected_cc = 0;
+        at->cc_initialized = false;
+        at->in_gap = false;
         at->sample_rate = 0;
         at->channels = 0;
         at->sample_rate_index = 0;
@@ -1105,6 +1108,7 @@ void sls_init_audio_track(audio_track_info *at)
         at->silent_bytes_inserted = 0;
         at->last_gap_pts_delta = 0;
         at->last_gap_frames = 0;
+        at->partial_pes_dropped = 0;
     }
 }
 

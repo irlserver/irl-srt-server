@@ -42,6 +42,13 @@ static const int AAC_SAMPLES_PER_FRAME = 1024;
 // MPEG-1/2 Audio Layer III (MP3) samples per frame
 static const int MP3_SAMPLES_PER_FRAME = 1152;
 
+// Opus uses 20ms frames by default in MPEG-TS (960 samples at 48kHz)
+static const int OPUS_SAMPLES_PER_FRAME = 960;
+static const int OPUS_DEFAULT_SAMPLE_RATE = 48000;
+
+// Opus stream type in MPEG-TS (private data with registration descriptor)
+static const int STREAM_TYPE_PRIVATE_DATA = 0x06;
+
 // ADTS sample rate table (ISO 14496-3)
 static const int ADTS_SAMPLE_RATES[] = {
     96000, 88200, 64000, 48000, 44100, 32000,
@@ -87,6 +94,12 @@ public:
     // Check if a stream type is a supported audio codec for gap filling
     static bool is_supported_audio(int stream_type);
 
+    // Check if a track is Opus (stream_type 0x06 with detected Opus format)
+    static bool is_opus_audio(const audio_track_info *track);
+
+    // Try to detect Opus format from the control header byte in the ES payload.
+    static bool detect_opus_format(const uint8_t *es_data, int es_len, audio_track_info *at);
+
 private:
     // Build a single silent TS packet with the given PTS for the given track
     static void build_silent_ts_packet(
@@ -104,6 +117,11 @@ private:
 
     // Build a silent MP3 frame for the given format. Returns frame length.
     static int build_silent_mp3_frame(
+        uint8_t *out_buf,
+        const audio_track_info *track);
+
+    // Build a silent Opus frame. Returns frame length.
+    static int build_silent_opus_frame(
         uint8_t *out_buf,
         const audio_track_info *track);
 
