@@ -1,0 +1,46 @@
+src/core/SLSMapData.cpp
+  8b5e4f8aaf6f0349 190-191,197-201,398-399,402,421-426,428-431,435-447,449-453,455-456,501,504-505,512-514,516-528,540-542
+AUDIO_GAP_FILLING.md
+  8b5e4f8aaf6f0349 22,83,85-94,132-133,135-137,139,141,177,180
+src/core/common.hpp
+  8b5e4f8aaf6f0349 154-157,171
+src/core/SLSAudioGapFiller.cpp
+  8b5e4f8aaf6f0349 39-48,59-60,140-160,167-168,242-272,303-306
+src/core/common.cpp
+  8b5e4f8aaf6f0349 1095-1097,1111
+src/core/SLSAudioGapFiller.hpp
+  8b5e4f8aaf6f0349 45-51,97-102,123-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "fd0a45176cbe56c4632ca5643f8411472154c1df",
+  "prompts": {
+    "8b5e4f8aaf6f0349": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "36e85ccc-65ca-47d1-a27d-06ef82fed0d1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 187,
+      "total_deletions": 33,
+      "accepted_lines": 184,
+      "overriden_lines": 0
+    },
+    "a980e365cbe63ded": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d53d8-667a-7ee3-afd0-f47da548db15",
+        "model": "gpt-5.4"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 2015,
+      "total_deletions": 2015,
+      "accepted_lines": 2015,
+      "overriden_lines": 0
+    }
+  }
+}
