@@ -1099,6 +1099,12 @@ void sls_init_audio_track(audio_track_info *at)
         at->profile = 0;
         at->bitrate_index = 0;
         at->format_detected = false;
+        at->gap_count = 0;
+        at->silent_frames_inserted = 0;
+        at->silent_packets_inserted = 0;
+        at->silent_bytes_inserted = 0;
+        at->last_gap_pts_delta = 0;
+        at->last_gap_frames = 0;
     }
 }
 
@@ -1115,8 +1121,13 @@ void sls_init_ts_info(ts_info *ti)
         ti->pmt_len = 0;
         ti->pmt_pid = INVALID_PID;
         ti->need_spspps = false;
+        ti->audio_gap_fill_enabled = false;
         ti->pmt_parsed = false;
         ti->audio_track_count = 0;
+        ti->gap_count = 0;
+        ti->silent_frames_inserted = 0;
+        ti->silent_packets_inserted = 0;
+        ti->silent_bytes_inserted = 0;
         for (int t = 0; t < MAX_AUDIO_TRACKS; t++)
             sls_init_audio_track(&ti->audio_tracks[t]);
 

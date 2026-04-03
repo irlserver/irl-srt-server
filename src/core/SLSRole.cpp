@@ -292,6 +292,7 @@ void CSLSRole::set_map_data(const char *map_key, CSLSMapData *map_data)
     {
         strlcpy(m_map_data_key, map_key, sizeof(m_map_data_key));
         m_map_data = map_data;
+        on_map_data_set();
     }
     else
     {
@@ -803,6 +804,28 @@ int CSLSRole::check_http_passed()
                  fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.body);
     m_http_passed = true;
     return SLS_OK;
+}
+
+void CSLSRole::on_map_data_set()
+{
+}
+
+bool CSLSRole::is_audio_gap_fill_enabled() const
+{
+    return false;
+}
+
+bool CSLSRole::get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear) const
+{
+    stats = CSLSMapData::AudioGapStreamStats();
+    stats.enabled = is_audio_gap_fill_enabled();
+
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
+        return false;
+
+    bool found = m_map_data->get_audio_gap_stats(m_map_data_key, stats, clear);
+    stats.enabled = is_audio_gap_fill_enabled();
+    return found;
 }
 
 int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds, float spike_tolerance)

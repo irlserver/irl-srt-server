@@ -101,6 +101,7 @@ public:
     int get_uptime();
     int get_latency() { return m_latency; }
     void set_latency(int latency) { m_latency = latency; }
+    bool get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear = 0) const;
     int check_http_client();
     int check_http_passed();
 
@@ -110,6 +111,8 @@ public:
     int init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds = 30, float spike_tolerance = 2.0f);
     void cleanup_bitrate_limiter();
     CSLSBitrateLimit::BitrateStats get_bitrate_stats() const;
+    virtual void on_map_data_set();
+    virtual bool is_audio_gap_fill_enabled() const;
 
 protected:
     CSLSSrt *m_srt;

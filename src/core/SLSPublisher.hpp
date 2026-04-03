@@ -80,6 +80,8 @@ public:
     virtual int uninit();
 
     virtual int handler();
+    virtual void on_map_data_set() override;
+    virtual bool is_audio_gap_fill_enabled() const override;
 
 private:
     CSLSMapPublisher *m_map_publisher;

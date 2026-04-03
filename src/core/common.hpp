@@ -159,6 +159,12 @@ struct audio_track_info
     int profile;                // AAC profile (1=AAC-LC, etc.), or MP3 layer
     int bitrate_index;          // MP3 bitrate index (for frame size calculation)
     bool format_detected;       // Whether we've captured the audio format from headers
+    uint64_t gap_count;         // Number of detected PTS gaps on this track
+    uint64_t silent_frames_inserted;  // Number of silent frames generated for this track
+    uint64_t silent_packets_inserted; // Number of TS packets inserted for this track
+    uint64_t silent_bytes_inserted;   // Number of TS bytes inserted for this track
+    int64_t last_gap_pts_delta; // Most recent detected PTS delta that triggered filling
+    int last_gap_frames;        // Number of frames inserted for the most recent detected gap
 };
 
 struct ts_info
@@ -179,8 +185,13 @@ struct ts_info
     int pmt_len;
 
     // Audio gap filling fields
+    bool audio_gap_fill_enabled; // Whether gap filling is enabled for this stream
     bool pmt_parsed;            // Whether PMT has been parsed for audio PIDs
     int audio_track_count;      // Number of audio tracks found in PMT
+    uint64_t gap_count;         // Total number of detected audio gaps across all tracks
+    uint64_t silent_frames_inserted;  // Total number of silent frames inserted
+    uint64_t silent_packets_inserted; // Total number of TS packets inserted
+    uint64_t silent_bytes_inserted;   // Total number of TS bytes inserted
     audio_track_info audio_tracks[MAX_AUDIO_TRACKS]; // Per-track state
 };
 void sls_init_ts_info(ts_info *ti);

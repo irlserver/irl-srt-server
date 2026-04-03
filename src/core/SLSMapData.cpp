@@ -194,7 +194,7 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     }
 
     // Audio gap filling: detect and insert silent packets
-    if (m_audio_gap_fill_enabled)
+    if (ti->audio_gap_fill_enabled)
     {
         check_audio_gap(data, len, ti, array_data);
     }
@@ -299,9 +299,93 @@ int CSLSMapData::check_ts_info(char *data, int len, ts_info *ti)
     return SLS_ERROR;
 }
 
-void CSLSMapData::set_audio_gap_fill(bool enabled)
+void CSLSMapData::set_audio_gap_fill(const char *key, bool enabled)
 {
-    m_audio_gap_fill_enabled = enabled;
+    if (key == NULL)
+        return;
+
+    CSLSLock lock(&m_rwclock, true);
+    std::string strKey = std::string(key);
+
+    ts_info *ti = NULL;
+    std::map<std::string, ts_info *>::iterator item_ti = m_map_ts_info.find(strKey);
+    if (item_ti == m_map_ts_info.end())
+    {
+        ti = new ts_info;
+        sls_init_ts_info(ti);
+        ti->need_spspps = true;
+        m_map_ts_info[strKey] = ti;
+    }
+    else
+    {
+        ti = item_ti->second;
+    }
+
+    ti->audio_gap_fill_enabled = enabled;
+}
+
+bool CSLSMapData::get_audio_gap_stats(const char *key, AudioGapStreamStats &stats, int clear)
+{
+    stats = AudioGapStreamStats();
+
+    if (key == NULL)
+        return false;
+
+    CSLSLock lock(&m_rwclock, clear != 0);
+    std::string strKey = std::string(key);
+    std::map<std::string, ts_info *>::iterator item_ti = m_map_ts_info.find(strKey);
+    if (item_ti == m_map_ts_info.end() || item_ti->second == NULL)
+        return false;
+
+    ts_info *ti = item_ti->second;
+    stats.enabled = ti->audio_gap_fill_enabled;
+    stats.pmt_parsed = ti->pmt_parsed;
+    stats.audio_track_count = ti->audio_track_count;
+    stats.gap_count = ti->gap_count;
+    stats.silent_frames_inserted = ti->silent_frames_inserted;
+    stats.silent_packets_inserted = ti->silent_packets_inserted;
+    stats.silent_bytes_inserted = ti->silent_bytes_inserted;
+    stats.tracks.reserve(ti->audio_track_count);
+
+    for (int i = 0; i < ti->audio_track_count; i++)
+    {
+        const audio_track_info &track = ti->audio_tracks[i];
+        AudioGapTrackStats track_stats;
+        track_stats.pid = track.pid;
+        track_stats.stream_type = track.stream_type;
+        track_stats.stream_id = track.stream_id;
+        track_stats.format_detected = track.format_detected;
+        track_stats.sample_rate = track.sample_rate;
+        track_stats.channels = track.channels;
+        track_stats.gap_count = track.gap_count;
+        track_stats.silent_frames_inserted = track.silent_frames_inserted;
+        track_stats.silent_packets_inserted = track.silent_packets_inserted;
+        track_stats.silent_bytes_inserted = track.silent_bytes_inserted;
+        track_stats.last_gap_pts_delta = track.last_gap_pts_delta;
+        track_stats.last_gap_frames = track.last_gap_frames;
+        stats.tracks.push_back(track_stats);
+    }
+
+    if (clear)
+    {
+        ti->gap_count = 0;
+        ti->silent_frames_inserted = 0;
+        ti->silent_packets_inserted = 0;
+        ti->silent_bytes_inserted = 0;
+
+        for (int i = 0; i < ti->audio_track_count; i++)
+        {
+            audio_track_info &track = ti->audio_tracks[i];
+            track.gap_count = 0;
+            track.silent_frames_inserted = 0;
+            track.silent_packets_inserted = 0;
+            track.silent_bytes_inserted = 0;
+            track.last_gap_pts_delta = 0;
+            track.last_gap_frames = 0;
+        }
+    }
+
+    return true;
 }
 
 void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleArray *array_data)
@@ -392,7 +476,19 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
 
             if (!gap_packets.empty())
             {
+                uint64_t inserted_packets = gap_packets.size() / TS_PACK_LEN;
                 array_data->put((char *)gap_packets.data(), gap_packets.size());
+                track->gap_count++;
+                track->silent_frames_inserted += inserted_packets;
+                track->silent_packets_inserted += inserted_packets;
+                track->silent_bytes_inserted += gap_packets.size();
+                track->last_gap_pts_delta = current_pts >= track->last_pts ?
+                    (current_pts - track->last_pts) : (current_pts - track->last_pts + PTS_WRAP);
+                track->last_gap_frames = (int)inserted_packets;
+                ti->gap_count++;
+                ti->silent_frames_inserted += inserted_packets;
+                ti->silent_packets_inserted += inserted_packets;
+                ti->silent_bytes_inserted += gap_packets.size();
                 spdlog::info("CSLSMapData::check_audio_gap: PID={} inserted {} silent packets ({} bytes)",
                              track->pid, gap_packets.size() / TS_PACK_LEN, gap_packets.size());
             }

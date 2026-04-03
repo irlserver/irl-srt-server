@@ -68,12 +68,6 @@ int CSLSPublisher::init()
         strlcpy(m_record_hls, app_conf->record_hls, sizeof(m_record_hls));
         m_record_hls_segment_duration = app_conf->record_hls_segment_duration;
         
-        // Initialize audio gap filling if configured
-        if (app_conf->audio_gap_fill && m_map_data) {
-            m_map_data->set_audio_gap_fill(true);
-            spdlog::info("[{}] CSLSPublisher::init, audio gap filling enabled", fmt::ptr(this));
-        }
-
         // Initialize bitrate limiter if configured
         if (app_conf->max_input_bitrate_kbps > 0) {
             int violation_timeout = app_conf->max_input_bitrate_violation_timeout;
@@ -124,4 +118,19 @@ void CSLSPublisher::set_map_publisher(CSLSMapPublisher *publisher)
 int CSLSPublisher::handler()
 {
     return handler_read_data();
+}
+
+void CSLSPublisher::on_map_data_set()
+{
+    if (m_map_data && strlen(m_map_data_key) > 0 && is_audio_gap_fill_enabled()) {
+        m_map_data->set_audio_gap_fill(m_map_data_key, true);
+        spdlog::info("[{}] CSLSPublisher::on_map_data_set, audio gap filling enabled for {}",
+                     fmt::ptr(this), m_map_data_key);
+    }
+}
+
+bool CSLSPublisher::is_audio_gap_fill_enabled() const
+{
+    const sls_conf_app_t *app_conf = (const sls_conf_app_t *)m_conf;
+    return app_conf && app_conf->audio_gap_fill;
 }
