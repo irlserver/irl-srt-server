@@ -1094,7 +1094,7 @@ void sls_init_audio_track(audio_track_info *at)
         at->cc = 0;
         at->expected_cc = 0;
         at->cc_initialized = false;
-        at->in_gap = false;
+        at->in_gap = true;  // drop orphaned continuations until first PES start
         at->sample_rate = 0;
         at->channels = 0;
         at->sample_rate_index = 0;

@@ -420,9 +420,12 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
 
         int is_start = pkt[1] & 0x40; // PUSI flag
 
-        // Drop partial PES continuation packets after a gap. These are the tail
-        // end of a PES that started before the gap, delivering a corrupt/partial
-        // audio frame to the decoder. Replace with a null TS packet.
+        // Drop orphaned PES continuation packets. These arrive before we've
+        // ever seen a PES start for this track (startup) or before the first
+        // PES start after a gap. They're the tail end of an incomplete PES
+        // that would deliver a corrupt audio frame to the decoder.
+        // With CC rewriting, most demuxers handle orphaned continuations
+        // gracefully (discard on next PES start), but nulling them is safer.
         if (track->in_gap && !is_start)
         {
             // Convert to null packet (PID 0x1FFF) so downstream ignores it
@@ -434,7 +437,6 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
 
         if (is_start)
         {
-            // A new PES start clears the gap state
             track->in_gap = false;
         }
 
@@ -520,11 +522,6 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
                 pkt[3] = (pkt[3] & 0xF0) | (track->expected_cc & 0x0F);
                 track->expected_cc = (track->expected_cc + 1) & 0x0F;
                 track->cc = pkt[3] & 0x0F;
-
-                // Mark that we had a gap (for dropping continuation packets
-                // of the incomplete PES before this start packet, if any
-                // arrive in subsequent data chunks)
-                track->in_gap = true;
 
                 track->gap_count++;
                 track->silent_frames_inserted += inserted_packets;
