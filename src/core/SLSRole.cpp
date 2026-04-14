@@ -271,6 +271,15 @@ char *CSLSRole::get_streamid()
     return m_streamid;
 }
 
+void CSLSRole::set_streamid(const char *sid)
+{
+    if (sid == NULL)
+    {
+        return;
+    }
+    strlcpy(m_streamid, sid, sizeof(m_streamid));
+}
+
 char *CSLSRole::get_map_data_key()
 {
     return m_map_data_key;

@@ -84,6 +84,11 @@ public:
     bool check_idle_streams_duration(int64_t cur_time_ms = 0);
 
     char *get_streamid();
+    // Override the cached streamid so that webhook / stats reporting can see
+    // the value derived after server-side processing (e.g. the stream a player
+    // was resolved to via player_key_auth_url), instead of the raw value the
+    // client set on SRTO_STREAMID.
+    void set_streamid(const char *sid);
     bool is_reconnect();
     char *get_map_data_key();
 

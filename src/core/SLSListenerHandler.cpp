@@ -598,6 +598,10 @@ int CSLSListener::handler()
         player->set_srt(srt);
         player->set_map_data(key_stream_name, m_map_data);
         player->set_latency(final_latency);
+        // Seed the role's streamid with the (possibly player-key-resolved) sid
+        // so downstream hooks like on_event_url report the real stream instead
+        // of the raw SRTO_STREAMID the client sent.
+        player->set_streamid(sid);
 
         stat_info_t *stat_info_obj = new stat_info_t();
         stat_info_obj->port = m_port;
