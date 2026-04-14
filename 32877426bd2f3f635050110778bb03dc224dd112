@@ -1,0 +1,36 @@
+.gitattributes
+  305b33cd709537be 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "32877426bd2f3f635050110778bb03dc224dd112",
+  "prompts": {
+    "305b33cd709537be": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d713fc9-5dd3-46b4-b6ae-495e7db8bebb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 0,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    },
+    "a980e365cbe63ded": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d53d8-667a-7ee3-afd0-f47da548db15",
+        "model": "gpt-5.4"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2015,
+      "overriden_lines": 0
+    }
+  }
+}
