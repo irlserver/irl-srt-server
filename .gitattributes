@@ -1,0 +1,17 @@
+# Normalize all text files to LF in the repository. The build target is
+# Linux (Docker / Talos), so LF is authoritative. Windows checkouts get
+# native line endings only if the contributor sets core.autocrlf=true.
+* text=auto eol=lf
+
+# Shell scripts must stay LF even on Windows checkouts (sh won't parse CRLF).
+*.sh text eol=lf
+
+# Common binary types, declared explicitly so git never touches them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.gz  binary
+*.tar binary
