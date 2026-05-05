@@ -112,7 +112,6 @@ public:
     void set_map_publisher(CSLSMapPublisher *publisher);
     void set_map_puller(CSLSMapRelay *map_puller);
     void set_map_pusher(CSLSMapRelay *map_puller);
-    void set_record_hls_path_prefix(char *path);
     void set_listener_type(bool is_publisher);
     void set_srtla_mode(bool is_srtla);
     void set_legacy_mode(bool is_legacy);
@@ -143,8 +142,7 @@ private:
     char m_default_sid[1024];
     char m_http_url_role[URL_MAX_LEN];
     char m_player_key_auth_url[URL_MAX_LEN];
-    char m_record_hls_path_prefix[URL_MAX_LEN];
-    
+
     // Configuration for player key validation
     std::vector<std::string> m_domain_players;
     std::string m_domain_publisher;

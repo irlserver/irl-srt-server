@@ -110,8 +110,6 @@ public:
     int check_http_client();
     int check_http_passed();
 
-    void set_record_hls_path(const char *hls_path);
-
     // Bitrate limiting methods
     int init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds = 30, float spike_tolerance = 2.0f);
     void cleanup_bitrate_limiter();
@@ -153,24 +151,11 @@ protected:
     stat_info_t m_stat_info_base;
     std::shared_ptr<std::shared_future<AsyncHttpResponse>> m_http_future;
 
-    char m_record_hls[SHORT_STR_MAX_LEN];
-    int m_record_hls_ts_fd;
-    char m_record_hls_ts_filename[URL_MAX_LEN];
-    int m_record_hls_vod_fd;
-    char m_record_hls_vod_filename[FILENAME_MAX];
-    char m_record_hls_path[URL_MAX_LEN];
-    int64_t m_record_hls_begin_tm_ms;
-    int m_record_hls_segment_duration;
-    float m_record_hls_target_duration;
-
     // Bitrate limiting
     CSLSBitrateLimit *m_bitrate_limiter;
 
     int handler_write_data();
     int handler_read_data(int64_t *last_read_time = NULL);
-    void record_data2hls(char *data, int len);
-    void check_hls_file();
-    void close_hls_file();
 
 private:
 };

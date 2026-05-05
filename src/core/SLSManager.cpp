@@ -160,7 +160,6 @@ int CSLSManager::start()
             CSLSListener *pub_listener = new CSLSListener(); //deleted by groups
             pub_listener->set_role_list(m_list_role);
             pub_listener->set_conf((sls_conf_base_t *)conf);
-            pub_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             pub_listener->set_map_data("", &m_map_data[i]);
             pub_listener->set_map_publisher(&m_map_publisher[i]);
             pub_listener->set_map_puller(&m_map_puller[i]);
@@ -187,7 +186,6 @@ int CSLSManager::start()
             CSLSListener *srtla_listener = new CSLSListener(); //deleted by groups
             srtla_listener->set_role_list(m_list_role);
             srtla_listener->set_conf((sls_conf_base_t *)conf);
-            srtla_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             srtla_listener->set_map_data("", &m_map_data[i]);
             srtla_listener->set_map_publisher(&m_map_publisher[i]);
             srtla_listener->set_map_puller(&m_map_puller[i]);
@@ -215,7 +213,6 @@ int CSLSManager::start()
             CSLSListener *player_listener = new CSLSListener(); //deleted by groups
             player_listener->set_role_list(m_list_role);
             player_listener->set_conf((sls_conf_base_t *)conf);
-            player_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             player_listener->set_map_data("", &m_map_data[i]);
             player_listener->set_map_publisher(&m_map_publisher[i]);
             player_listener->set_map_puller(&m_map_puller[i]);
@@ -246,7 +243,6 @@ int CSLSManager::start()
             CSLSListener *legacy_listener = new CSLSListener(); //deleted by groups
             legacy_listener->set_role_list(m_list_role);
             legacy_listener->set_conf((sls_conf_base_t *)conf);
-            legacy_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             legacy_listener->set_map_data("", &m_map_data[i]);
             legacy_listener->set_map_publisher(&m_map_publisher[i]);
             legacy_listener->set_map_puller(&m_map_puller[i]);
@@ -280,7 +276,6 @@ int CSLSManager::start()
             CSLSListener *fallback_listener = new CSLSListener(); //deleted by groups
             fallback_listener->set_role_list(m_list_role);
             fallback_listener->set_conf((sls_conf_base_t *)conf);
-            fallback_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             fallback_listener->set_map_data("", &m_map_data[i]);
             fallback_listener->set_map_publisher(&m_map_publisher[i]);
             fallback_listener->set_map_puller(&m_map_puller[i]);

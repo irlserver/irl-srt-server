@@ -65,9 +65,7 @@ int CSLSPublisher::init()
     {
         sls_conf_app_t *app_conf = ((sls_conf_app_t *)m_conf);
         //m_exit_delay = ((sls_conf_app_t *)m_conf)->publisher_exit_delay;
-        strlcpy(m_record_hls, app_conf->record_hls, sizeof(m_record_hls));
-        m_record_hls_segment_duration = app_conf->record_hls_segment_duration;
-        
+
         // Initialize bitrate limiter if configured
         if (app_conf->max_input_bitrate_kbps > 0) {
             int violation_timeout = app_conf->max_input_bitrate_violation_timeout;

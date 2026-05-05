@@ -32,7 +32,6 @@ CSLSListener::CSLSListener()
     memset(m_default_sid, 0, STR_MAX_LEN);
     memset(m_http_url_role, 0, URL_MAX_LEN);
     memset(m_player_key_auth_url, 0, URL_MAX_LEN);
-    memset(m_record_hls_path_prefix, 0, URL_MAX_LEN);
 
     m_domain_players.clear();
     m_domain_publisher.clear();
@@ -85,14 +84,6 @@ void CSLSListener::set_map_puller(CSLSMapRelay *map_puller)
 void CSLSListener::set_map_pusher(CSLSMapRelay *map_pusher)
 {
     m_map_pusher = map_pusher;
-}
-
-void CSLSListener::set_record_hls_path_prefix(char *path)
-{
-    if (path != NULL && strlen(path) > 0)
-    {
-        strlcpy(m_record_hls_path_prefix, path, sizeof(m_record_hls_path_prefix));
-    }
 }
 
 void CSLSListener::set_listener_type(bool is_publisher)

@@ -28,7 +28,6 @@ int CSLSListener::handler()
     char stream_name[URL_MAX_LEN] = {0};
     char key_app[URL_MAX_LEN] = {0};
     char key_stream_name[URL_MAX_LEN] = {0};
-    char tmp[URL_MAX_LEN] = {0};
     char peer_name[IP_MAX_LEN] = {0};
     int peer_port = 0;
     unsigned long peer_addr_raw = 0;
@@ -710,18 +709,6 @@ int CSLSListener::handler()
     pub->set_stat_info_base(*stat_info_obj);
 
     pub->set_http_url(m_http_url_role);
-    int nret = snprintf(tmp, sizeof(tmp), "%s/%d/%s",
-                   m_record_hls_path_prefix, m_port, key_stream_name);
-    if (nret < 0 || (unsigned)nret >= sizeof(tmp)) {
-        spdlog::error("[{}] CSLSListener::handler, snprintf failed, ret={:d}, errno={:d}",
-                      fmt::ptr(this), nret, errno);
-        pub->close();
-        srt->libsrt_close();
-        delete srt;
-        delete pub;
-        return client_count;
-    }
-    pub->set_record_hls_path(tmp);
 
     spdlog::info("[{}] CSLSListener::handler, new pub={}, key_stream_name={}.",
                  fmt::ptr(this), fmt::ptr(pub), key_stream_name);

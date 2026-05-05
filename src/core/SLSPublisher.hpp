@@ -37,8 +37,6 @@ SLS_CONF_DYNAMIC_DECLARE_BEGIN(app)
 char app_player[STR_MAX_LEN];
 char app_publisher[STR_MAX_LEN];
 int publisher_exit_delay;
-char record_hls[SHORT_STR_MAX_LEN];
-int record_hls_segment_duration;
 int max_input_bitrate_kbps;
 int max_input_bitrate_violation_timeout;
 int max_input_bitrate_spike_tolerance;
@@ -54,8 +52,6 @@ SLS_CONF_CMD_DYNAMIC_DECLARE_BEGIN(app)
 SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(app, string, app_publisher, "uplive", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(app, int, publisher_exit_delay, "delay exit time, unit second.", 1, 300),
-    SLS_SET_CONF(app, string, record_hls, "record_hls switch", 1, SHORT_STR_MAX_LEN - 1),
-    SLS_SET_CONF(app, int, record_hls_segment_duration, "record_hls_segment_duration", 1, 3600),
     SLS_SET_CONF(app, int, max_input_bitrate_kbps, "Maximum input bitrate in kbps (0=unlimited)", 0, 1000000),
     SLS_SET_CONF(app, int, max_input_bitrate_violation_timeout, "Timeout in seconds before disconnecting violating streams", 1, 300),
     SLS_SET_CONF(app, int, max_input_bitrate_spike_tolerance, "Spike tolerance as percentage above limit before violation starts (e.g. 120 = 1.2x)", 100, 500),
