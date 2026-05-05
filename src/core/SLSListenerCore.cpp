@@ -193,8 +193,22 @@ int CSLSListener::start()
     // Player listeners don't need patches (server is sender, not receiver)
     bool use_srtla_patches = m_is_srtla_listener;
 
+    if (server_conf->srt_pbkeylen != 0 && server_conf->srt_pbkeylen != 16 &&
+        server_conf->srt_pbkeylen != 24 && server_conf->srt_pbkeylen != 32)
+    {
+        spdlog::error("[listener] Start failed, srt_pbkeylen={} is invalid (must be 0/16/24/32) | port={}",
+                      server_conf->srt_pbkeylen, m_port);
+        return SLS_ERROR;
+    }
     if (server_conf->srt_passphrase[0] != '\0')
     {
+        size_t pass_len = strlen(server_conf->srt_passphrase);
+        if (pass_len < 10 || pass_len > 79)
+        {
+            spdlog::error("[listener] Start failed, srt_passphrase length {} out of range (must be 10-79 bytes) | port={}",
+                          pass_len, m_port);
+            return SLS_ERROR;
+        }
         m_srt->libsrt_set_passphrase(server_conf->srt_passphrase, server_conf->srt_pbkeylen);
         spdlog::info("[listener] SRT encryption enabled | port={} pbkeylen={}",
                      m_port, server_conf->srt_pbkeylen);
