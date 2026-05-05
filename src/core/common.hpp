@@ -114,6 +114,7 @@ int sls_read_pid();
 int sls_write_pid(int pid);
 int sls_remove_pid();
 int sls_send_cmd(const char *cmd);
+int sls_drop_privileges(const char *user, const char *group);
 
 void sls_split_string(std::string str, std::string separator, std::vector<std::string> &result, int count = -1);
 std::string sls_find_string(std::vector<std::string> &src, std::string &dst, bool caseSensitive = true);

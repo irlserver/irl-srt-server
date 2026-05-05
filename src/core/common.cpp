@@ -33,7 +33,9 @@
 #include <cstdarg>
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <netdb.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -571,6 +573,82 @@ int sls_send_cmd(const char *cmd)
         kill(pid, SIGINT);
         return SLS_OK;
     }
+    return SLS_OK;
+}
+
+int sls_drop_privileges(const char *user, const char *group)
+{
+    bool want_user = (user != NULL && user[0] != '\0');
+    bool want_group = (group != NULL && group[0] != '\0');
+
+    if (!want_user && !want_group)
+        return SLS_OK;
+
+    if (want_group && !want_user)
+    {
+        spdlog::critical("sls_drop_privileges: 'group' set without 'user'. Configure both or neither.");
+        return SLS_ERROR;
+    }
+
+    if (geteuid() != 0)
+    {
+        spdlog::warn("sls_drop_privileges: not running as root, ignoring user='{}' group='{}'.",
+                     user ? user : "", group ? group : "");
+        return SLS_OK;
+    }
+
+    errno = 0;
+    struct passwd *pw = getpwnam(user);
+    if (!pw)
+    {
+        spdlog::critical("sls_drop_privileges: user '{}' not found (errno={}).", user, errno);
+        return SLS_ERROR;
+    }
+    uid_t target_uid = pw->pw_uid;
+    gid_t target_gid = pw->pw_gid;
+
+    if (want_group)
+    {
+        errno = 0;
+        struct group *gr = getgrnam(group);
+        if (!gr)
+        {
+            spdlog::critical("sls_drop_privileges: group '{}' not found (errno={}).", group, errno);
+            return SLS_ERROR;
+        }
+        target_gid = gr->gr_gid;
+    }
+
+    if (initgroups(user, target_gid) != 0)
+    {
+        spdlog::critical("sls_drop_privileges: initgroups('{}', {}) failed: {}.",
+                         user, (int)target_gid, strerror(errno));
+        return SLS_ERROR;
+    }
+
+    if (setgid(target_gid) != 0)
+    {
+        spdlog::critical("sls_drop_privileges: setgid({}) failed: {}.",
+                         (int)target_gid, strerror(errno));
+        return SLS_ERROR;
+    }
+
+    if (setuid(target_uid) != 0)
+    {
+        spdlog::critical("sls_drop_privileges: setuid({}) failed: {}.",
+                         (int)target_uid, strerror(errno));
+        return SLS_ERROR;
+    }
+
+    // Paranoia: confirm the drop is irreversible.
+    if (target_uid != 0 && setuid(0) == 0)
+    {
+        spdlog::critical("sls_drop_privileges: privilege drop did not stick; setuid(0) succeeded.");
+        return SLS_ERROR;
+    }
+
+    spdlog::info("sls_drop_privileges: dropped to uid={} gid={} (user='{}', group='{}').",
+                 (int)target_uid, (int)target_gid, user, want_group ? group : "(from passwd)");
     return SLS_OK;
 }
 
