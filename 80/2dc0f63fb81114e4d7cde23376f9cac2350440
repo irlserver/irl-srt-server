@@ -1,0 +1,27 @@
+src/core/SLSListenerHandler.cpp
+  7d44647d04d49dd2 135-142,396-403
+src/core/common.hpp
+  7d44647d04d49dd2 104
+src/core/common.cpp
+  7d44647d04d49dd2 361-381
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "802dc0f63fb81114e4d7cde23376f9cac2350440",
+  "prompts": {
+    "7d44647d04d49dd2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "969fb2e9-8cd4-41f6-8f57-8f4f10275208",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 3826,
+      "total_deletions": 3523,
+      "accepted_lines": 304,
+      "overriden_lines": 0
+    }
+  }
+}
