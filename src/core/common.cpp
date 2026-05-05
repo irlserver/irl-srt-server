@@ -358,6 +358,27 @@ void sls_remove_marks(char *s)
     }
 }
 
+// Streamid components flow into filesystem paths (HLS recording dir,
+// on_event_url) and map keys. Without sanitisation a crafted streamid like
+// "domain/app/../../../tmp/evil" gives an unauthenticated client a write
+// primitive via mkdir_p. Reject empty, path separators, control chars,
+// and bare "." / ".." here so everything downstream is safe by construction.
+bool sls_is_safe_name(const char *s)
+{
+    if (!s || !*s)
+        return false;
+    if (s[0] == '.' && (s[1] == 0 || (s[1] == '.' && s[2] == 0)))
+        return false;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+    {
+        if (*p == '/' || *p == '\\')
+            return false;
+        if (*p < 0x20 || *p == 0x7f)
+            return false;
+    }
+    return true;
+}
+
 int sls_read_pid()
 {
     struct stat stat_file;

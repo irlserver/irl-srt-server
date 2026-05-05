@@ -132,7 +132,14 @@ int CSLSListener::handler()
         sidValid = false;
     }
     if (!sidValid) {
-        spdlog::error("[connection:{}] Parse SID '{}' failed for {}:{}", 
+        spdlog::error("[connection:{}] Parse SID '{}' failed for {}:{}",
+                     session_id, sid, peer_name, peer_port);
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    }
+    if (!sls_is_safe_name(host_name) || !sls_is_safe_name(app_name) || !sls_is_safe_name(stream_name)) {
+        spdlog::error("[connection:{}] Refused SID '{}' from {}:{} — unsafe characters in host/app/stream",
                      session_id, sid, peer_name, peer_port);
         srt->libsrt_close();
         delete srt;
@@ -380,6 +387,14 @@ int CSLSListener::handler()
 
         if (!validated_sid_valid) {
             spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], validated stream_id '{}' has invalid format",
+                         fmt::ptr(this), peer_name, peer_port, sid);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+
+        if (!sls_is_safe_name(host_name) || !sls_is_safe_name(app_name) || !sls_is_safe_name(stream_name)) {
+            spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], refused validated stream_id '{}' — unsafe characters in host/app/stream",
                          fmt::ptr(this), peer_name, peer_port, sid);
             srt->libsrt_close();
             delete srt;
