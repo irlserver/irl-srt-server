@@ -1,0 +1,31 @@
+src/core/SLSListenerCore.cpp
+  7d44647d04d49dd2 196-202
+src/core/SLSSrt.hpp
+  7d44647d04d49dd2 128,135-136
+src/core/SLSListener.hpp
+  7d44647d04d49dd2 67-68,94-95
+src/core/SLSSrt.cpp
+  7d44647d04d49dd2 55-56,163-175,270-292
+src/sls.conf
+  7d44647d04d49dd2 103-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "b7a8d5471b7e8f27dca31c0e4eaab7dfa17e1ae4",
+  "prompts": {
+    "7d44647d04d49dd2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "969fb2e9-8cd4-41f6-8f57-8f4f10275208",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 61,
+      "total_deletions": 0,
+      "accepted_lines": 962,
+      "overriden_lines": 0
+    }
+  }
+}
