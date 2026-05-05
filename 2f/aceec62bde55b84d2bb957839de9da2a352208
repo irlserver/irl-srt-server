@@ -1,0 +1,33 @@
+src/core/SLSPublisher.hpp
+  7d44647d04d49dd2 69-71,73-84
+src/core/SLSListener.hpp
+  7d44647d04d49dd2 145
+src/sls.conf
+  7d44647d04d49dd2 189
+src/core/SLSRole.cpp
+  7d44647d04d49dd2 287-299,599-600,625-647
+src/core/SLSPublisher.cpp
+  7d44647d04d49dd2 68-71,116-134
+src/core/SLSRole.hpp
+  7d44647d04d49dd2 104-111,114-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "2faceec62bde55b84d2bb957839de9da2a352208",
+  "prompts": {
+    "7d44647d04d49dd2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "969fb2e9-8cd4-41f6-8f57-8f4f10275208",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 1273,
+      "total_deletions": 887,
+      "accepted_lines": 995,
+      "overriden_lines": 0
+    }
+  }
+}
