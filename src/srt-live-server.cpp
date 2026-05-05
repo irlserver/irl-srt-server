@@ -41,21 +41,24 @@ using namespace httplib;
 using json = nlohmann::json;
 
 /*
- * ctrl + c controller
+ * Signal handlers. Only async-signal-safe operations are allowed here
+ * (POSIX.1-2008 §2.4.3). spdlog and sls_remove_pid (unlink + free) are
+ * not on the safe list, and a plain bool write has no atomicity guarantee
+ * across the signal boundary. Store flags as volatile sig_atomic_t and
+ * let the main loop observe them, log, and clean up.
  */
-static bool b_exit = 0;
+static volatile sig_atomic_t b_exit = 0;
 static void ctrl_c_handler(int s)
 {
-    spdlog::warn("caught signal {:d}, exit.", s);
-    sls_remove_pid();
-    b_exit = true;
+    (void)s;
+    b_exit = 1;
 }
 
-static bool b_reload = 0;
+static volatile sig_atomic_t b_reload = 0;
 static void reload_handler(int s)
 {
-    spdlog::warn("caught signal {:d}, reload.", s);
-    b_reload = true;
+    (void)s;
+    b_reload = 1;
 }
 
 Server svr;
@@ -414,7 +417,7 @@ int main(int argc, char *argv[])
         if (b_reload)
         {
             // Reload
-            b_reload = false;
+            b_reload = 0;
             spdlog::info("Reloading SRT Live Server...");
             ret = sls_manager->reload();
             if (ret != SLS_OK)
