@@ -1,0 +1,31 @@
+src/core/common.cpp
+  7d44647d04d49dd2 36,38,579-654
+src/srt-live-server.cpp
+  7d44647d04d49dd2 214-222
+src/core/SLSManager.hpp
+  7d44647d04d49dd2 50-51,85-86
+src/sls.conf
+  7d44647d04d49dd2 72-77
+src/core/common.hpp
+  7d44647d04d49dd2 117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "ea56966c00b2e65ce9b314fb86ae13e4a2c0aca7",
+  "prompts": {
+    "7d44647d04d49dd2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "969fb2e9-8cd4-41f6-8f57-8f4f10275208",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 733,
+      "total_deletions": 635,
+      "accepted_lines": 1508,
+      "overriden_lines": 0
+    }
+  }
+}
