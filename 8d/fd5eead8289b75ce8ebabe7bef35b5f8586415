@@ -1,0 +1,23 @@
+src/srt-live-server.cpp
+  7d44647d04d49dd2 44-48,50,53-54,57,60-61,420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "8dfd5eead8289b75ce8ebabe7bef35b5f8586415",
+  "prompts": {
+    "7d44647d04d49dd2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "969fb2e9-8cd4-41f6-8f57-8f4f10275208",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 9,
+      "accepted_lines": 296,
+      "overriden_lines": 0
+    }
+  }
+}
