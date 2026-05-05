@@ -1,0 +1,23 @@
+src/core/conf.cpp
+  7d44647d04d49dd2 181-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "33c3913eea3f5ae5d11a4e0b0647ce487336a33f",
+  "prompts": {
+    "7d44647d04d49dd2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "969fb2e9-8cd4-41f6-8f57-8f4f10275208",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 0,
+      "accepted_lines": 911,
+      "overriden_lines": 0
+    }
+  }
+}
