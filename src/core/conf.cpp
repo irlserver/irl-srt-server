@@ -178,6 +178,16 @@ const char *sls_conf_set_string(const char *v, sls_conf_cmd_t *cmd, void *conf)
     char *np;
     int len = strlen(v);
 
+    // Strip a single pair of surrounding quotes (single or double) so users
+    // can naturally write quoted string values. Without this the quotes are
+    // stored as part of the string and downstream comparisons (notably
+    // SRTO_PASSPHRASE against an unquoted client passphrase) silently fail.
+    if (len >= 2 && (v[0] == '"' || v[0] == '\'') && v[len - 1] == v[0])
+    {
+        v += 1;
+        len -= 2;
+    }
+
     if (len < cmd->min || len > cmd->max)
         return SLS_CONF_OUT_RANGE;
 
