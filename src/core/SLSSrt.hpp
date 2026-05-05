@@ -125,12 +125,15 @@ public:
     int libsrt_get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
 
     void libsrt_set_latency(int latency);
+    void libsrt_set_passphrase(const char *passphrase, int pbkeylen);
 
     static int libsrt_neterrno();
     static void libsrt_print_error_info();
 
 protected:
     SRTContext m_sc;
+    char m_passphrase[80];
+    int m_pbkeylen;
     char m_peer_name[256]; //peer ip addr, such as 172.12.22.14
     int m_peer_port;
     unsigned long m_peer_addr_raw;  //  Peer IP addr in unsigned long format

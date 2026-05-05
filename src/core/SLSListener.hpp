@@ -64,6 +64,8 @@ int player_key_rate_limit_window;
 int player_key_max_length;
 int player_key_min_length;
 char default_sid[STR_MAX_LEN];
+char srt_passphrase[80];
+int srt_pbkeylen;
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -89,6 +91,8 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, player_key_max_length, "maximum player key length", 1, 256),
     SLS_SET_CONF(server, int, player_key_min_length, "minimum player key length", 1, 64),
     SLS_SET_CONF(server, string, default_sid, "default sid to use when no streamid is given", 1, STR_MAX_LEN - 1),
+    SLS_SET_CONF(server, string, srt_passphrase, "listener-wide SRT passphrase (10-79 bytes; empty = no encryption)", 0, 79),
+    SLS_SET_CONF(server, int, srt_pbkeylen, "SRT key length: 0/16/24/32 (0 = libsrt default)", 0, 32),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**

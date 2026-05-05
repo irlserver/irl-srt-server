@@ -193,6 +193,13 @@ int CSLSListener::start()
     // Player listeners don't need patches (server is sender, not receiver)
     bool use_srtla_patches = m_is_srtla_listener;
 
+    if (server_conf->srt_passphrase[0] != '\0')
+    {
+        m_srt->libsrt_set_passphrase(server_conf->srt_passphrase, server_conf->srt_pbkeylen);
+        spdlog::info("[listener] SRT encryption enabled | port={} pbkeylen={}",
+                     m_port, server_conf->srt_pbkeylen);
+    }
+
     ret = m_srt->libsrt_setup(m_port, use_srtla_patches);
     if (SLS_OK != ret)
     {

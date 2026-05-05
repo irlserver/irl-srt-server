@@ -52,6 +52,8 @@ CSLSSrt::CSLSSrt()
     m_sc.latency = 20;
 
     m_sc.backlog = 128;
+    memset(m_passphrase, 0, sizeof(m_passphrase));
+    m_pbkeylen = 0;
     memset(m_peer_name, 0, sizeof(m_peer_name));
     m_peer_port = 0;
     m_peer_addr_raw = 0;
@@ -158,6 +160,19 @@ void CSLSSrt::libsrt_set_latency(int latency)
     m_sc.latency = latency;
 }
 
+void CSLSSrt::libsrt_set_passphrase(const char *passphrase, int pbkeylen)
+{
+    if (passphrase != NULL)
+    {
+        strlcpy(m_passphrase, passphrase, sizeof(m_passphrase));
+    }
+    else
+    {
+        m_passphrase[0] = '\0';
+    }
+    m_pbkeylen = pbkeylen;
+}
+
 int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
 {
     struct addrinfo hints = {0}, *ai;
@@ -250,6 +265,29 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
     {
         if (srt_setsockopt(fd, SOL_SOCKET, SRTO_REUSEADDR, &s->reuse, sizeof(s->reuse)))
             spdlog::warn("[{}] CSLSSrt::libsrt_setup, setsockopt(SRTO_REUSEADDR) failed.", fmt::ptr(this));
+    }
+
+    if (m_pbkeylen > 0)
+    {
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_PBKEYLEN, &m_pbkeylen, sizeof(m_pbkeylen)) < 0)
+        {
+            spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_PBKEYLEN={} failed: {}.",
+                          fmt::ptr(this), m_pbkeylen, srt_getlasterror_str());
+            srt_close(fd);
+            freeaddrinfo(ai);
+            return SLS_ERROR;
+        }
+    }
+    if (m_passphrase[0] != '\0')
+    {
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_PASSPHRASE, m_passphrase, strlen(m_passphrase)) < 0)
+        {
+            spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_PASSPHRASE failed: {}.",
+                          fmt::ptr(this), srt_getlasterror_str());
+            srt_close(fd);
+            freeaddrinfo(ai);
+            return SLS_ERROR;
+        }
     }
 
     ret = srt_bind(fd, ai->ai_addr, ai->ai_addrlen);
