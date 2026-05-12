@@ -1,0 +1,35 @@
+src/core/SLSPublisher.hpp
+  s_2f0b26cd3562e5::t_a90e8edb82e234 69
+  s_2f0b26cd3562e5::t_4b1d2fc9ebba1d 46,51-52
+  s_2f0b26cd3562e5::t_24f3588c4ec791 70-73
+  s_2f0b26cd3562e5::t_fd3dd2d36f57d4 47-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "bf271cc158a54a6735a4dfafc433dfedf07996d7",
+  "prompts": {
+    "7d44647d04d49dd2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "969fb2e9-8cd4-41f6-8f57-8f4f10275208",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>",
+      "total_additions": 635,
+      "total_deletions": 0,
+      "accepted_lines": 901,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_2f0b26cd3562e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f266d8b8-9071-4745-acf1-dd942af8a219",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
