@@ -1,0 +1,23 @@
+src/core/SLSPushUrlValidator.cpp
+  s_2f0b26cd3562e5::t_33a95166f462f8 1-235
+src/core/SLSPushUrlValidator.hpp
+  s_2f0b26cd3562e5::t_f6da75691bc3de 1-51
+src/core/CMakeLists.txt
+  s_2f0b26cd3562e5::t_dbbebe8cb907b3 57-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "9e2fdd7369e7c891668e0709296cc17762e5e5a1",
+  "prompts": {},
+  "sessions": {
+    "s_2f0b26cd3562e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f266d8b8-9071-4745-acf1-dd942af8a219",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
