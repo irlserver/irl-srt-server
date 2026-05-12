@@ -43,6 +43,13 @@ int max_input_bitrate_spike_tolerance;
 int max_players_per_stream;
 sls_ip_acl_t ip_actions;
 bool audio_gap_fill;
+int push_destination_max;
+// Allow flags: default false (memset 0) means deny, which is the safe default.
+// Operators must explicitly opt in to push to private/self addresses.
+bool push_destination_allow_internal;
+bool push_destination_allow_self;
+char push_destination_allow_schemes[STR_MAX_LEN];
+int push_destination_max_url_len;
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -59,6 +66,11 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF2(app, ipset, ip_actions, allow, "allow address(es) to play/publish a stream", 1, 256),
     SLS_SET_CONF2(app, ipset, ip_actions, deny, "deny address(es) from playing/publishing a stream", 1, 256),
     SLS_SET_CONF(app, bool, audio_gap_fill, "fill audio gaps with silence to prevent OBS audio breaking", 0, 0),
+    SLS_SET_CONF(app, int, push_destination_max, "max push destinations per stream from webhook (0=disabled)", 0, 16),
+    SLS_SET_CONF(app, bool, push_destination_allow_internal, "allow push destinations resolving to loopback/RFC1918/link-local/ULA (default: deny)", 0, 0),
+    SLS_SET_CONF(app, bool, push_destination_allow_self, "allow push destinations resolving to this server's bind addresses (default: deny)", 0, 0),
+    SLS_SET_CONF(app, string, push_destination_allow_schemes, "whitespace-separated allowed URI schemes for push destinations (default: srt)", 0, STR_MAX_LEN - 1),
+    SLS_SET_CONF(app, int, push_destination_max_url_len, "maximum length of a push destination URL (0=default 1024)", 0, 4096),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**
