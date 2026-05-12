@@ -54,6 +54,8 @@ set(sls_core_files
 	SLSPusher.hpp
 	SLSPusherManager.cpp
 	SLSPusherManager.hpp
+	SLSPushUrlValidator.cpp
+	SLSPushUrlValidator.hpp
 	SLSRecycleArray.cpp
 	SLSRecycleArray.hpp
 	SLSRelay.cpp
