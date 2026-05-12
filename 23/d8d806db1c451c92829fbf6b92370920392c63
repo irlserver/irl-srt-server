@@ -1,0 +1,24 @@
+src/core/SLSRole.hpp
+  s_2f0b26cd3562e5::t_0af271ea1330c4 106-109
+  s_2f0b26cd3562e5::t_05f0acda6562fc 163-165
+  s_2f0b26cd3562e5::t_29996e75c03b4f 28-29
+src/core/SLSRole.cpp
+  s_2f0b26cd3562e5::t_fddf9fdfef7e75 628-677
+  s_2f0b26cd3562e5::t_8cbd24ff3e0a13 29,34-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "23d8d806db1c451c92829fbf6b92370920392c63",
+  "prompts": {},
+  "sessions": {
+    "s_2f0b26cd3562e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f266d8b8-9071-4745-acf1-dd942af8a219",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
