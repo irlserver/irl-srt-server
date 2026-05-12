@@ -29,6 +29,9 @@
 #include "SLSPublisher.hpp"
 #include "SLSPlayer.hpp"
 #include "SLSLog.hpp"
+#include "SLSLogCategory.hpp"
+#include "SLSPusherManager.hpp"
+#include "SLSRelayManager.hpp"
 #include "util.hpp"
 
 /**
@@ -92,6 +95,23 @@ int CSLSPublisher::uninit()
 {
     int ret = SLS_OK;
 
+    // Dynamic pusher: the underlying CSLSPusher roles live in m_role_list
+    // and observe the publisher's m_map_data. Once we remove the publisher
+    // entry from m_map_data (below) the pushers stop receiving data and
+    // CSLSGroup tears them down on their own poll cycle. We only own the
+    // manager wrapper and the synthetic SRI.
+    if (m_dynamic_pusher_manager)
+    {
+        delete m_dynamic_pusher_manager;
+        m_dynamic_pusher_manager = NULL;
+        spdlog::info("[relay] dynamic pusher torn down for {}", m_map_data_key);
+    }
+    if (m_dynamic_pusher_sri)
+    {
+        delete m_dynamic_pusher_sri;
+        m_dynamic_pusher_sri = NULL;
+    }
+
     if (m_map_data)
     {
         ret = m_map_data->remove(m_map_data_key);
@@ -115,7 +135,59 @@ void CSLSPublisher::set_map_publisher(CSLSMapPublisher *publisher)
 
 int CSLSPublisher::handler()
 {
-    return handler_read_data();
+    int ret = handler_read_data();
+    // The webhook flips m_http_passed and populates m_push_urls
+    // asynchronously inside check_http_passed; once both happen we spin up
+    // exactly one CSLSPusherManager carrying every accepted URL.
+    if (m_dynamic_pusher_manager == NULL && !m_push_urls.empty()) {
+        try_spawn_dynamic_pusher();
+    }
+    return ret;
+}
+
+void CSLSPublisher::try_spawn_dynamic_pusher()
+{
+    if (m_role_list == NULL || m_map_data == NULL || m_map_publisher == NULL) {
+        spdlog::warn("[relay] cannot spawn dynamic pusher for {}: missing context (role_list/map_data/map_publisher)",
+                     m_map_data_key);
+        // Avoid retrying every handler tick on a misconfigured deploy.
+        m_push_urls.clear();
+        return;
+    }
+
+    // Split m_map_data_key ("app_uplive/stream_name") for the pusher manager.
+    const char *slash = strchr(m_map_data_key, '/');
+    if (slash == NULL || slash == m_map_data_key) {
+        spdlog::warn("[relay] cannot spawn dynamic pusher: malformed key='{}'", m_map_data_key);
+        m_push_urls.clear();
+        return;
+    }
+    std::string app_uplive(m_map_data_key, slash - m_map_data_key);
+    std::string stream_name(slash + 1);
+
+    m_dynamic_pusher_sri = new SLS_RELAY_INFO;
+    snprintf(m_dynamic_pusher_sri->m_type, sizeof(m_dynamic_pusher_sri->m_type), "push");
+    m_dynamic_pusher_sri->m_mode = SLS_PM_ALL;
+    m_dynamic_pusher_sri->m_reconnect_interval = 10;
+    m_dynamic_pusher_sri->m_idle_streams_timeout = 10;
+    m_dynamic_pusher_sri->m_upstreams = m_push_urls;
+
+    m_dynamic_pusher_manager = new CSLSPusherManager();
+    m_dynamic_pusher_manager->set_relay_conf(m_dynamic_pusher_sri);
+    m_dynamic_pusher_manager->set_relay_info(app_uplive.c_str(), stream_name.c_str());
+    m_dynamic_pusher_manager->set_map_data(m_map_data);
+    m_dynamic_pusher_manager->set_map_publisher(m_map_publisher);
+    m_dynamic_pusher_manager->set_role_list(m_role_list);
+    m_dynamic_pusher_manager->set_listen_port(m_listen_port);
+
+    if (SLS_OK != m_dynamic_pusher_manager->start()) {
+        spdlog::warn("[relay] dynamic pusher start failed for {}, will retry on reconnect", m_map_data_key);
+        // Leave the manager allocated so the reconnect loop in CSLSGroup
+        // gets a chance to retry; teardown in uninit() will clean it up.
+    } else {
+        spdlog::info("[relay] dynamic pusher started for {} | upstream_count={}",
+                     m_map_data_key, m_push_urls.size());
+    }
 }
 
 void CSLSPublisher::on_map_data_set()

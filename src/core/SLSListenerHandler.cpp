@@ -732,6 +732,8 @@ int CSLSListener::handler()
     }
     pub->set_map_publisher(m_map_publisher);
     pub->set_map_data(key_stream_name, m_map_data);
+    pub->set_role_list(m_list_role);
+    pub->set_listen_port(m_port);
     pub->on_connect();
     m_list_role->push(pub);
     spdlog::info("[{}] CSLSListener::handler, new publisher[{}:{:d}], key_stream_name= {}.",

@@ -76,13 +76,20 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     /**
  * CSLSPublisher
  */
-    class CSLSPublisher : public CSLSRole
+    class CSLSPusherManager;
+
+class CSLSPublisher : public CSLSRole
 {
 public:
     CSLSPublisher();
     virtual ~CSLSPublisher();
 
     void set_map_publisher(CSLSMapPublisher *publisher);
+
+    // Listener handler wires these so the publisher can spin up its own
+    // CSLSPusherManager once the publish auth webhook returns push URLs.
+    void set_role_list(CSLSRoleList *list) { m_role_list = list; }
+    void set_listen_port(int port) { m_listen_port = port; }
 
     virtual int init();
     virtual int uninit();
@@ -92,5 +99,13 @@ public:
     virtual bool is_audio_gap_fill_enabled() const override;
 
 private:
+    // Spawns a CSLSPusherManager carrying the URLs in m_push_urls. Called
+    // once per publisher lifetime, lazily after the webhook response.
+    void try_spawn_dynamic_pusher();
+
     CSLSMapPublisher *m_map_publisher;
+    CSLSRoleList *m_role_list = nullptr;
+    int m_listen_port = 0;
+    CSLSPusherManager *m_dynamic_pusher_manager = nullptr;
+    struct SLS_RELAY_INFO *m_dynamic_pusher_sri = nullptr;
 };
