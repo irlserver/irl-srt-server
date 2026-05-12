@@ -25,6 +25,8 @@
 #pragma once
 
 #include <map>
+#include <string>
+#include <vector>
 
 #include "SLSRole.hpp"
 #include "SLSSrt.hpp"
@@ -101,6 +103,10 @@ public:
     void set_http_url(const char *http_url);
     int on_connect();
     int on_close();
+    // Push destinations harvested from the publish-auth webhook response.
+    // Populated by check_http_passed; consumed by the listener handler to
+    // spin up a dynamic CSLSPusherManager per publisher.
+    const std::vector<std::string> &get_push_urls() const { return m_push_urls; }
     int get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
     int get_bitrate();
     int get_uptime();
@@ -153,6 +159,9 @@ protected:
 
     // Bitrate limiting
     CSLSBitrateLimit *m_bitrate_limiter;
+
+    // Push destinations from publish-auth webhook (publisher roles only).
+    std::vector<std::string> m_push_urls;
 
     int handler_write_data();
     int handler_read_data(int64_t *last_read_time = NULL);

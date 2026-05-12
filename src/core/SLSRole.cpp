@@ -26,10 +26,14 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 
 #include "SLSRole.hpp"
 #include "SLSLog.hpp"
+#include "SLSLogCategory.hpp"
+#include "SLSPublisher.hpp"
+#include "SLSPushUrlValidator.hpp"
 #include "util.hpp"
 #include "SLSBitrateLimit.hpp"
 
@@ -621,6 +625,56 @@ int CSLSRole::check_http_passed()
     spdlog::info("[{}] CSLSRole::check_http_client_response, http finished, {}, http_url='{}', status={}, response='{}'.",
                  fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.body);
     m_http_passed = true;
+
+    // Optional JSON payload from the publisher-auth webhook may carry a
+    // list of outbound SRT push destinations. Parse only when the body
+    // looks like JSON; older webhooks return plain "OK" and must keep
+    // working. Validate each URL again here even though irlserver2 already
+    // checked at save time, so a misconfigured webhook can't push to
+    // loopback or to the SLS host itself.
+    if (!response.body.empty() && response.body[0] == '{') {
+        sls_conf_app_t *app_conf = static_cast<sls_conf_app_t *>(m_conf);
+        if (app_conf == NULL || app_conf->push_destination_max <= 0) {
+            return SLS_OK;
+        }
+        try {
+            auto parsed = nlohmann::json::parse(response.body);
+            if (!parsed.contains("pushTargets") || !parsed["pushTargets"].is_array()) {
+                return SLS_OK;
+            }
+            const auto &self_addrs = push_url_self_addresses();
+            int kept = 0;
+            for (const auto &entry : parsed["pushTargets"]) {
+                if (kept >= app_conf->push_destination_max) {
+                    spdlog::warn("[relay] push destination rejected | reason=over_limit url={}",
+                                 entry.contains("url") && entry["url"].is_string()
+                                     ? entry["url"].get<std::string>()
+                                     : std::string("<no url>"));
+                    continue;
+                }
+                if (!entry.is_object() || !entry.contains("url") || !entry["url"].is_string()) {
+                    continue;
+                }
+                std::string url = entry["url"].get<std::string>();
+                PushUrlReject verdict = validate_push_url(url, *app_conf, self_addrs);
+                if (verdict != PushUrlReject::Ok) {
+                    spdlog::warn("[relay] push destination rejected | reason={} url={}",
+                                 push_url_reject_reason(verdict), url);
+                    continue;
+                }
+                m_push_urls.push_back(std::move(url));
+                ++kept;
+            }
+            if (kept > 0) {
+                spdlog::info("[relay] push destinations accepted for {} | count={} streamid='{}'",
+                             m_role_name, kept, get_streamid());
+            }
+        } catch (const std::exception &e) {
+            spdlog::warn("[{}] CSLSRole::check_http_passed, JSON parse error: {}",
+                         fmt::ptr(this), e.what());
+        }
+    }
+
     return SLS_OK;
 }
 
