@@ -237,6 +237,19 @@ int main(int argc, char *argv[])
         strcpy(cors_header, conf_srt->cors_header);
     }
 
+    // Lightweight liveness/readiness probe. Returns 200 OK unconditionally
+    // as long as the HTTP server is responsive — does NOT iterate publishers
+    // or take any data-path locks, unlike /stats. Kubernetes probes should
+    // target this endpoint to avoid blocking the publisher map_data write
+    // lock every probe interval, which manifests as periodic msRcvBuf
+    // spikes on healthy streams.
+    svr.Get("/healthz", [&](const Request& req, Response& res) {
+        (void)req;
+        res.status = 200;
+        res.set_header("Cache-Control", "no-cache");
+        res.set_content("{\"status\":\"ok\"}", "application/json");
+    });
+
     svr.Get("/stats", [&](const Request& req, Response& res) {
         json ret;
         sls_conf_srt_t *conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf(); // Get config
