@@ -43,7 +43,7 @@ CSLSRecycleArray::CSLSRecycleArray()
     m_nDataSize = DEFAULT_MAX_DATA_SIZE;
     m_nWritePos = 0;
     m_nDataCount = 0;
-    m_overrun_count = 0;
+    m_overrun_count.store(0, std::memory_order_relaxed);
 
     m_last_read_time = sls_gettime_ms();
 
@@ -161,12 +161,13 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         (int64_t)m_nDataCount - (int64_t)read_id->nDataCount;
     if (bytes_since_last_read >= (int64_t)m_nDataSize)
     {
-        m_overrun_count++;
+        int64_t new_count =
+            m_overrun_count.fetch_add(1, std::memory_order_relaxed) + 1;
         spdlog::warn("[{}] CSLSRecycleArray::get, reader overrun: writer advanced {:d}"
                      " bytes since last read, buffer size {:d}. Resyncing reader to"
                      " write head (overrun_count={:d}).",
                      fmt::ptr(this), (int)bytes_since_last_read, m_nDataSize,
-                     (int)m_overrun_count);
+                     (int)new_count);
         read_id->nReadPos = m_nWritePos;
         read_id->nDataCount = m_nDataCount;
         return SLS_OK;

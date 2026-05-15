@@ -101,6 +101,19 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
     }
 
     m_map_array[strKey] = data_array;
+
+    // Pre-allocate the ts_info entry so put() never mutates the map
+    // structure on the hot path. Previously put() would lazy-create the
+    // entry under a write lock; we want put() to take only a read lock
+    // (so puts to different keys, and stats reads, can run concurrently).
+    if (m_map_ts_info.find(strKey) == m_map_ts_info.end())
+    {
+        ts_info *ti = new ts_info;
+        sls_init_ts_info(ti);
+        ti->need_spspps = true;
+        m_map_ts_info[strKey] = ti;
+    }
+
     spdlog::info("[{}] CSLSMapData::add ok, key='{}', ring_size={:d}.",
                  fmt::ptr(this), key, data_array->get_data_size());
     return ret;
@@ -188,7 +201,16 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
 {
     int ret = SLS_OK;
 
-    CSLSLock lock(&m_rwclock, true);
+    // READ lock on the map structure. The map itself is only mutated by
+    // add()/remove() (which take WRITE lock); put() only reads
+    // m_map_array and m_map_ts_info to find pre-allocated entries.
+    // Per-entry mutation (ts_info fields, CSLSRecycleArray buffer) is
+    // synchronised by each entry's own lock — see CSLSRecycleArray::put
+    // — or, for ts_info, by the per-publisher single-writer invariant
+    // (only one publisher role writes a given key). Concurrent puts to
+    // different keys can therefore proceed in parallel, and /stats reads
+    // (also read-lock) no longer serialise with the data path.
+    CSLSLock lock(&m_rwclock, false);
     std::string strKey = std::string(key);
 
     std::map<std::string, CSLSRecycleArray *>::iterator item;
@@ -211,21 +233,18 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
         *last_read_time = array_data->get_last_read_time();
     }
 
-    // check sps and pps
+    // check sps and pps. ts_info is pre-allocated by add(); under a read
+    // lock we cannot insert into m_map_ts_info. If the entry is missing
+    // it means add() wasn't called for this key — bail rather than race.
     ts_info *ti = NULL;
-    std::map<std::string, ts_info *>::iterator item_ti;
-    item_ti = m_map_ts_info.find(strKey);
-    if (item_ti == m_map_ts_info.end())
+    std::map<std::string, ts_info *>::iterator item_ti = m_map_ts_info.find(strKey);
+    if (item_ti == m_map_ts_info.end() || item_ti->second == NULL)
     {
-        ti = new ts_info;
-        sls_init_ts_info(ti);
-        ti->need_spspps = true;
-        m_map_ts_info[strKey] = ti;
+        spdlog::error("[{}] CSLSMapData::put, key={}, ts_info not pre-allocated.",
+                      fmt::ptr(this), key);
+        return SLS_ERROR;
     }
-    else
-    {
-        ti = item_ti->second;
-    }
+    ti = item_ti->second;
 
     if (SLS_OK == check_ts_info(data, len, ti))
     {
@@ -352,24 +371,23 @@ void CSLSMapData::set_audio_gap_fill(const char *key, bool enabled)
     if (key == NULL)
         return;
 
-    CSLSLock lock(&m_rwclock, true);
+    // Read lock — ts_info is pre-allocated by add(), and the only field
+    // we touch (audio_gap_fill_enabled) is a single bool that's safe to
+    // store under the per-publisher single-writer invariant. We don't
+    // need a write lock just to flip a flag.
+    CSLSLock lock(&m_rwclock, false);
     std::string strKey = std::string(key);
 
-    ts_info *ti = NULL;
     std::map<std::string, ts_info *>::iterator item_ti = m_map_ts_info.find(strKey);
-    if (item_ti == m_map_ts_info.end())
+    if (item_ti == m_map_ts_info.end() || item_ti->second == NULL)
     {
-        ti = new ts_info;
-        sls_init_ts_info(ti);
-        ti->need_spspps = true;
-        m_map_ts_info[strKey] = ti;
-    }
-    else
-    {
-        ti = item_ti->second;
+        spdlog::warn("[{}] CSLSMapData::set_audio_gap_fill, key={}, ts_info not"
+                     " pre-allocated; ignoring (call add() first).",
+                     fmt::ptr(this), key);
+        return;
     }
 
-    ti->audio_gap_fill_enabled = enabled;
+    item_ti->second->audio_gap_fill_enabled = enabled;
 }
 
 bool CSLSMapData::get_audio_gap_stats(const char *key, AudioGapStreamStats &stats, int clear)
@@ -581,8 +599,9 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
                 ti->silent_packets_inserted += inserted_packets;
                 ti->silent_bytes_inserted += gap_packets.size();
                 spdlog::info("CSLSMapData::check_audio_gap: PID={} inserted {} silent packets ({} bytes), dropped {} partial PES packets",
-                             track->pid, inserted_packets, gap_packets.size(), track->partial_pes_dropped);
-                track->partial_pes_dropped = 0;
+                             track->pid, inserted_packets, gap_packets.size(),
+                             track->partial_pes_dropped.load(std::memory_order_relaxed));
+                track->partial_pes_dropped.store(0, std::memory_order_relaxed);
             }
         }
 
