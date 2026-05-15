@@ -408,6 +408,11 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear) {
     ret["bitrate"]          = role->get_bitrate(); // in kbps
     ret["uptime"]           = role->get_uptime(); // in seconds
     ret["latency"]          = role->get_latency(); // in milliseconds
+    // Publisher ring-buffer overruns (writer lapped a slow subscriber).
+    // Stays at 0 on healthy streams; non-zero means at least one
+    // subscriber's read position was forcibly resynced to the write head
+    // to avoid handing back corrupted wrapped-around data.
+    ret["ringOverruns"]     = role->get_ring_overrun_count();
 
     ret["audioGapFill"] = json::object();
     ret["audioGapFill"]["enabled"] = audio_gap_stats.enabled;

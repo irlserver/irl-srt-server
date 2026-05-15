@@ -113,6 +113,12 @@ public:
     int get_latency() { return m_latency; }
     void set_latency(int latency) { m_latency = latency; }
     bool get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear = 0) const;
+    // Cumulative overrun count for this publisher's ring buffer. Each
+    // overrun means a subscriber fell so far behind the writer that the
+    // ring lapped them — visible to viewers as a delivery hiccup that
+    // "fixes itself" on subscriber reconnect. Returns -1 if not bound to
+    // a map_data key.
+    int64_t get_ring_overrun_count() const;
     int check_http_client();
     int check_http_passed();
 

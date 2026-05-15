@@ -700,6 +700,13 @@ bool CSLSRole::get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int 
     return found;
 }
 
+int64_t CSLSRole::get_ring_overrun_count() const
+{
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
+        return -1;
+    return m_map_data->get_overrun_count(m_map_data_key);
+}
+
 int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds, float spike_tolerance)
 {
     cleanup_bitrate_limiter();

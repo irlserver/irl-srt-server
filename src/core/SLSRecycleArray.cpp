@@ -28,13 +28,22 @@
 #include "SLSRecycleArray.hpp"
 #include "SLSLog.hpp"
 
-const int DEFAULT_MAX_DATA_SIZE = 1024 * 1316; //about 5mbps*2sec
+// 8 MB default. The previous 1024*1316 comment said "about 5mbps*2sec" but
+// the buffer is *the* point where viewers can fall behind: at 9 Mbps the
+// old default held barely 1.2s, well inside the typical 2s SRT latency
+// window, so jitter would silently lap the buffer (see overrun detection
+// in get() below). 8 MB gives ~7s headroom at 9 Mbps, ~3s at 20 Mbps,
+// even before adaptive resize. Callers that know the publisher's
+// bitrate + latency upper-bound should still call setSize() for a tight
+// fit (see CSLSMapData::add overload).
+const int DEFAULT_MAX_DATA_SIZE = 8 * 1024 * 1024;
 
 CSLSRecycleArray::CSLSRecycleArray()
 {
     m_nDataSize = DEFAULT_MAX_DATA_SIZE;
     m_nWritePos = 0;
     m_nDataCount = 0;
+    m_overrun_count = 0;
 
     m_last_read_time = sls_gettime_ms();
 
@@ -139,6 +148,30 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         spdlog::trace("[{}] CSLSRecycleArray::get, no new data.", fmt::ptr(this));
         return SLS_OK;
     }
+
+    // Overrun detection: if the writer has produced more than m_nDataSize
+    // bytes since this reader last sampled the buffer, the contents the
+    // reader was about to consume have already been overwritten by newer
+    // data. Without this check we'd silently hand back a wrapped-around
+    // region of the ring containing bytes that don't belong to the
+    // reader's logical position — producing corrupt TS / out-of-order
+    // delivery to the subscriber. Force the reader to resync to the
+    // current write head and count the event for diagnostics.
+    int64_t bytes_since_last_read =
+        (int64_t)m_nDataCount - (int64_t)read_id->nDataCount;
+    if (bytes_since_last_read >= (int64_t)m_nDataSize)
+    {
+        m_overrun_count++;
+        spdlog::warn("[{}] CSLSRecycleArray::get, reader overrun: writer advanced {:d}"
+                     " bytes since last read, buffer size {:d}. Resyncing reader to"
+                     " write head (overrun_count={:d}).",
+                     fmt::ptr(this), (int)bytes_since_last_read, m_nDataSize,
+                     (int)m_overrun_count);
+        read_id->nReadPos = m_nWritePos;
+        read_id->nDataCount = m_nDataCount;
+        return SLS_OK;
+    }
+
     spdlog::trace("[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
                   fmt::ptr(this), read_id->nReadPos, m_nWritePos, m_nDataCount, m_nDataSize);
 

@@ -65,9 +65,19 @@ public:
     CSLSMapData();
     virtual ~CSLSMapData();
 
-    int add(char *key);
+    // Add a publisher data array for `key`. If `max_bitrate_kbps` and
+    // `latency_ms` are both positive, the underlying ring buffer is sized
+    // to hold ~2x the SRT latency window at the configured bitrate, so a
+    // subscriber falling up to one full latency window behind is still
+    // safe from overruns. Both default to 0, in which case the array uses
+    // CSLSRecycleArray's compiled-in DEFAULT_MAX_DATA_SIZE.
+    int add(char *key, int max_bitrate_kbps = 0, int latency_ms = 0);
     int remove(char *key);
     void clear();
+
+    // Cumulative overrun count across the publisher's ring buffer
+    // (writer lapped the reader). Returns -1 if `key` is unknown.
+    int64_t get_overrun_count(const char *key);
 
     int put(char *key, char *data, int len, int64_t *last_read_time = NULL);
     void set_audio_gap_fill(const char *key, bool enabled);

@@ -42,7 +42,7 @@ CSLSMapData::~CSLSMapData()
     clear();
 }
 
-int CSLSMapData::add(char *key)
+int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
 {
     int ret = SLS_OK;
     std::string strKey = std::string(key);
@@ -64,11 +64,57 @@ int CSLSMapData::add(char *key)
     }
 
     CSLSRecycleArray *data_array = new CSLSRecycleArray;
-    // m_map_array.insert(make_pair(strKey, data_array));
+
+    // Size the ring buffer so a subscriber falling up to one full SRT
+    // latency window behind is still safe from overruns. We multiply by 2
+    // to give a viewer's effective lag (which can be up to the latency
+    // window) headroom against publisher-side jitter on top. Skip if we
+    // don't have both values (caller didn't pass them); CSLSRecycleArray's
+    // 8 MB default is enough for typical bitrates.
+    if (max_bitrate_kbps > 0 && latency_ms > 0)
+    {
+        // bytes_per_sec is bounded by ~max_bitrate_kbps (config caps in
+        // SLSPublisher.hpp limit it to 1_000_000 kbps = 125 MB/s).
+        int64_t bytes_per_sec = (int64_t)max_bitrate_kbps * 1000 / 8;
+        // 2x the latency window in seconds, clamped to a minimum of 1s.
+        int64_t window_secs = (int64_t)latency_ms * 2 / 1000;
+        if (window_secs < 1)
+            window_secs = 1;
+        int64_t target_bytes = bytes_per_sec * window_secs;
+        // Hard cap at 256 MB per publisher. At 1 Gbps that's still 2s,
+        // and we'd rather take the (recoverable) overrun warning than
+        // commit unbounded memory.
+        const int64_t MAX_RING_BYTES = 256LL * 1024 * 1024;
+        if (target_bytes > MAX_RING_BYTES)
+            target_bytes = MAX_RING_BYTES;
+        // Only resize if the target is larger than the constructor
+        // default — never shrink, in case the default is already
+        // generous for low-bitrate streams.
+        if (target_bytes > (int64_t)data_array->get_data_size())
+        {
+            data_array->setSize((int)target_bytes);
+            spdlog::info("[{}] CSLSMapData::add, sized ring for key='{}' to {:d} bytes"
+                         " ({:d} kbps * {:d} ms * 2).",
+                         fmt::ptr(this), key, (int)target_bytes,
+                         max_bitrate_kbps, latency_ms);
+        }
+    }
+
     m_map_array[strKey] = data_array;
-    spdlog::info("[{}] CSLSMapData::add ok, key='{}'.",
-                 fmt::ptr(this), key);
+    spdlog::info("[{}] CSLSMapData::add ok, key='{}', ring_size={:d}.",
+                 fmt::ptr(this), key, data_array->get_data_size());
     return ret;
+}
+
+int64_t CSLSMapData::get_overrun_count(const char *key)
+{
+    if (!key)
+        return -1;
+    CSLSLock lock(&m_rwclock, false);
+    auto it = m_map_array.find(std::string(key));
+    if (it == m_map_array.end() || it->second == NULL)
+        return -1;
+    return it->second->get_overrun_count();
 }
 
 int CSLSMapData::remove(char *key)

@@ -713,7 +713,18 @@ int CSLSListener::handler()
     spdlog::info("[{}] CSLSListener::handler, new pub={}, key_stream_name={}.",
                  fmt::ptr(this), fmt::ptr(pub), key_stream_name);
 
-    if (SLS_OK != m_map_data->add(key_stream_name)) {
+    // Size the publisher's ring buffer to the configured max input bitrate
+    // and the SRT latency window. Without this hint CSLSRecycleArray falls
+    // back to its compile-time default; the dynamic sizing here right-fits
+    // each publisher so a subscriber that falls a full latency window
+    // behind is still safe from buffer overrun (which would otherwise
+    // silently corrupt the delivered stream — visible to viewers as
+    // periodic skips that "reset" when they refresh the source).
+    int map_data_bitrate_hint = 0;
+    if (ca != NULL) {
+        map_data_bitrate_hint = ((sls_conf_app_t *)ca)->max_input_bitrate_kbps;
+    }
+    if (SLS_OK != m_map_data->add(key_stream_name, map_data_bitrate_hint, final_latency)) {
         spdlog::warn("[{}] CSLSListener::handler, m_map_data->add failed, new pub[{}:{:d}], stream= {}.",
                      fmt::ptr(this), peer_name, peer_port, key_stream_name);
         pub->uninit();
