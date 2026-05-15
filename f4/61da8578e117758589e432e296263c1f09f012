@@ -1,0 +1,19 @@
+src/sls.conf
+  s_7d44647d04d49d::t_e57e4bcccd4bc1 220-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "f461da8578e117758589e432e296263c1f09f012",
+  "prompts": {},
+  "sessions": {
+    "s_7d44647d04d49d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "969fb2e9-8cd4-41f6-8f57-8f4f10275208",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
