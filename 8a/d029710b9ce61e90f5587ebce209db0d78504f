@@ -1,0 +1,35 @@
+src/core/SLSMapData.cpp
+  s_14fbc754501d3f::t_70fa02a064f1d4 76-77,84-89,93
+  s_14fbc754501d3f::t_1a4b36c4c0bf27 45,67-75,78-83,90-92,94-102,104-105,109-117
+src/core/SLSListenerHandler.cpp
+  s_14fbc754501d3f::t_093bc7575b30fb 716-727
+src/core/SLSManager.cpp
+  s_14fbc754501d3f::t_f1aa5db66211d1 392-400,408-445
+src/core/SLSRole.cpp
+  s_14fbc754501d3f::t_0d22773199ee26 703-709
+src/core/SLSMapData.hpp
+  s_14fbc754501d3f::t_96411f26152ffd 68-74,78-80
+src/core/SLSRole.hpp
+  s_14fbc754501d3f::t_bbdfa628c4da65 116-121
+src/core/SLSRecycleArray.hpp
+  s_14fbc754501d3f::t_2f699d857583cf 52,55-59,67
+src/core/SLSRecycleArray.cpp
+  s_14fbc754501d3f::t_783e933f176494 151-174
+  s_14fbc754501d3f::t_487d7958226b8b 31-39,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "8ad029710b9ce61e90f5587ebce209db0d78504f",
+  "prompts": {},
+  "sessions": {
+    "s_14fbc754501d3f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e03355c1-77b5-4d83-b3b7-4a8062120016",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
