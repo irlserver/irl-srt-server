@@ -29,7 +29,14 @@
 #include "SLSGroup.hpp"
 #include "SLSLog.hpp"
 
-#define POLLING_TIME 100 /// Time in milliseconds between interrupt check
+// Max wait for srt_epoll_wait AND idle-loop sleep when no work happened.
+// Was 100ms historically; bounds per-socket service latency to this value
+// in the worst case (event becomes ready right after epoll returns from a
+// previous timeout). At 10ms the worker spins a bit hotter on idle (~10
+// extra wakeups/sec) but no socket waits more than ~10ms for service.
+// Effectively eliminates the SLS-side contribution to publisher-side
+// receive jitter and subscriber-side delivery jitter.
+#define POLLING_TIME 10 /// Time in milliseconds between interrupt check
 
 /**
  * CSLSGroup class implementation
