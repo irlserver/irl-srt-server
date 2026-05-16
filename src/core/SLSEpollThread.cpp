@@ -24,6 +24,8 @@
 
 #include <errno.h>
 #include <string.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 #include "spdlog/spdlog.h"
 
 #include "SLSEpollThread.hpp"
@@ -39,6 +41,8 @@
 
 CSLSEpollThread::CSLSEpollThread()
 {
+    m_eid = -1;
+    m_wake_fd = -1;
 }
 
 CSLSEpollThread::~CSLSEpollThread()
@@ -57,18 +61,80 @@ int CSLSEpollThread::init_epoll()
     }
     // compatible with srt v1.4.0 when container is empty.
     srt_epoll_set(m_eid, SRT_EPOLL_ENABLE_EMPTY);
+
+    // Create the wake eventfd and register it with the SRT epoll as a
+    // system socket. Reading the eventfd in srt_epoll_wait's lrfds output
+    // tells us wake() was called and we should drain it. This replaces
+    // the previous "epoll-timeout + msleep" polling backoff with proper
+    // event-driven idle behaviour: the loop only wakes when there's
+    // socket work or an explicit wake(), never spurious.
+    m_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (m_wake_fd < 0)
+    {
+        spdlog::error("[{}] CSLSEpollThread::init_epoll, eventfd() failed: {}",
+                      fmt::ptr(this), strerror(errno));
+        return SLS_ERROR;
+    }
+    int events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
+    if (srt_epoll_add_ssock(m_eid, m_wake_fd, &events) != SRT_SUCCESS)
+    {
+        spdlog::error("[{}] CSLSEpollThread::init_epoll, srt_epoll_add_ssock(wake_fd={:d}) failed.",
+                      fmt::ptr(this), m_wake_fd);
+        close(m_wake_fd);
+        m_wake_fd = -1;
+        return SLS_ERROR;
+    }
     return ret;
 }
 
 int CSLSEpollThread::uninit_epoll()
 {
     int ret = 0;
+    if (m_wake_fd >= 0)
+    {
+        if (m_eid >= 0)
+            srt_epoll_remove_ssock(m_eid, m_wake_fd);
+        close(m_wake_fd);
+        m_wake_fd = -1;
+    }
     if (m_eid >= 0)
     {
         CSLSSrt::libsrt_epoll_release(m_eid);
         spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_release ok, m_th_id={:d}.", fmt::ptr(this), m_th_id);
+        m_eid = -1;
     }
     return ret;
+}
+
+void CSLSEpollThread::wake()
+{
+    if (m_wake_fd < 0)
+        return;
+    uint64_t one = 1;
+    // EFD_NONBLOCK: write fails with EAGAIN only when the counter would
+    // overflow (which it won't at uint64_t precision under any realistic
+    // wake rate). EINTR is unlikely on a write to eventfd but treat both
+    // as harmless — the worker is already awake / about to wake.
+    ssize_t n = ::write(m_wake_fd, &one, sizeof(one));
+    (void)n;
+}
+
+bool CSLSEpollThread::drain_wake_fd()
+{
+    if (m_wake_fd < 0)
+        return false;
+    uint64_t v;
+    // Loop in case multiple wakes piled up since last drain. EAGAIN means
+    // no more pending data; both EAGAIN and a successful read return the
+    // same logical outcome (fd is now drained), the caller just needs to
+    // know whether ANY signal was pending so they can run wake-driven
+    // work paths.
+    bool drained_any = false;
+    while (::read(m_wake_fd, &v, sizeof(v)) == (ssize_t)sizeof(v))
+    {
+        drained_any = true;
+    }
+    return drained_any;
 }
 
 int CSLSEpollThread::work()
