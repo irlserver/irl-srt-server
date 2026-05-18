@@ -46,7 +46,17 @@ enum SLS_ROLE_STATE
     SLS_RS_INVALID = 2,
 };
 
-const int DATA_BUFF_SIZE = 100 * 1316;
+// Per-role egress staging buffer, in bytes. Each handler_write_data
+// call drains up to this much from the publisher ring and then issues
+// one srt_sendmsg per TS_UDP_LEN chunk in a tight loop. 100 packets
+// (~131 KB) was historical: it produced fairness problems (one slow
+// viewer monopolised the worker for 100 sendmsg calls before yielding)
+// and made a single epoll wake routinely overshoot the SRT send-buffer
+// budget of a low-latency viewer, triggering EASYNCSND. 16 packets
+// (~21 KB) is roughly the per-cycle drain budget at common bitrates
+// and lets epoll re-arm sooner across roles. Net memory saved on a
+// 100-viewer node is ~11 MB (was ~13 MB of static role buffer space).
+const int DATA_BUFF_SIZE = 16 * 1316;
 const int UNLIMITED_TIMEOUT = -1;
 /**
  * CSLSRole , the base of player, publisher and listener
@@ -177,6 +187,40 @@ protected:
     // monotonic growth for operator dashboards, not happens-before
     // against any other state.
     std::atomic<uint64_t> m_send_backpressure_count{0};
+
+    // Wall-clock (sls_gettime_ms) of the first EASYNCSND-with-no-progress
+    // event in the current stuck streak. Cleared back to 0 on any
+    // successful write byte. handler_write_data uses this to break out
+    // of a permanently-backpressured viewer (link too slow for the
+    // stream) instead of holding their publisher-ring read position
+    // open indefinitely.
+    int64_t m_backpressure_stuck_since_ms{0};
+
+    // Floor below which the stuck-viewer timeout will never drop. Even
+    // at very low negotiated latency (e.g. 20ms), 500ms gives genuine
+    // network blips room to recover before we kick. Independent of any
+    // single SRT cycle.
+    static constexpr int64_t kBackpressureStuckFloorMs = 500;
+
+    // Multiplier applied to the role's negotiated SRT latency to derive
+    // the stuck-viewer kick threshold. With TLPKTDROP on, once we have
+    // been stuck for `latency_ms` the SLS sender is already dropping
+    // packets internally (their TSBPD time has expired) — the viewer
+    // is missing content. We allow three full latency cycles past that
+    // point before deciding the link is permanently broken; below that
+    // we would risk killing viewers on a single bad 1-RTT spike.
+    static constexpr int64_t kBackpressureStuckLatencyMultiple = 3;
+
+    // Per-role stuck-viewer kick threshold (ms). Scales with the
+    // negotiated SRT latency so a 200ms-latency viewer is kicked at
+    // 600ms of pure backpressure, while a 4000ms-latency viewer gets
+    // 12000ms before the kick fires. Floor at kBackpressureStuckFloorMs
+    // so we never kick on sub-millisecond noise.
+    int64_t backpressure_stuck_timeout_ms() const
+    {
+        int64_t scaled = (int64_t)m_latency * kBackpressureStuckLatencyMultiple;
+        return scaled > kBackpressureStuckFloorMs ? scaled : kBackpressureStuckFloorMs;
+    }
     stat_info_t m_stat_info_base;
     std::shared_ptr<std::shared_future<AsyncHttpResponse>> m_http_future;
 

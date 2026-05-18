@@ -507,6 +507,35 @@ int CSLSRole::handler_write_data()
                 if (err_no == SRT_EASYNCSND)
                 {
                     m_send_backpressure_count.fetch_add(1, std::memory_order_relaxed);
+
+                    // Stuck-viewer detection. The per-packet success
+                    // path above has already reset m_backpressure_stuck_since_ms
+                    // to 0 on any progress made earlier in this call, so
+                    // observing it == 0 here means this is the first
+                    // EASYNCSND of a fresh stuck streak; start the timer.
+                    // If it was already non-zero, the stuck streak is
+                    // ongoing — kick the viewer if it has exceeded the
+                    // timeout. Continuous zero-progress backpressure
+                    // means the viewer's link cannot sustain the stream
+                    // and they would otherwise hold a publisher-ring
+                    // read position open indefinitely.
+                    int64_t stuck_timeout_ms = backpressure_stuck_timeout_ms();
+                    if (m_backpressure_stuck_since_ms == 0)
+                    {
+                        m_backpressure_stuck_since_ms = m_invalid_begin_tm;
+                    }
+                    else if ((m_invalid_begin_tm - m_backpressure_stuck_since_ms)
+                             > stuck_timeout_ms)
+                    {
+                        spdlog::warn("[{}] CSLSRole::handler_write_data, viewer stuck in backpressure {} ms (>{}ms, latency={}ms), disconnecting. backpressureEvents={}.",
+                                     fmt::ptr(this),
+                                     (long long)(m_invalid_begin_tm - m_backpressure_stuck_since_ms),
+                                     (long long)stuck_timeout_ms,
+                                     m_latency,
+                                     m_send_backpressure_count.load(std::memory_order_relaxed));
+                        return SLS_ERROR;
+                    }
+
                     spdlog::trace("[{}] CSLSRole::handler_write_data, backpressure, pos={:d}, remaining={:d}.",
                                   fmt::ptr(this), m_data_pos, remainer);
                     return write_size;
@@ -527,6 +556,11 @@ int CSLSRole::handler_write_data()
         }
         m_data_pos += TS_UDP_LEN;
         write_size += TS_UDP_LEN;
+        // Any successful write counts as progress and clears the
+        // stuck-since marker — a viewer who can drain even slowly is
+        // not zombie-stuck, just slow. Cheap to do per packet; field
+        // is not shared across threads.
+        m_backpressure_stuck_since_ms = 0;
         remainer = m_data_len - m_data_pos;
     }
 
