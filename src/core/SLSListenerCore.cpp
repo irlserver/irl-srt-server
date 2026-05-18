@@ -161,9 +161,28 @@ int CSLSListener::start()
 				}
         }
     } else {
-        if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
-				spdlog::debug("[listener] Player listener uses network-determined latency");
-				}
+        // Player listener: also apply latency_min as a floor. SRT handshake
+        // negotiates the effective latency to max(caller_proposed,
+        // listener_configured), so this clamps viewers that connect with
+        // libsrt's 120ms default upward to the operator's minimum.
+        //
+        // Why: at low latency (120ms) and modest bitrate (4 Mbps), the
+        // SLS-to-viewer SRT delivery window holds only ~60 KB of in-flight
+        // data, which is smaller than one DATA_BUFF_SIZE write burst from
+        // handler_write_data. Even a brief viewer-side network hiccup
+        // fills the send buffer and triggers EASYNCSND. Raising the floor
+        // gives proportionally more headroom for retransmit and pacing.
+        if (server_conf->latency_min > 0) {
+            m_srt->libsrt_set_latency(server_conf->latency_min);
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
+                spdlog::info("[listener] Player listener latency floor set | latency={}ms",
+                             server_conf->latency_min);
+            }
+        } else {
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+                spdlog::debug("[listener] Player listener uses network-determined latency");
+            }
+        }
     }
 
     if (m_is_legacy_listener) {
