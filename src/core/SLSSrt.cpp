@@ -272,16 +272,33 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
        If unspecified or setting fails, system default is used. */
     if (s->latency > 0)
     {
+        // SRTO_LATENCY on a listener only seeds the SRT TSBPD RCVLATENCY
+        // for the receive direction. That clamps publishers (who send
+        // to us) but does nothing for players (who receive from us).
+        // Set SRTO_PEERLATENCY explicitly too so we commit, as sender,
+        // to at least this much queue-time before TLPKTDROP fires for
+        // any player we accept. The SRT handshake then negotiates the
+        // player's effective receive latency to
+        //   max(player.RCVLATENCY, our.PEERLATENCY)
+        // which is what actually decides the SLS-to-viewer delivery
+        // window — and therefore whether srt_sendmsg flips into
+        // continuous EASYNCSND / SRTS_BROKEN under any real-world
+        // viewer-link jitter.
         srt_setsockopt(fd, SOL_SOCKET, SRTO_LATENCY, &s->latency, sizeof(s->latency));
+        srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERLATENCY, &s->latency, sizeof(s->latency));
     }
-    if (s->recv_buffer_size > 0)
-    {
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_UDP_RCVBUF, &s->recv_buffer_size, sizeof(s->recv_buffer_size));
-    }
-    if (s->send_buffer_size > 0)
-    {
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_UDP_SNDBUF, &s->send_buffer_size, sizeof(s->send_buffer_size));
-    }
+    // Kernel UDP socket buffers. Defaults on Linux are ~200KB-1MB which
+    // is too tight for SRT live streaming under bursty traffic: when
+    // the kernel queue fills, sendto() returns EAGAIN and libsrt
+    // surfaces it as EASYNCSND, AND outgoing SRT control packets
+    // (keepalives, ACK responses) get dropped — which in turn lets the
+    // peer's libsrt declare the connection broken even when the network
+    // is healthy. 8MB matches what most production SRT receivers run.
+    // If the per-server config sets an explicit size, honour it.
+    int udp_rcvbuf = s->recv_buffer_size > 0 ? s->recv_buffer_size : 8 * 1024 * 1024;
+    int udp_sndbuf = s->send_buffer_size > 0 ? s->send_buffer_size : 8 * 1024 * 1024;
+    srt_setsockopt(fd, SOL_SOCKET, SRTO_UDP_RCVBUF, &udp_rcvbuf, sizeof(udp_rcvbuf));
+    srt_setsockopt(fd, SOL_SOCKET, SRTO_UDP_SNDBUF, &udp_sndbuf, sizeof(udp_sndbuf));
     if (s->reuse)
     {
         if (srt_setsockopt(fd, SOL_SOCKET, SRTO_REUSEADDR, &s->reuse, sizeof(s->reuse)))
