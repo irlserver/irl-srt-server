@@ -150,6 +150,11 @@ int CSLSSrt::libsrt_neterrno()
     return err;
 }
 
+int CSLSSrt::libsrt_lasterror()
+{
+    return srt_getlasterror(NULL);
+}
+
 void CSLSSrt::libsrt_set_context(SRTContext *sc)
 {
     m_sc = *sc;
@@ -453,10 +458,24 @@ int CSLSSrt::libsrt_write(const char *buf, int size)
     int ret;
     ret = srt_sendmsg(m_sc.fd, buf, size, -1, 0);
     if (ret < 0)
-    { //SRTS_BROKEN
-        int err_no = libsrt_neterrno();
-        spdlog::warn("[{}] CSLSSrt::libsrt_write failed, sock={:d}, ret={:d}, errno={:d}.",
-                     fmt::ptr(this), m_sc.fd, ret, err_no);
+    {
+        // EASYNCSND is transient backpressure (SRT send buffer full).
+        // Callers must distinguish it from real failures via
+        // libsrt_lasterror(); we log it at trace so high-rate
+        // backpressure under viewer congestion doesn't flood the log.
+        // Everything else stays at warn — it indicates a broken or
+        // unrecoverable socket.
+        int err_no = srt_getlasterror(NULL);
+        if (err_no == SRT_EASYNCSND)
+        {
+            spdlog::trace("[{}] CSLSSrt::libsrt_write backpressure, sock={:d}, size={:d}.",
+                         fmt::ptr(this), m_sc.fd, size);
+        }
+        else
+        {
+            spdlog::warn("[{}] CSLSSrt::libsrt_write failed, sock={:d}, ret={:d}, errno={:d}, {}.",
+                         fmt::ptr(this), m_sc.fd, ret, err_no, srt_getlasterror_str());
+        }
     }
     return ret;
 }

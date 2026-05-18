@@ -128,6 +128,11 @@ public:
     void libsrt_set_passphrase(const char *passphrase, int pbkeylen);
 
     static int libsrt_neterrno();
+    // Non-logging variant: returns the SRT error code from srt_getlasterror()
+    // without emitting a log line. Use this on the hot path (per-write
+    // backpressure check) where libsrt_neterrno's spdlog::error call would
+    // flood the log under load.
+    static int libsrt_lasterror();
     static void libsrt_print_error_info();
 
 protected:

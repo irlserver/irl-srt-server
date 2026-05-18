@@ -413,6 +413,15 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear) {
     // subscriber's read position was forcibly resynced to the write head
     // to avoid handing back corrupted wrapped-around data.
     ret["ringOverruns"]     = role->get_ring_overrun_count();
+    // Egress send-buffer backpressure events. Counts how often
+    // srt_sendmsg to this role returned EASYNCSND (SRT send buffer
+    // full). Each event means the viewer's link could not absorb a
+    // write burst and SLS deferred the remainder to the next epoll
+    // wake instead of disconnecting the viewer. Steady growth on a
+    // player role indicates that viewer's link is under-provisioned
+    // for the stream bitrate or that the player negotiated too small
+    // a latency window.
+    ret["sendBackpressure"] = role->get_send_backpressure_count();
 
     ret["audioGapFill"] = json::object();
     ret["audioGapFill"]["enabled"] = audio_gap_stats.enabled;

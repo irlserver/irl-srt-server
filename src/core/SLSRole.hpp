@@ -119,6 +119,16 @@ public:
     // "fixes itself" on subscriber reconnect. Returns -1 if not bound to
     // a map_data key.
     int64_t get_ring_overrun_count() const;
+
+    // Count of times handler_write_data() hit SRT send-buffer
+    // backpressure (errno EASYNCSND) on this role. Each event means a
+    // viewer egress write was deferred to the next epoll cycle rather
+    // than killing the connection. Surfaced via /stats so operators can
+    // see when viewers are falling behind.
+    uint64_t get_send_backpressure_count() const
+    {
+        return m_send_backpressure_count.load(std::memory_order_relaxed);
+    }
     int check_http_client();
     int check_http_passed();
 
@@ -160,6 +170,13 @@ protected:
     int m_data_len;
     int m_data_pos;
     bool m_need_reconnect;
+
+    // Incremented every time srt_sendmsg returns EASYNCSND on this
+    // role's egress write. Read concurrently by the stats HTTP server,
+    // hence atomic. Relaxed ordering is sufficient: we only care about
+    // monotonic growth for operator dashboards, not happens-before
+    // against any other state.
+    std::atomic<uint64_t> m_send_backpressure_count{0};
     stat_info_t m_stat_info_base;
     std::shared_ptr<std::shared_future<AsyncHttpResponse>> m_http_future;
 

@@ -493,13 +493,36 @@ int CSLSRole::handler_write_data()
         ret = write(m_data + m_data_pos, TS_UDP_LEN);
         if (ret < TS_UDP_LEN)
         {
-            spdlog::error("[{}] CSLSRole::handler_write_data, write data failed, len={:d}, ret={:d}, not {:d}.", fmt::ptr(this), len, ret, TS_UDP_LEN);
-            // On write failure, mark connection as invalid to trigger cleanup
-            if (ret <= 0)
+            // Distinguish transient backpressure (SRT_EASYNCSND, errno
+            // 6001) from real failures. EASYNCSND means the per-socket
+            // SRT send buffer is momentarily full and the write should
+            // be retried on the next SRT_EPOLL_OUT wake. Treating it as
+            // fatal (the old behaviour) silently disconnected any
+            // viewer that hit a brief congestion event on their link.
+            // Leaving m_data_pos/m_data_len intact so the next handler
+            // call resumes from the same offset.
+            if (ret < 0)
             {
-                spdlog::error("[{}] CSLSRole::handler_write_data, critical write failure (ret={:d}), marking connection invalid.", fmt::ptr(this), ret);
+                int err_no = CSLSSrt::libsrt_lasterror();
+                if (err_no == SRT_EASYNCSND)
+                {
+                    m_send_backpressure_count.fetch_add(1, std::memory_order_relaxed);
+                    spdlog::trace("[{}] CSLSRole::handler_write_data, backpressure, pos={:d}, remaining={:d}.",
+                                  fmt::ptr(this), m_data_pos, remainer);
+                    return write_size;
+                }
+                spdlog::error("[{}] CSLSRole::handler_write_data, write data failed, len={:d}, ret={:d}, errno={:d}, not {:d}.",
+                              fmt::ptr(this), len, ret, err_no, TS_UDP_LEN);
+                spdlog::error("[{}] CSLSRole::handler_write_data, critical write failure (ret={:d}, errno={:d}), marking connection invalid.",
+                              fmt::ptr(this), ret, err_no);
                 return SLS_ERROR;
             }
+            // Partial write (0 < ret < TS_UDP_LEN). SRT message API is
+            // all-or-nothing per message so this branch is unexpected;
+            // log and break to surface the anomaly without killing the
+            // connection.
+            spdlog::error("[{}] CSLSRole::handler_write_data, short write, len={:d}, ret={:d}, not {:d}.",
+                          fmt::ptr(this), len, ret, TS_UDP_LEN);
             break;
         }
         m_data_pos += TS_UDP_LEN;
