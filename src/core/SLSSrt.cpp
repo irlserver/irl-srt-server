@@ -252,6 +252,22 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
 
     spdlog::info("[{}] CSLSSrt::libsrt_setup, SRTLA patches {}.", fmt::ptr(this), srtla_patches ? "enabled" : "disabled");
 
+    // Explicitly enable too-late packet drop (TLPKTDROP) on the listener.
+    // Libsrt defaults this on for SRTT_LIVE which is what we use, but
+    // setting it explicitly removes any ambiguity from future libsrt
+    // default changes or non-live transtype regressions. Critical for
+    // the egress write path: when a viewer cannot keep up, TLPKTDROP
+    // lets libsrt silently discard packets whose TSBPD time has expired
+    // from the send queue, freeing send-buffer space so EASYNCSND does
+    // not pile up forever and so handler_write_data's stuck-viewer
+    // detection only fires for genuinely broken links.
+    int tlpktdrop = 1;
+    status = srt_setsockopt(fd, SOL_SOCKET, SRTO_TLPKTDROP, &tlpktdrop, sizeof(tlpktdrop));
+    if (status < 0) {
+        spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_TLPKTDROP failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
+        return SLS_ERROR;
+    }
+
     /* Set the socket's send or receive buffer sizes, if specified.
        If unspecified or setting fails, system default is used. */
     if (s->latency > 0)
