@@ -257,10 +257,27 @@ int CSLSGroup::handler()
     }
 
     idle_check();
-    // No explicit msleep — when there's no work srt_epoll_wait already
-    // gave up its CPU slice waiting up to POLLING_TIME, and any real
-    // event (socket activity or wake()) will fire immediately on the
-    // next iteration's epoll_wait.
+
+    // Spin guard. Player sockets stay registered for SRT_EPOLL_OUT for
+    // their whole lifetime. An SRT socket that has drained its send
+    // buffer is *always* writable, so level-triggered srt_epoll_wait
+    // returns it on every iteration with zero blocking — even when the
+    // publisher ring has no new data for that player yet. Without a
+    // floor we then busy-loop calling handler_write_data -> get() ->
+    // "no data" -> return, pegging a core (the pre-eventfd code hid
+    // this behind its unconditional trailing msleep).
+    //
+    // handler_count is the bytes actually moved this iteration (publisher
+    // reads + player writes). If it's zero, every returned socket was a
+    // no-op writable player and we should yield briefly instead of
+    // spinning. When real data is flowing handler_count > 0 and we loop
+    // immediately with no added latency. 2ms is far below any player's
+    // TSBPD budget (>=200ms) so it is invisible to playback while
+    // capping idle spin at ~500 wakeups/sec/worker.
+    if (handler_count == 0)
+    {
+        msleep(2);
+    }
     return handler_count;
 }
 
