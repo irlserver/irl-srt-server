@@ -29,7 +29,15 @@
 #include "SLSGroup.hpp"
 #include "SLSLog.hpp"
 
-#define POLLING_TIME 100 /// Time in milliseconds between interrupt check
+// Upper bound on idle-check cadence. The worker blocks in srt_epoll_wait
+// up to this long when there are no socket events AND no wake() pending.
+// Real socket events return immediately via libsrt's epoll. Explicit
+// wakes (stop, reload, new role queued) are delivered via the eventfd
+// registered in CSLSEpollThread::init_epoll, so this timeout only
+// gates the periodic idle housekeeping (relay reconnects, invalid-sock
+// cleanup, picking up newly-queued roles). 50ms gives ~20 idle ticks
+// per second with no per-event latency cost.
+#define POLLING_TIME 50
 
 /**
  * CSLSGroup class implementation
@@ -64,6 +72,10 @@ int CSLSGroup::stop()
 {
     int ret = 0;
     spdlog::info("[{}] CSLSGroup::stop, worker_number={:d}.", fmt::ptr(this), m_worker_number);
+    // Kick the worker out of srt_epoll_wait so it observes m_exit
+    // (set by CSLSEpollThread::stop) immediately instead of waiting for
+    // the next idle timeout. Safe to call from any thread.
+    wake();
     ret = CSLSEpollThread::stop();
 
     std::list<CSLSRole *>::iterator it_erase;
@@ -85,6 +97,9 @@ int CSLSGroup::stop()
 void CSLSGroup::reload()
 {
     m_reload = true;
+    // Wake the worker so the reload check (in handler()) runs without
+    // waiting for the next idle timeout.
+    wake();
 }
 
 void CSLSGroup::check_new_role()
@@ -130,6 +145,11 @@ int CSLSGroup::handler()
     int i;
     int read_len = MAX_SOCK_COUNT;
     int write_len = MAX_SOCK_COUNT;
+    // System sockets (eventfd from CSLSEpollThread) returned by srt_epoll_wait.
+    // Only one entry needed today (the wake fd) but room for growth.
+    SYSSOCKET sys_read_socks[4];
+    int sys_read_len = (int)(sizeof(sys_read_socks) / sizeof(sys_read_socks[0]));
+    int sys_write_len = 0; // we never register system sockets for write events
 
     int handler_count = 0;
 
@@ -141,12 +161,17 @@ int CSLSGroup::handler()
         return SLS_OK;
     }
 
-    // check epoll event
-    ret = srt_epoll_wait(m_eid, m_read_socks, &read_len, m_write_socks, &write_len, POLLING_TIME, 0, 0, 0, 0);
+    // Event-driven wait. Blocks up to POLLING_TIME ms unless a socket
+    // event fires or wake() is called via the eventfd (registered as a
+    // system socket in CSLSEpollThread::init_epoll). No follow-up sleep:
+    // when there's nothing to do, we just sit in srt_epoll_wait.
+    ret = srt_epoll_wait(m_eid, m_read_socks, &read_len,
+                         m_write_socks, &write_len,
+                         POLLING_TIME,
+                         sys_read_socks, &sys_read_len,
+                         NULL, &sys_write_len);
     if (ret < 0)
     {
-        // sls_log(SLS_LOG_TRACE, "[%p]CSLSGroup::handle, worker_number=%d, srt_epoll_wait, no epoll event, ret=%d.",
-        //         this, m_worker_number, ret);
         ret = srt_getlasterror(NULL);
         if (ret == SRT_ETIMEOUT) // 6003
             ret = SLSERROR(EAGAIN);
@@ -155,6 +180,13 @@ int CSLSGroup::handler()
 
         idle_check();
         return handler_count;
+    }
+
+    // Drain the wake fd if it fired. We don't care which fd specifically
+    // (only one is registered today) — drain_wake_fd is idempotent.
+    if (sys_read_len > 0)
+    {
+        drain_wake_fd();
     }
 
     spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, writable sock count={:d}, readable sock count={:d}.",
@@ -225,10 +257,26 @@ int CSLSGroup::handler()
     }
 
     idle_check();
-    if (0 == handler_count)
+
+    // Spin guard. Player sockets stay registered for SRT_EPOLL_OUT for
+    // their whole lifetime. An SRT socket that has drained its send
+    // buffer is *always* writable, so level-triggered srt_epoll_wait
+    // returns it on every iteration with zero blocking — even when the
+    // publisher ring has no new data for that player yet. Without a
+    // floor we then busy-loop calling handler_write_data -> get() ->
+    // "no data" -> return, pegging a core (the pre-eventfd code hid
+    // this behind its unconditional trailing msleep).
+    //
+    // handler_count is the bytes actually moved this iteration (publisher
+    // reads + player writes). If it's zero, every returned socket was a
+    // no-op writable player and we should yield briefly instead of
+    // spinning. When real data is flowing handler_count > 0 and we loop
+    // immediately with no added latency. 2ms is far below any player's
+    // TSBPD budget (>=200ms) so it is invisible to playback while
+    // capping idle spin at ~500 wakeups/sec/worker.
+    if (handler_count == 0)
     {
-        // release cpu
-        msleep(POLLING_TIME);
+        msleep(2);
     }
     return handler_count;
 }

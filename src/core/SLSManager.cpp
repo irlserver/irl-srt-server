@@ -160,7 +160,6 @@ int CSLSManager::start()
             CSLSListener *pub_listener = new CSLSListener(); //deleted by groups
             pub_listener->set_role_list(m_list_role);
             pub_listener->set_conf((sls_conf_base_t *)conf);
-            pub_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             pub_listener->set_map_data("", &m_map_data[i]);
             pub_listener->set_map_publisher(&m_map_publisher[i]);
             pub_listener->set_map_puller(&m_map_puller[i]);
@@ -187,7 +186,6 @@ int CSLSManager::start()
             CSLSListener *srtla_listener = new CSLSListener(); //deleted by groups
             srtla_listener->set_role_list(m_list_role);
             srtla_listener->set_conf((sls_conf_base_t *)conf);
-            srtla_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             srtla_listener->set_map_data("", &m_map_data[i]);
             srtla_listener->set_map_publisher(&m_map_publisher[i]);
             srtla_listener->set_map_puller(&m_map_puller[i]);
@@ -215,7 +213,6 @@ int CSLSManager::start()
             CSLSListener *player_listener = new CSLSListener(); //deleted by groups
             player_listener->set_role_list(m_list_role);
             player_listener->set_conf((sls_conf_base_t *)conf);
-            player_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             player_listener->set_map_data("", &m_map_data[i]);
             player_listener->set_map_publisher(&m_map_publisher[i]);
             player_listener->set_map_puller(&m_map_puller[i]);
@@ -246,7 +243,6 @@ int CSLSManager::start()
             CSLSListener *legacy_listener = new CSLSListener(); //deleted by groups
             legacy_listener->set_role_list(m_list_role);
             legacy_listener->set_conf((sls_conf_base_t *)conf);
-            legacy_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             legacy_listener->set_map_data("", &m_map_data[i]);
             legacy_listener->set_map_publisher(&m_map_publisher[i]);
             legacy_listener->set_map_puller(&m_map_puller[i]);
@@ -280,7 +276,6 @@ int CSLSManager::start()
             CSLSListener *fallback_listener = new CSLSListener(); //deleted by groups
             fallback_listener->set_role_list(m_list_role);
             fallback_listener->set_conf((sls_conf_base_t *)conf);
-            fallback_listener->set_record_hls_path_prefix(conf_srt->record_hls_path_prefix);
             fallback_listener->set_map_data("", &m_map_data[i]);
             fallback_listener->set_map_publisher(&m_map_publisher[i]);
             fallback_listener->set_map_puller(&m_map_puller[i]);
@@ -398,6 +393,8 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear) {
     json ret = json::object();
     SRT_TRACEBSTATS stats = {0};
     role->get_statistics(&stats, clear);
+    CSLSMapData::AudioGapStreamStats audio_gap_stats;
+    role->get_audio_gap_stats(audio_gap_stats, clear);
     // Interval
     ret["pktRcvLoss"]       = stats.pktRcvLoss;
     ret["pktRcvDrop"]       = stats.pktRcvDrop;
@@ -411,6 +408,48 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear) {
     ret["bitrate"]          = role->get_bitrate(); // in kbps
     ret["uptime"]           = role->get_uptime(); // in seconds
     ret["latency"]          = role->get_latency(); // in milliseconds
+    // Publisher ring-buffer overruns (writer lapped a slow subscriber).
+    // Stays at 0 on healthy streams; non-zero means at least one
+    // subscriber's read position was forcibly resynced to the write head
+    // to avoid handing back corrupted wrapped-around data.
+    ret["ringOverruns"]     = role->get_ring_overrun_count();
+    // Egress send-buffer backpressure events. Counts how often
+    // srt_sendmsg to this role returned EASYNCSND (SRT send buffer
+    // full). Each event means the viewer's link could not absorb a
+    // write burst and SLS deferred the remainder to the next epoll
+    // wake instead of disconnecting the viewer. Steady growth on a
+    // player role indicates that viewer's link is under-provisioned
+    // for the stream bitrate or that the player negotiated too small
+    // a latency window.
+    ret["sendBackpressure"] = role->get_send_backpressure_count();
+
+    ret["audioGapFill"] = json::object();
+    ret["audioGapFill"]["enabled"] = audio_gap_stats.enabled;
+    ret["audioGapFill"]["pmtParsed"] = audio_gap_stats.pmt_parsed;
+    ret["audioGapFill"]["audioTrackCount"] = audio_gap_stats.audio_track_count;
+    ret["audioGapFill"]["gapCount"] = audio_gap_stats.gap_count;
+    ret["audioGapFill"]["silentFramesInserted"] = audio_gap_stats.silent_frames_inserted;
+    ret["audioGapFill"]["silentPacketsInserted"] = audio_gap_stats.silent_packets_inserted;
+    ret["audioGapFill"]["silentBytesInserted"] = audio_gap_stats.silent_bytes_inserted;
+    ret["audioGapFill"]["tracks"] = json::array();
+
+    for (const auto &track_stats : audio_gap_stats.tracks) {
+        ret["audioGapFill"]["tracks"].push_back(json{
+            {"pid", track_stats.pid},
+            {"streamType", track_stats.stream_type},
+            {"streamId", track_stats.stream_id},
+            {"formatDetected", track_stats.format_detected},
+            {"sampleRate", track_stats.sample_rate},
+            {"channels", track_stats.channels},
+            {"gapCount", track_stats.gap_count},
+            {"silentFramesInserted", track_stats.silent_frames_inserted},
+            {"silentPacketsInserted", track_stats.silent_packets_inserted},
+            {"silentBytesInserted", track_stats.silent_bytes_inserted},
+            {"lastGapPtsDelta", track_stats.last_gap_pts_delta},
+            {"lastGapFrames", track_stats.last_gap_frames}
+        });
+    }
+
     return ret;
 }
 

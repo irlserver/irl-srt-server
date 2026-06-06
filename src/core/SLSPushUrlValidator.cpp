@@ -1,0 +1,235 @@
+#include "SLSPushUrlValidator.hpp"
+
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <mutex>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <string>
+#include <sys/socket.h>
+#include <vector>
+
+#include <spdlog/spdlog.h>
+
+#include "SLSLogCategory.hpp"
+#include "url.hpp"
+
+namespace {
+
+constexpr int kDefaultMaxUrlLen = 1024;
+const char *kDefaultAllowSchemes = "srt";
+
+bool scheme_allowed(const std::string &scheme, const char *allow_list) {
+    if (!allow_list || !*allow_list) {
+        // Default whitelist when operator left the conf empty.
+        return scheme == "srt";
+    }
+    const std::string list(allow_list);
+    size_t pos = 0;
+    while (pos < list.size()) {
+        while (pos < list.size() && (list[pos] == ' ' || list[pos] == '\t' ||
+                                     list[pos] == ',' || list[pos] == ';')) {
+            ++pos;
+        }
+        size_t start = pos;
+        while (pos < list.size() && list[pos] != ' ' && list[pos] != '\t' &&
+               list[pos] != ',' && list[pos] != ';') {
+            ++pos;
+        }
+        if (start < pos) {
+            if (list.compare(start, pos - start, scheme) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool ipv4_in_cidr(uint32_t addr_host_order, const char *base, int prefix) {
+    in_addr base_addr{};
+    if (inet_pton(AF_INET, base, &base_addr) != 1) return false;
+    uint32_t base_host = ntohl(base_addr.s_addr);
+    uint32_t mask = prefix == 0 ? 0u : (~0u << (32 - prefix));
+    return (addr_host_order & mask) == (base_host & mask);
+}
+
+bool is_loopback_v4(uint32_t addr_host_order) {
+    return ipv4_in_cidr(addr_host_order, "127.0.0.0", 8);
+}
+
+bool is_link_local_v4(uint32_t addr_host_order) {
+    return ipv4_in_cidr(addr_host_order, "169.254.0.0", 16);
+}
+
+bool is_private_v4(uint32_t addr_host_order) {
+    return ipv4_in_cidr(addr_host_order, "10.0.0.0", 8) ||
+           ipv4_in_cidr(addr_host_order, "172.16.0.0", 12) ||
+           ipv4_in_cidr(addr_host_order, "192.168.0.0", 16);
+}
+
+bool is_loopback_v6(const in6_addr &a) {
+    static const in6_addr loopback = IN6ADDR_LOOPBACK_INIT;
+    return memcmp(&a, &loopback, sizeof(in6_addr)) == 0;
+}
+
+bool is_link_local_v6(const in6_addr &a) {
+    // fe80::/10
+    return a.s6_addr[0] == 0xfe && (a.s6_addr[1] & 0xc0) == 0x80;
+}
+
+bool is_ula_v6(const in6_addr &a) {
+    // fc00::/7
+    return (a.s6_addr[0] & 0xfe) == 0xfc;
+}
+
+struct AddrCategory {
+    bool loopback = false;
+    bool link_local = false;
+    bool privnet = false;
+};
+
+AddrCategory categorize_addr(const sockaddr *sa) {
+    AddrCategory c;
+    if (sa->sa_family == AF_INET) {
+        uint32_t v = ntohl(reinterpret_cast<const sockaddr_in *>(sa)->sin_addr.s_addr);
+        c.loopback = is_loopback_v4(v);
+        c.link_local = is_link_local_v4(v);
+        c.privnet = is_private_v4(v);
+    } else if (sa->sa_family == AF_INET6) {
+        const in6_addr &v = reinterpret_cast<const sockaddr_in6 *>(sa)->sin6_addr;
+        c.loopback = is_loopback_v6(v);
+        c.link_local = is_link_local_v6(v);
+        c.privnet = is_ula_v6(v);
+    }
+    return c;
+}
+
+std::string addr_to_string(const sockaddr *sa) {
+    char buf[INET6_ADDRSTRLEN] = {0};
+    if (sa->sa_family == AF_INET) {
+        inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in *>(sa)->sin_addr,
+                  buf, sizeof(buf));
+    } else if (sa->sa_family == AF_INET6) {
+        inet_ntop(AF_INET6,
+                  &reinterpret_cast<const sockaddr_in6 *>(sa)->sin6_addr,
+                  buf, sizeof(buf));
+    }
+    return std::string(buf);
+}
+
+std::vector<std::string> discover_self_addresses() {
+    std::vector<std::string> out;
+    ifaddrs *ifaddr = nullptr;
+    if (getifaddrs(&ifaddr) != 0) {
+        spdlog::warn("[relay] push validator: getifaddrs failed, deny_self will be best-effort");
+        return out;
+    }
+    for (ifaddrs *it = ifaddr; it != nullptr; it = it->ifa_next) {
+        if (!it->ifa_addr) continue;
+        const sockaddr *sa = it->ifa_addr;
+        if (sa->sa_family != AF_INET && sa->sa_family != AF_INET6) continue;
+        AddrCategory c = categorize_addr(sa);
+        // Loopback is handled by allow_internal, not allow_self.
+        if (c.loopback) continue;
+        out.push_back(addr_to_string(sa));
+    }
+    freeifaddrs(ifaddr);
+    return out;
+}
+
+bool addr_matches_any(const sockaddr *sa, const std::vector<std::string> &list) {
+    if (list.empty()) return false;
+    std::string s = addr_to_string(sa);
+    for (const auto &entry : list) {
+        if (entry == s) return true;
+    }
+    return false;
+}
+
+} // namespace
+
+const char *push_url_reject_reason(PushUrlReject reason) {
+    switch (reason) {
+    case PushUrlReject::Ok: return "ok";
+    case PushUrlReject::TooLong: return "too_long";
+    case PushUrlReject::InvalidUrl: return "invalid_url";
+    case PushUrlReject::WrongScheme: return "wrong_scheme";
+    case PushUrlReject::MissingHost: return "missing_host";
+    case PushUrlReject::MissingStreamid: return "missing_streamid";
+    case PushUrlReject::DnsFailure: return "dns_failure";
+    case PushUrlReject::DenyInternal: return "deny_internal";
+    case PushUrlReject::DenySelf: return "deny_self";
+    }
+    return "unknown";
+}
+
+const std::vector<std::string> &push_url_self_addresses() {
+    static std::once_flag once;
+    static std::vector<std::string> cache;
+    std::call_once(once, []() { cache = discover_self_addresses(); });
+    return cache;
+}
+
+PushUrlReject validate_push_url(const std::string &url,
+                                const sls_conf_app_t &app_conf,
+                                const std::vector<std::string> &bind_addresses) {
+    int max_len = app_conf.push_destination_max_url_len > 0
+                      ? app_conf.push_destination_max_url_len
+                      : kDefaultMaxUrlLen;
+    if (url.empty()) return PushUrlReject::InvalidUrl;
+    if (static_cast<int>(url.size()) > max_len) return PushUrlReject::TooLong;
+
+    std::string scheme;
+    std::string host;
+    std::string port_str;
+    bool has_streamid = false;
+    try {
+        Url parsed(url);
+        scheme = parsed.scheme();
+        host = parsed.host();
+        port_str = parsed.port();
+        for (const Url::KeyVal &kv : parsed.query()) {
+            if (kv.key() == "streamid" && !kv.val().empty()) {
+                has_streamid = true;
+                break;
+            }
+        }
+    } catch (const std::exception &) {
+        return PushUrlReject::InvalidUrl;
+    }
+
+    const char *allow_schemes = app_conf.push_destination_allow_schemes[0]
+                                    ? app_conf.push_destination_allow_schemes
+                                    : kDefaultAllowSchemes;
+    if (!scheme_allowed(scheme, allow_schemes)) return PushUrlReject::WrongScheme;
+    if (host.empty()) return PushUrlReject::MissingHost;
+    if (!has_streamid) return PushUrlReject::MissingStreamid;
+
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo *results = nullptr;
+    int gai = getaddrinfo(host.c_str(),
+                          port_str.empty() ? nullptr : port_str.c_str(),
+                          &hints, &results);
+    if (gai != 0 || !results) {
+        return PushUrlReject::DnsFailure;
+    }
+
+    PushUrlReject verdict = PushUrlReject::Ok;
+    for (addrinfo *it = results; it != nullptr; it = it->ai_next) {
+        AddrCategory c = categorize_addr(it->ai_addr);
+        if (!app_conf.push_destination_allow_internal &&
+            (c.loopback || c.link_local || c.privnet)) {
+            verdict = PushUrlReject::DenyInternal;
+            break;
+        }
+        if (!app_conf.push_destination_allow_self &&
+            addr_matches_any(it->ai_addr, bind_addresses)) {
+            verdict = PushUrlReject::DenySelf;
+            break;
+        }
+    }
+    freeaddrinfo(results);
+    return verdict;
+}

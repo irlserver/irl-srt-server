@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <stddef.h>
 #include <stdint.h>
 #include <string>
@@ -101,6 +102,7 @@ void sls_gettime_default_string(char *cur_time_buf, size_t cur_time_buf_len);
 char *sls_strupper(char *str);
 char *sls_strlower(char *str);
 void sls_remove_marks(char *s);
+bool sls_is_safe_name(const char *s);
 
 uint32_t sls_hash_key(const char *data, size_t len);
 int sls_gethostbyname(const char *hostname, char *ip);
@@ -113,6 +115,7 @@ int sls_read_pid();
 int sls_write_pid(int pid);
 int sls_remove_pid();
 int sls_send_cmd(const char *cmd);
+int sls_drop_privileges(const char *user, const char *group);
 
 void sls_split_string(std::string str, std::string separator, std::vector<std::string> &result, int count = -1);
 std::string sls_find_string(std::vector<std::string> &src, std::string &dst, bool caseSensitive = true);
@@ -141,6 +144,40 @@ struct stat_info_t
 #define INVALID_DTS_PTS -1
 #define MAX_PES_PAYLOAD 200 * 1024
 
+// Maximum number of audio tracks we can track per stream
+#define MAX_AUDIO_TRACKS 4
+
+// Per-audio-track state for gap filling
+struct audio_track_info
+{
+    int pid;                    // Audio elementary stream PID (from PMT)
+    int stream_type;            // Stream type (0x0F=AAC, 0x03=MP3, 0x06=private/Opus, etc.)
+    uint8_t stream_id;          // PES stream_id for this track (0xC0, 0xC1, etc.)
+    int64_t last_pts;           // Last seen audio PTS (90kHz clock)
+    uint8_t cc;                 // Continuity counter from the actual stream
+    uint8_t expected_cc;        // Expected CC for rewriting (sequential, no gaps)
+    bool cc_initialized;        // Whether expected_cc has been initialized from stream
+    bool in_gap;                // True after gap detection until a clean PES start arrives
+    int sample_rate;            // Detected sample rate (e.g. 44100, 48000)
+    int channels;               // Detected channel count (1=mono, 2=stereo, etc.)
+    int sample_rate_index;      // ADTS sample rate index (0-12), or MP3 sr index
+    int channel_config;         // ADTS channel configuration (1-7)
+    int profile;                // AAC profile (1=AAC-LC, etc.), or MP3 layer
+    int bitrate_index;          // MP3 bitrate index (for frame size calculation)
+    bool format_detected;       // Whether we've captured the audio format from headers
+    // Counter fields are atomic so the HTTP /stats path can read them
+    // without taking CSLSMapData::m_rwclock for any non-trivial duration.
+    // That removes the stats-vs-data-path lock contention that manifested
+    // as periodic msRcvBuf spikes on viewers.
+    std::atomic<uint64_t> gap_count{0};         // Number of detected PTS gaps on this track
+    std::atomic<uint64_t> silent_frames_inserted{0};  // Number of silent frames generated for this track
+    std::atomic<uint64_t> silent_packets_inserted{0}; // Number of TS packets inserted for this track
+    std::atomic<uint64_t> silent_bytes_inserted{0};   // Number of TS bytes inserted for this track
+    int64_t last_gap_pts_delta; // Most recent detected PTS delta that triggered filling
+    int last_gap_frames;        // Number of frames inserted for the most recent detected gap
+    std::atomic<uint64_t> partial_pes_dropped{0}; // Number of partial PES continuation packets dropped
+};
+
 struct ts_info
 {
     int es_pid;
@@ -157,6 +194,19 @@ struct ts_info
     int pmt_pid;
     uint8_t pmt[TS_PACK_LEN];
     int pmt_len;
+
+    // Audio gap filling fields
+    bool audio_gap_fill_enabled; // Whether gap filling is enabled for this stream
+    bool pmt_parsed;            // Whether PMT has been parsed for audio PIDs
+    int audio_track_count;      // Number of audio tracks found in PMT
+    // Atomic counters — see audio_track_info above for rationale.
+    std::atomic<uint64_t> gap_count{0};         // Total number of detected audio gaps across all tracks
+    std::atomic<uint64_t> silent_frames_inserted{0};  // Total number of silent frames inserted
+    std::atomic<uint64_t> silent_packets_inserted{0}; // Total number of TS packets inserted
+    std::atomic<uint64_t> silent_bytes_inserted{0};   // Total number of TS bytes inserted
+    audio_track_info audio_tracks[MAX_AUDIO_TRACKS]; // Per-track state
 };
 void sls_init_ts_info(ts_info *ti);
+void sls_init_audio_track(audio_track_info *at);
 int sls_parse_ts_info(const uint8_t *packet, ts_info *ti);
+int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti);

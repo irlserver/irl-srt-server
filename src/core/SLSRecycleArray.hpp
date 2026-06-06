@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "common.hpp"
 #include "SLSLock.hpp"
 
@@ -49,8 +51,20 @@ public:
 
     void setSize(int n);
     int count();
+    int get_data_size() const { return m_nDataSize; }
 
     int64_t get_last_read_time();
+    // Number of times a reader was detected to have fallen far enough behind
+    // the writer that the buffer wrapped past them. When this fires the
+    // reader's position is forcibly advanced to the current write head so
+    // they resume with fresh data instead of silently reading garbage.
+    // Atomic so /stats can read it without taking m_rwclock — that lock
+    // serialises with put() and used to be a periodic source of viewer
+    // delivery stalls when the HTTP probe hit /stats every 10-15s.
+    int64_t get_overrun_count() const
+    {
+        return m_overrun_count.load(std::memory_order_relaxed);
+    }
 
 private:
     char *m_arrayData;
@@ -58,6 +72,7 @@ private:
     int m_nDataCount;
     int m_nWritePos;
     int64_t m_last_read_time;
+    std::atomic<int64_t> m_overrun_count;
 
     CSLSRWLock m_rwclock;
 };

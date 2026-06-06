@@ -26,10 +26,14 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 
 #include "SLSRole.hpp"
 #include "SLSLog.hpp"
+#include "SLSLogCategory.hpp"
+#include "SLSPublisher.hpp"
+#include "SLSPushUrlValidator.hpp"
 #include "util.hpp"
 #include "SLSBitrateLimit.hpp"
 
@@ -71,16 +75,6 @@ CSLSRole::CSLSRole()
     m_need_reconnect = false;
     m_http_future = nullptr;
 
-    snprintf(m_record_hls, sizeof(m_record_hls), "off"); //default off
-    m_record_hls_ts_fd = 0;
-    memset(m_record_hls_ts_filename, 0, URL_MAX_LEN);
-    m_record_hls_vod_fd = 0;
-    memset(m_record_hls_vod_filename, 0, FILENAME_MAX);
-    snprintf(m_record_hls_path, sizeof(m_record_hls_path), "./vod"); //default current path
-    m_record_hls_begin_tm_ms = 0;
-    m_record_hls_segment_duration = 10; //default 10s
-    m_record_hls_target_duration = m_record_hls_segment_duration;
-
     // Initialize bitrate limiter
     m_bitrate_limiter = NULL;
 
@@ -116,7 +110,6 @@ int CSLSRole::uninit()
         remove_from_epoll();
         invalid_srt();
     }
-    close_hls_file();
 
     return ret;
 }
@@ -271,6 +264,15 @@ char *CSLSRole::get_streamid()
     return m_streamid;
 }
 
+void CSLSRole::set_streamid(const char *sid)
+{
+    if (sid == NULL)
+    {
+        return;
+    }
+    strlcpy(m_streamid, sid, sizeof(m_streamid));
+}
+
 char *CSLSRole::get_map_data_key()
 {
     return m_map_data_key;
@@ -292,6 +294,7 @@ void CSLSRole::set_map_data(const char *map_key, CSLSMapData *map_data)
     {
         strlcpy(m_map_data_key, map_key, sizeof(m_map_data_key));
         m_map_data = map_data;
+        on_map_data_set();
     }
     else
     {
@@ -322,14 +325,6 @@ bool CSLSRole::check_idle_streams_duration(int64_t cur_time_ms)
     return false;
 }
 
-void CSLSRole::set_record_hls_path(const char *hls_path)
-{
-    if (hls_path && strlen(hls_path) > 0)
-    {
-        strlcpy(m_record_hls_path, hls_path, sizeof(m_record_hls_path));
-    }
-}
-
 int CSLSRole::check_http_client()
 {
     if (!m_http_future)
@@ -346,172 +341,6 @@ int CSLSRole::close()
         m_srt = NULL;
     }
     return 0;
-}
-
-void CSLSRole::close_hls_file()
-{
-
-    if (m_record_hls_ts_fd)
-    {
-        spdlog::info("[{}] CSLSRole::close_hls_file, close ts file='{}', fd={:d}.", fmt::ptr(this), m_record_hls_ts_filename, m_record_hls_ts_fd);
-        ::close(m_record_hls_ts_fd);
-        m_record_hls_ts_fd = 0;
-    }
-    if (0 != m_record_hls_vod_fd)
-    {
-        ::close(m_record_hls_vod_fd);
-        int vod_fd = 0;
-        vod_fd = ::open(m_record_hls_vod_filename, O_RDONLY, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IXOTH);
-        spdlog::info("[{}] CSLSRole::close_hls_file, prepare open '{}', fd={:d}.", fmt::ptr(this), m_record_hls_vod_filename, vod_fd);
-        snprintf(m_record_hls_vod_filename, sizeof(m_record_hls_vod_filename), "%s/vod.m3u8", m_record_hls_path);
-        struct stat stat_file;
-        if (0 == stat(m_record_hls_vod_filename, &stat_file))
-        {
-            m_record_hls_vod_fd = ::open(m_record_hls_vod_filename, O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IXOTH);
-        }
-        else
-        {
-            m_record_hls_vod_fd = ::open(m_record_hls_vod_filename, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IXOTH);
-        }
-        //write header
-        char m3u8_info[URL_MAX_LEN] = {0};
-        snprintf(m3u8_info, sizeof(m3u8_info), "#EXTM3U\n\
-#EXT-X-VERSION:3\n\
-#EXT-X-TARGETDURATION:%d\n",
-                 (int)(m_record_hls_target_duration + 1));
-        ::write(m_record_hls_vod_fd, m3u8_info, strlen(m3u8_info));
-        const int buf_len = 4096;
-        char buf[buf_len] = {0};
-        while (true)
-        {
-            int len = ::read(vod_fd, buf, buf_len);
-            spdlog::info("[{}] CSLSRole::close_hls_file, read data len={:d}, fd={:d}.", fmt::ptr(this), len, vod_fd);
-            if (len == buf_len)
-            {
-                ::write(m_record_hls_vod_fd, buf, len);
-            }
-            else
-            {
-                if (len > 0)
-                    ::write(m_record_hls_vod_fd, buf, len);
-                break;
-            }
-        }
-        ::close(vod_fd);
-
-        snprintf(m3u8_info, sizeof(m3u8_info), "#EXT-X-ENDLIST");
-        ::write(m_record_hls_vod_fd, m3u8_info, strlen(m3u8_info));
-        ::close(m_record_hls_vod_fd);
-        m_record_hls_vod_fd = 0;
-    }
-}
-
-void CSLSRole::check_hls_file()
-{
-    //check file duration
-    int64_t cur_tm_ms = sls_gettime_ms();
-    float d = cur_tm_ms - m_record_hls_begin_tm_ms;
-    d /= 1000;
-    if (d < m_record_hls_segment_duration)
-    {
-        return;
-    }
-    m_record_hls_begin_tm_ms = cur_tm_ms;
-
-    //check path
-    if (sls_mkdir_p(m_record_hls_path) != -1)
-    {
-        spdlog::info("[{}] CSLSRole::check_hls_file, mkdir '{}' ok.", fmt::ptr(this), m_record_hls_path);
-    }
-    else
-    {
-        if (errno != EEXIST)
-        {
-            spdlog::error("[{}] CSLSRole::check_hls_file, mkdir '{}' failed.", fmt::ptr(this), m_record_hls_path);
-            return;
-        }
-        spdlog::info("[{}] CSLSRole::check_hls_file, '{}' exist.", fmt::ptr(this), m_record_hls_path);
-    }
-
-    //update ts file
-    if (m_record_hls_ts_fd)
-    {
-        m_record_hls_target_duration = m_record_hls_target_duration < d ? d : m_record_hls_target_duration;
-        spdlog::info("[{}] CSLSRole::check_hls_file, close ts file='{}', fd={:d}.", fmt::ptr(this), m_record_hls_ts_filename, m_record_hls_ts_fd);
-        ::close(m_record_hls_ts_fd);
-        m_record_hls_ts_fd = 0;
-
-        char ts_item[STR_MAX_LEN] = {0};
-        int ret = snprintf(ts_item, sizeof(ts_item), "#EXTINF:%0.3f,\n%s\n", d, m_record_hls_ts_filename);
-        if (ret < 0 || (unsigned)ret >= sizeof(ts_item))
-        {
-            spdlog::error("[{}] CSLSRole::check_hls_file, snprintf ts item failed.", fmt::ptr(this));
-            return;
-        }
-
-        //update vod file
-        if (0 == m_record_hls_vod_fd)
-        {
-            snprintf(m_record_hls_vod_filename, sizeof(m_record_hls_vod_filename), "%s/vod-%ld.m3u8.extinfo", m_record_hls_path, cur_tm_ms / 1000);
-            struct stat stat_file;
-            if (0 == stat(m_record_hls_vod_filename, &stat_file))
-            {
-                m_record_hls_vod_fd = ::open(m_record_hls_vod_filename, O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IXOTH);
-            }
-            else
-            {
-                m_record_hls_vod_fd = ::open(m_record_hls_vod_filename, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IXOTH);
-            }
-            spdlog::info("[{}] CSLSRole::check_hls_file, create vod file='{}', fd={:d}.", fmt::ptr(this), m_record_hls_vod_filename, m_record_hls_vod_fd);
-        }
-        if (0 != m_record_hls_vod_fd)
-        {
-            ::write(m_record_hls_vod_fd, ts_item, strlen(ts_item));
-        }
-    }
-    char full_ts_name[FILENAME_MAX] = {0};
-    snprintf(m_record_hls_ts_filename, sizeof(m_record_hls_ts_filename), "%ld.ts", cur_tm_ms / 1000);
-    snprintf(full_ts_name, sizeof(full_ts_name), "%s/%s", m_record_hls_path, m_record_hls_ts_filename);
-    m_record_hls_ts_fd = ::open(full_ts_name, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IXOTH);
-    spdlog::info("[{}] CSLSRole::check_hls_file, create ts file='{}', fd={:d}.", fmt::ptr(this), full_ts_name, m_record_hls_ts_fd);
-    if (m_record_hls_ts_fd)
-    {
-        //write sps pps
-        if (m_map_data)
-        {
-            char ts_info[TS_UDP_LEN] = {0};
-            int re = m_map_data->get_ts_info(m_map_data_key, ts_info, TS_UDP_LEN);
-            if (re > 0)
-            {
-                ::write(m_record_hls_ts_fd, ts_info, re);
-            }
-        }
-    }
-}
-
-void CSLSRole::record_data2hls(char *data, int len)
-{
-    //check hls file
-    check_hls_file();
-
-    if (0 != m_record_hls_ts_fd)
-    {
-        ::write(m_record_hls_ts_fd, data, len);
-    }
-    /*
-    //save data
-    static char out_file_name[URL_MAX_LEN] = {0};
-    if (strlen(out_file_name) == 0) {
-    char cur_tm[256];
-    sls_gettime_default_string(cur_tm);
-    snprintf(out_file_name, sizeof(out_file_name), "./obs_%s.ts", cur_tm);
-    }
-    static int fd_out = open(out_file_name, O_WRONLY|O_CREAT, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IXOTH);
-
-    if (0 != fd_out) {
-    write(fd_out, data, len);
-    }
-    */
 }
 
 int CSLSRole::handler_read_data(int64_t *last_read_time)
@@ -573,12 +402,6 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
 
     spdlog::trace("[{}] CSLSRole::handler_read_data, ok, libsrt_read n={:d}.", fmt::ptr(this), n);
     int ret = m_map_data->put(m_map_data_key, szData, n, last_read_time);
-
-    //record data
-    if (strcmp(m_record_hls, "on") == 0)
-    {
-        record_data2hls(szData, n);
-    }
 
     return ret;
 }
@@ -670,17 +493,74 @@ int CSLSRole::handler_write_data()
         ret = write(m_data + m_data_pos, TS_UDP_LEN);
         if (ret < TS_UDP_LEN)
         {
-            spdlog::error("[{}] CSLSRole::handler_write_data, write data failed, len={:d}, ret={:d}, not {:d}.", fmt::ptr(this), len, ret, TS_UDP_LEN);
-            // On write failure, mark connection as invalid to trigger cleanup
-            if (ret <= 0)
+            // Distinguish transient backpressure (SRT_EASYNCSND, errno
+            // 6001) from real failures. EASYNCSND means the per-socket
+            // SRT send buffer is momentarily full and the write should
+            // be retried on the next SRT_EPOLL_OUT wake. Treating it as
+            // fatal (the old behaviour) silently disconnected any
+            // viewer that hit a brief congestion event on their link.
+            // Leaving m_data_pos/m_data_len intact so the next handler
+            // call resumes from the same offset.
+            if (ret < 0)
             {
-                spdlog::error("[{}] CSLSRole::handler_write_data, critical write failure (ret={:d}), marking connection invalid.", fmt::ptr(this), ret);
+                int err_no = CSLSSrt::libsrt_lasterror();
+                if (err_no == SRT_EASYNCSND)
+                {
+                    m_send_backpressure_count.fetch_add(1, std::memory_order_relaxed);
+
+                    // Stuck-viewer detection. The per-packet success
+                    // path above has already reset m_backpressure_stuck_since_ms
+                    // to 0 on any progress made earlier in this call, so
+                    // observing it == 0 here means this is the first
+                    // EASYNCSND of a fresh stuck streak; start the timer.
+                    // If it was already non-zero, the stuck streak is
+                    // ongoing — kick the viewer if it has exceeded the
+                    // timeout. Continuous zero-progress backpressure
+                    // means the viewer's link cannot sustain the stream
+                    // and they would otherwise hold a publisher-ring
+                    // read position open indefinitely.
+                    int64_t stuck_timeout_ms = backpressure_stuck_timeout_ms();
+                    if (m_backpressure_stuck_since_ms == 0)
+                    {
+                        m_backpressure_stuck_since_ms = m_invalid_begin_tm;
+                    }
+                    else if ((m_invalid_begin_tm - m_backpressure_stuck_since_ms)
+                             > stuck_timeout_ms)
+                    {
+                        spdlog::warn("[{}] CSLSRole::handler_write_data, viewer stuck in backpressure {} ms (>{}ms, latency={}ms), disconnecting. backpressureEvents={}.",
+                                     fmt::ptr(this),
+                                     (long long)(m_invalid_begin_tm - m_backpressure_stuck_since_ms),
+                                     (long long)stuck_timeout_ms,
+                                     m_latency,
+                                     m_send_backpressure_count.load(std::memory_order_relaxed));
+                        return SLS_ERROR;
+                    }
+
+                    spdlog::trace("[{}] CSLSRole::handler_write_data, backpressure, pos={:d}, remaining={:d}.",
+                                  fmt::ptr(this), m_data_pos, remainer);
+                    return write_size;
+                }
+                spdlog::error("[{}] CSLSRole::handler_write_data, write data failed, len={:d}, ret={:d}, errno={:d}, not {:d}.",
+                              fmt::ptr(this), len, ret, err_no, TS_UDP_LEN);
+                spdlog::error("[{}] CSLSRole::handler_write_data, critical write failure (ret={:d}, errno={:d}), marking connection invalid.",
+                              fmt::ptr(this), ret, err_no);
                 return SLS_ERROR;
             }
+            // Partial write (0 < ret < TS_UDP_LEN). SRT message API is
+            // all-or-nothing per message so this branch is unexpected;
+            // log and break to surface the anomaly without killing the
+            // connection.
+            spdlog::error("[{}] CSLSRole::handler_write_data, short write, len={:d}, ret={:d}, not {:d}.",
+                          fmt::ptr(this), len, ret, TS_UDP_LEN);
             break;
         }
         m_data_pos += TS_UDP_LEN;
         write_size += TS_UDP_LEN;
+        // Any successful write counts as progress and clears the
+        // stuck-since marker — a viewer who can drain even slowly is
+        // not zombie-stuck, just slow. Cheap to do per packet; field
+        // is not shared across threads.
+        m_backpressure_stuck_since_ms = 0;
         remainer = m_data_len - m_data_pos;
     }
 
@@ -802,35 +682,114 @@ int CSLSRole::check_http_passed()
     spdlog::info("[{}] CSLSRole::check_http_client_response, http finished, {}, http_url='{}', status={}, response='{}'.",
                  fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.body);
     m_http_passed = true;
+
+    // Optional JSON payload from the publisher-auth webhook may carry a
+    // list of outbound SRT push destinations. Parse only when the body
+    // looks like JSON; older webhooks return plain "OK" and must keep
+    // working. Validate each URL again here even though irlserver2 already
+    // checked at save time, so a misconfigured webhook can't push to
+    // loopback or to the SLS host itself.
+    if (!response.body.empty() && response.body[0] == '{') {
+        sls_conf_app_t *app_conf = static_cast<sls_conf_app_t *>(m_conf);
+        if (app_conf == NULL || app_conf->push_destination_max <= 0) {
+            return SLS_OK;
+        }
+        try {
+            auto parsed = nlohmann::json::parse(response.body);
+            if (!parsed.contains("pushTargets") || !parsed["pushTargets"].is_array()) {
+                return SLS_OK;
+            }
+            const auto &self_addrs = push_url_self_addresses();
+            int kept = 0;
+            for (const auto &entry : parsed["pushTargets"]) {
+                if (kept >= app_conf->push_destination_max) {
+                    spdlog::warn("[relay] push destination rejected | reason=over_limit url={}",
+                                 entry.contains("url") && entry["url"].is_string()
+                                     ? entry["url"].get<std::string>()
+                                     : std::string("<no url>"));
+                    continue;
+                }
+                if (!entry.is_object() || !entry.contains("url") || !entry["url"].is_string()) {
+                    continue;
+                }
+                std::string url = entry["url"].get<std::string>();
+                PushUrlReject verdict = validate_push_url(url, *app_conf, self_addrs);
+                if (verdict != PushUrlReject::Ok) {
+                    spdlog::warn("[relay] push destination rejected | reason={} url={}",
+                                 push_url_reject_reason(verdict), url);
+                    continue;
+                }
+                m_push_urls.push_back(std::move(url));
+                ++kept;
+            }
+            if (kept > 0) {
+                spdlog::info("[relay] push destinations accepted for {} | count={} streamid='{}'",
+                             m_role_name, kept, get_streamid());
+            }
+        } catch (const std::exception &e) {
+            spdlog::warn("[{}] CSLSRole::check_http_passed, JSON parse error: {}",
+                         fmt::ptr(this), e.what());
+        }
+    }
+
     return SLS_OK;
 }
 
-int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds)
+void CSLSRole::on_map_data_set()
+{
+}
+
+bool CSLSRole::is_audio_gap_fill_enabled() const
+{
+    return false;
+}
+
+bool CSLSRole::get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear) const
+{
+    stats = CSLSMapData::AudioGapStreamStats();
+    stats.enabled = is_audio_gap_fill_enabled();
+
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
+        return false;
+
+    bool found = m_map_data->get_audio_gap_stats(m_map_data_key, stats, clear);
+    stats.enabled = is_audio_gap_fill_enabled();
+    return found;
+}
+
+int64_t CSLSRole::get_ring_overrun_count() const
+{
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
+        return -1;
+    return m_map_data->get_overrun_count(m_map_data_key);
+}
+
+int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds, float spike_tolerance)
 {
     cleanup_bitrate_limiter();
-    
+
     if (max_bitrate_kbps <= 0) {
-        spdlog::info("[{}] CSLSRole::init_bitrate_limiter, bitrate limiting disabled (max_bitrate_kbps={:d})", 
+        spdlog::info("[{}] CSLSRole::init_bitrate_limiter, bitrate limiting disabled (max_bitrate_kbps={:d})",
                     fmt::ptr(this), max_bitrate_kbps);
         return SLS_OK;
     }
-    
+
     m_bitrate_limiter = new CSLSBitrateLimit();
     if (!m_bitrate_limiter) {
         spdlog::error("[{}] CSLSRole::init_bitrate_limiter, failed to allocate bitrate limiter", fmt::ptr(this));
         return SLS_ERROR;
     }
-    
-    int ret = m_bitrate_limiter->init(max_bitrate_kbps, violation_timeout_seconds);
+
+    int ret = m_bitrate_limiter->init(max_bitrate_kbps, violation_timeout_seconds, 5000, spike_tolerance);
     if (ret != SLS_OK) {
         spdlog::error("[{}] CSLSRole::init_bitrate_limiter, failed to initialize bitrate limiter", fmt::ptr(this));
         delete m_bitrate_limiter;
         m_bitrate_limiter = NULL;
         return ret;
     }
-    
-    spdlog::info("[{}] CSLSRole::init_bitrate_limiter, initialized with max_bitrate={:d}kbps, violation_timeout={:d}s", 
-                fmt::ptr(this), max_bitrate_kbps, violation_timeout_seconds);
+
+    spdlog::info("[{}] CSLSRole::init_bitrate_limiter, initialized with max_bitrate={:d}kbps, violation_timeout={:d}s, spike_tolerance={:.2f}",
+                fmt::ptr(this), max_bitrate_kbps, violation_timeout_seconds, spike_tolerance);
     return SLS_OK;
 }
 

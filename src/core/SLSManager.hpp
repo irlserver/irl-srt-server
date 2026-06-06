@@ -47,7 +47,8 @@ int worker_threads;
 int worker_connections;
 char stat_post_url[URL_MAX_LEN];
 int stat_post_interval;
-char record_hls_path_prefix[URL_MAX_LEN];
+char user[SHORT_STR_MAX_LEN];
+char group[SHORT_STR_MAX_LEN];
 int http_port;
 char cors_header[URL_MAX_LEN];
 std::vector<std::string> api_keys;
@@ -81,7 +82,8 @@ SLS_SET_CONF(srt, string, log_file, "save log file name.", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, int, worker_connections, "", 1, 1024),
     SLS_SET_CONF(srt, string, stat_post_url, "statistic info post url", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, int, stat_post_interval, "interval of statistic info post.", 1, 60),
-    SLS_SET_CONF(srt, string, record_hls_path_prefix, "hls path prefix", 1, URL_MAX_LEN - 1),
+    SLS_SET_CONF(srt, string, user, "drop privileges to this user after bind", 1, SHORT_STR_MAX_LEN - 1),
+    SLS_SET_CONF(srt, string, group, "drop privileges to this group after bind (defaults to user's primary group)", 1, SHORT_STR_MAX_LEN - 1),
     SLS_SET_CONF(srt, int, http_port, "rest api port", 1, 65535),
     SLS_SET_CONF(srt, string, cors_header, "cors header", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, string_list, api_keys, "comma-separated list of API keys for /stats endpoint", 0, 10240),

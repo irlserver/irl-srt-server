@@ -25,6 +25,8 @@
 #pragma once
 
 #include <map>
+#include <string>
+#include <vector>
 
 #include "SLSRole.hpp"
 #include "SLSSrt.hpp"
@@ -44,7 +46,17 @@ enum SLS_ROLE_STATE
     SLS_RS_INVALID = 2,
 };
 
-const int DATA_BUFF_SIZE = 100 * 1316;
+// Per-role egress staging buffer, in bytes. Each handler_write_data
+// call drains up to this much from the publisher ring and then issues
+// one srt_sendmsg per TS_UDP_LEN chunk in a tight loop. 100 packets
+// (~131 KB) was historical: it produced fairness problems (one slow
+// viewer monopolised the worker for 100 sendmsg calls before yielding)
+// and made a single epoll wake routinely overshoot the SRT send-buffer
+// budget of a low-latency viewer, triggering EASYNCSND. 16 packets
+// (~21 KB) is roughly the per-cycle drain budget at common bitrates
+// and lets epoll re-arm sooner across roles. Net memory saved on a
+// 100-viewer node is ~11 MB (was ~13 MB of static role buffer space).
+const int DATA_BUFF_SIZE = 16 * 1316;
 const int UNLIMITED_TIMEOUT = -1;
 /**
  * CSLSRole , the base of player, publisher and listener
@@ -84,6 +96,11 @@ public:
     bool check_idle_streams_duration(int64_t cur_time_ms = 0);
 
     char *get_streamid();
+    // Override the cached streamid so that webhook / stats reporting can see
+    // the value derived after server-side processing (e.g. the stream a player
+    // was resolved to via player_key_auth_url), instead of the raw value the
+    // client set on SRTO_STREAMID.
+    void set_streamid(const char *sid);
     bool is_reconnect();
     char *get_map_data_key();
 
@@ -96,20 +113,41 @@ public:
     void set_http_url(const char *http_url);
     int on_connect();
     int on_close();
+    // Push destinations harvested from the publish-auth webhook response.
+    // Populated by check_http_passed; consumed by the listener handler to
+    // spin up a dynamic CSLSPusherManager per publisher.
+    const std::vector<std::string> &get_push_urls() const { return m_push_urls; }
     int get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
     int get_bitrate();
     int get_uptime();
     int get_latency() { return m_latency; }
     void set_latency(int latency) { m_latency = latency; }
+    bool get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear = 0) const;
+    // Cumulative overrun count for this publisher's ring buffer. Each
+    // overrun means a subscriber fell so far behind the writer that the
+    // ring lapped them — visible to viewers as a delivery hiccup that
+    // "fixes itself" on subscriber reconnect. Returns -1 if not bound to
+    // a map_data key.
+    int64_t get_ring_overrun_count() const;
+
+    // Count of times handler_write_data() hit SRT send-buffer
+    // backpressure (errno EASYNCSND) on this role. Each event means a
+    // viewer egress write was deferred to the next epoll cycle rather
+    // than killing the connection. Surfaced via /stats so operators can
+    // see when viewers are falling behind.
+    uint64_t get_send_backpressure_count() const
+    {
+        return m_send_backpressure_count.load(std::memory_order_relaxed);
+    }
     int check_http_client();
     int check_http_passed();
 
-    void set_record_hls_path(const char *hls_path);
-
     // Bitrate limiting methods
-    int init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds = 30);
+    int init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds = 30, float spike_tolerance = 2.0f);
     void cleanup_bitrate_limiter();
     CSLSBitrateLimit::BitrateStats get_bitrate_stats() const;
+    virtual void on_map_data_set();
+    virtual bool is_audio_gap_fill_enabled() const;
 
 protected:
     CSLSSrt *m_srt;
@@ -142,27 +180,58 @@ protected:
     int m_data_len;
     int m_data_pos;
     bool m_need_reconnect;
+
+    // Incremented every time srt_sendmsg returns EASYNCSND on this
+    // role's egress write. Read concurrently by the stats HTTP server,
+    // hence atomic. Relaxed ordering is sufficient: we only care about
+    // monotonic growth for operator dashboards, not happens-before
+    // against any other state.
+    std::atomic<uint64_t> m_send_backpressure_count{0};
+
+    // Wall-clock (sls_gettime_ms) of the first EASYNCSND-with-no-progress
+    // event in the current stuck streak. Cleared back to 0 on any
+    // successful write byte. handler_write_data uses this to break out
+    // of a permanently-backpressured viewer (link too slow for the
+    // stream) instead of holding their publisher-ring read position
+    // open indefinitely.
+    int64_t m_backpressure_stuck_since_ms{0};
+
+    // Floor below which the stuck-viewer timeout will never drop. Even
+    // at very low negotiated latency (e.g. 20ms), 500ms gives genuine
+    // network blips room to recover before we kick. Independent of any
+    // single SRT cycle.
+    static constexpr int64_t kBackpressureStuckFloorMs = 500;
+
+    // Multiplier applied to the role's negotiated SRT latency to derive
+    // the stuck-viewer kick threshold. With TLPKTDROP on, once we have
+    // been stuck for `latency_ms` the SLS sender is already dropping
+    // packets internally (their TSBPD time has expired) — the viewer
+    // is missing content. We allow three full latency cycles past that
+    // point before deciding the link is permanently broken; below that
+    // we would risk killing viewers on a single bad 1-RTT spike.
+    static constexpr int64_t kBackpressureStuckLatencyMultiple = 3;
+
+    // Per-role stuck-viewer kick threshold (ms). Scales with the
+    // negotiated SRT latency so a 200ms-latency viewer is kicked at
+    // 600ms of pure backpressure, while a 4000ms-latency viewer gets
+    // 12000ms before the kick fires. Floor at kBackpressureStuckFloorMs
+    // so we never kick on sub-millisecond noise.
+    int64_t backpressure_stuck_timeout_ms() const
+    {
+        int64_t scaled = (int64_t)m_latency * kBackpressureStuckLatencyMultiple;
+        return scaled > kBackpressureStuckFloorMs ? scaled : kBackpressureStuckFloorMs;
+    }
     stat_info_t m_stat_info_base;
     std::shared_ptr<std::shared_future<AsyncHttpResponse>> m_http_future;
-
-    char m_record_hls[SHORT_STR_MAX_LEN];
-    int m_record_hls_ts_fd;
-    char m_record_hls_ts_filename[URL_MAX_LEN];
-    int m_record_hls_vod_fd;
-    char m_record_hls_vod_filename[FILENAME_MAX];
-    char m_record_hls_path[URL_MAX_LEN];
-    int64_t m_record_hls_begin_tm_ms;
-    int m_record_hls_segment_duration;
-    float m_record_hls_target_duration;
 
     // Bitrate limiting
     CSLSBitrateLimit *m_bitrate_limiter;
 
+    // Push destinations from publish-auth webhook (publisher roles only).
+    std::vector<std::string> m_push_urls;
+
     int handler_write_data();
     int handler_read_data(int64_t *last_read_time = NULL);
-    void record_data2hls(char *data, int len);
-    void check_hls_file();
-    void close_hls_file();
 
 private:
 };

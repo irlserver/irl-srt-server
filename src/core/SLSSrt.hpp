@@ -125,12 +125,20 @@ public:
     int libsrt_get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
 
     void libsrt_set_latency(int latency);
+    void libsrt_set_passphrase(const char *passphrase, int pbkeylen);
 
     static int libsrt_neterrno();
+    // Non-logging variant: returns the SRT error code from srt_getlasterror()
+    // without emitting a log line. Use this on the hot path (per-write
+    // backpressure check) where libsrt_neterrno's spdlog::error call would
+    // flood the log under load.
+    static int libsrt_lasterror();
     static void libsrt_print_error_info();
 
 protected:
     SRTContext m_sc;
+    char m_passphrase[80];
+    int m_pbkeylen;
     char m_peer_name[256]; //peer ip addr, such as 172.12.22.14
     int m_peer_port;
     unsigned long m_peer_addr_raw;  //  Peer IP addr in unsigned long format

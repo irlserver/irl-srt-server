@@ -32,7 +32,6 @@ CSLSListener::CSLSListener()
     memset(m_default_sid, 0, STR_MAX_LEN);
     memset(m_http_url_role, 0, URL_MAX_LEN);
     memset(m_player_key_auth_url, 0, URL_MAX_LEN);
-    memset(m_record_hls_path_prefix, 0, URL_MAX_LEN);
 
     m_domain_players.clear();
     m_domain_publisher.clear();
@@ -85,14 +84,6 @@ void CSLSListener::set_map_puller(CSLSMapRelay *map_puller)
 void CSLSListener::set_map_pusher(CSLSMapRelay *map_pusher)
 {
     m_map_pusher = map_pusher;
-}
-
-void CSLSListener::set_record_hls_path_prefix(char *path)
-{
-    if (path != NULL && strlen(path) > 0)
-    {
-        strlcpy(m_record_hls_path_prefix, path, sizeof(m_record_hls_path_prefix));
-    }
 }
 
 void CSLSListener::set_listener_type(bool is_publisher)
@@ -170,9 +161,28 @@ int CSLSListener::start()
 				}
         }
     } else {
-        if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
-				spdlog::debug("[listener] Player listener uses network-determined latency");
-				}
+        // Player listener: also apply latency_min as a floor. SRT handshake
+        // negotiates the effective latency to max(caller_proposed,
+        // listener_configured), so this clamps viewers that connect with
+        // libsrt's 120ms default upward to the operator's minimum.
+        //
+        // Why: at low latency (120ms) and modest bitrate (4 Mbps), the
+        // SLS-to-viewer SRT delivery window holds only ~60 KB of in-flight
+        // data, which is smaller than one DATA_BUFF_SIZE write burst from
+        // handler_write_data. Even a brief viewer-side network hiccup
+        // fills the send buffer and triggers EASYNCSND. Raising the floor
+        // gives proportionally more headroom for retransmit and pacing.
+        if (server_conf->latency_min > 0) {
+            m_srt->libsrt_set_latency(server_conf->latency_min);
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
+                spdlog::info("[listener] Player listener latency floor set | latency={}ms",
+                             server_conf->latency_min);
+            }
+        } else {
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+                spdlog::debug("[listener] Player listener uses network-determined latency");
+            }
+        }
     }
 
     if (m_is_legacy_listener) {
@@ -201,6 +211,27 @@ int CSLSListener::start()
     // They are disabled for regular publisher listeners (direct SRT)
     // Player listeners don't need patches (server is sender, not receiver)
     bool use_srtla_patches = m_is_srtla_listener;
+
+    if (server_conf->srt_pbkeylen != 0 && server_conf->srt_pbkeylen != 16 &&
+        server_conf->srt_pbkeylen != 24 && server_conf->srt_pbkeylen != 32)
+    {
+        spdlog::error("[listener] Start failed, srt_pbkeylen={} is invalid (must be 0/16/24/32) | port={}",
+                      server_conf->srt_pbkeylen, m_port);
+        return SLS_ERROR;
+    }
+    if (server_conf->srt_passphrase[0] != '\0')
+    {
+        size_t pass_len = strlen(server_conf->srt_passphrase);
+        if (pass_len < 10 || pass_len > 79)
+        {
+            spdlog::error("[listener] Start failed, srt_passphrase length {} out of range (must be 10-79 bytes) | port={}",
+                          pass_len, m_port);
+            return SLS_ERROR;
+        }
+        m_srt->libsrt_set_passphrase(server_conf->srt_passphrase, server_conf->srt_pbkeylen);
+        spdlog::info("[listener] SRT encryption enabled | port={} pbkeylen={}",
+                     m_port, server_conf->srt_pbkeylen);
+    }
 
     ret = m_srt->libsrt_setup(m_port, use_srtla_patches);
     if (SLS_OK != ret)

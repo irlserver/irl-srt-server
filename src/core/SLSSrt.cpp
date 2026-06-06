@@ -52,6 +52,8 @@ CSLSSrt::CSLSSrt()
     m_sc.latency = 20;
 
     m_sc.backlog = 128;
+    memset(m_passphrase, 0, sizeof(m_passphrase));
+    m_pbkeylen = 0;
     memset(m_peer_name, 0, sizeof(m_peer_name));
     m_peer_port = 0;
     m_peer_addr_raw = 0;
@@ -148,6 +150,11 @@ int CSLSSrt::libsrt_neterrno()
     return err;
 }
 
+int CSLSSrt::libsrt_lasterror()
+{
+    return srt_getlasterror(NULL);
+}
+
 void CSLSSrt::libsrt_set_context(SRTContext *sc)
 {
     m_sc = *sc;
@@ -156,6 +163,19 @@ void CSLSSrt::libsrt_set_context(SRTContext *sc)
 void CSLSSrt::libsrt_set_latency(int latency)
 {
     m_sc.latency = latency;
+}
+
+void CSLSSrt::libsrt_set_passphrase(const char *passphrase, int pbkeylen)
+{
+    if (passphrase != NULL)
+    {
+        strlcpy(m_passphrase, passphrase, sizeof(m_passphrase));
+    }
+    else
+    {
+        m_passphrase[0] = '\0';
+    }
+    m_pbkeylen = pbkeylen;
 }
 
 int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
@@ -232,24 +252,80 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
 
     spdlog::info("[{}] CSLSSrt::libsrt_setup, SRTLA patches {}.", fmt::ptr(this), srtla_patches ? "enabled" : "disabled");
 
+    // Explicitly enable too-late packet drop (TLPKTDROP) on the listener.
+    // Libsrt defaults this on for SRTT_LIVE which is what we use, but
+    // setting it explicitly removes any ambiguity from future libsrt
+    // default changes or non-live transtype regressions. Critical for
+    // the egress write path: when a viewer cannot keep up, TLPKTDROP
+    // lets libsrt silently discard packets whose TSBPD time has expired
+    // from the send queue, freeing send-buffer space so EASYNCSND does
+    // not pile up forever and so handler_write_data's stuck-viewer
+    // detection only fires for genuinely broken links.
+    int tlpktdrop = 1;
+    status = srt_setsockopt(fd, SOL_SOCKET, SRTO_TLPKTDROP, &tlpktdrop, sizeof(tlpktdrop));
+    if (status < 0) {
+        spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_TLPKTDROP failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
+        return SLS_ERROR;
+    }
+
     /* Set the socket's send or receive buffer sizes, if specified.
        If unspecified or setting fails, system default is used. */
     if (s->latency > 0)
     {
+        // SRTO_LATENCY on a listener only seeds the SRT TSBPD RCVLATENCY
+        // for the receive direction. That clamps publishers (who send
+        // to us) but does nothing for players (who receive from us).
+        // Set SRTO_PEERLATENCY explicitly too so we commit, as sender,
+        // to at least this much queue-time before TLPKTDROP fires for
+        // any player we accept. The SRT handshake then negotiates the
+        // player's effective receive latency to
+        //   max(player.RCVLATENCY, our.PEERLATENCY)
+        // which is what actually decides the SLS-to-viewer delivery
+        // window — and therefore whether srt_sendmsg flips into
+        // continuous EASYNCSND / SRTS_BROKEN under any real-world
+        // viewer-link jitter.
         srt_setsockopt(fd, SOL_SOCKET, SRTO_LATENCY, &s->latency, sizeof(s->latency));
+        srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERLATENCY, &s->latency, sizeof(s->latency));
     }
-    if (s->recv_buffer_size > 0)
-    {
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_UDP_RCVBUF, &s->recv_buffer_size, sizeof(s->recv_buffer_size));
-    }
-    if (s->send_buffer_size > 0)
-    {
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_UDP_SNDBUF, &s->send_buffer_size, sizeof(s->send_buffer_size));
-    }
+    // Kernel UDP socket buffers. Defaults on Linux are ~200KB-1MB which
+    // is too tight for SRT live streaming under bursty traffic: when
+    // the kernel queue fills, sendto() returns EAGAIN and libsrt
+    // surfaces it as EASYNCSND, AND outgoing SRT control packets
+    // (keepalives, ACK responses) get dropped — which in turn lets the
+    // peer's libsrt declare the connection broken even when the network
+    // is healthy. 8MB matches what most production SRT receivers run.
+    // If the per-server config sets an explicit size, honour it.
+    int udp_rcvbuf = s->recv_buffer_size > 0 ? s->recv_buffer_size : 8 * 1024 * 1024;
+    int udp_sndbuf = s->send_buffer_size > 0 ? s->send_buffer_size : 8 * 1024 * 1024;
+    srt_setsockopt(fd, SOL_SOCKET, SRTO_UDP_RCVBUF, &udp_rcvbuf, sizeof(udp_rcvbuf));
+    srt_setsockopt(fd, SOL_SOCKET, SRTO_UDP_SNDBUF, &udp_sndbuf, sizeof(udp_sndbuf));
     if (s->reuse)
     {
         if (srt_setsockopt(fd, SOL_SOCKET, SRTO_REUSEADDR, &s->reuse, sizeof(s->reuse)))
             spdlog::warn("[{}] CSLSSrt::libsrt_setup, setsockopt(SRTO_REUSEADDR) failed.", fmt::ptr(this));
+    }
+
+    if (m_pbkeylen > 0)
+    {
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_PBKEYLEN, &m_pbkeylen, sizeof(m_pbkeylen)) < 0)
+        {
+            spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_PBKEYLEN={} failed: {}.",
+                          fmt::ptr(this), m_pbkeylen, srt_getlasterror_str());
+            srt_close(fd);
+            freeaddrinfo(ai);
+            return SLS_ERROR;
+        }
+    }
+    if (m_passphrase[0] != '\0')
+    {
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_PASSPHRASE, m_passphrase, strlen(m_passphrase)) < 0)
+        {
+            spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_PASSPHRASE failed: {}.",
+                          fmt::ptr(this), srt_getlasterror_str());
+            srt_close(fd);
+            freeaddrinfo(ai);
+            return SLS_ERROR;
+        }
     }
 
     ret = srt_bind(fd, ai->ai_addr, ai->ai_addrlen);
@@ -304,9 +380,6 @@ int CSLSSrt::libsrt_accept()
     } 
     addrtmp = (struct sockaddr_in6 *)&scl;
     inet_ntop(AF_INET6, &addrtmp->sin6_addr, ip, INET6_ADDRSTRLEN);
-    spdlog::info("[{}] CSLSSrt::libsrt_accept ok, new sock={:d}, {}:{:d}.",
-                 fmt::ptr(this), new_sock, ip, ntohs(addrtmp->sin6_port));
-
     return new_sock;
 }
 
@@ -314,7 +387,6 @@ int CSLSSrt::libsrt_close()
 {
     if (m_sc.fd)
     {
-        spdlog::info("[{}] CSLSSrt::libsrt_close, fd={:d}.", fmt::ptr(this), m_sc.fd);
         srt_close(m_sc.fd);
         m_sc.fd = 0;
     }
@@ -419,10 +491,24 @@ int CSLSSrt::libsrt_write(const char *buf, int size)
     int ret;
     ret = srt_sendmsg(m_sc.fd, buf, size, -1, 0);
     if (ret < 0)
-    { //SRTS_BROKEN
-        int err_no = libsrt_neterrno();
-        spdlog::warn("[{}] CSLSSrt::libsrt_write failed, sock={:d}, ret={:d}, errno={:d}.",
-                     fmt::ptr(this), m_sc.fd, ret, err_no);
+    {
+        // EASYNCSND is transient backpressure (SRT send buffer full).
+        // Callers must distinguish it from real failures via
+        // libsrt_lasterror(); we log it at trace so high-rate
+        // backpressure under viewer congestion doesn't flood the log.
+        // Everything else stays at warn — it indicates a broken or
+        // unrecoverable socket.
+        int err_no = srt_getlasterror(NULL);
+        if (err_no == SRT_EASYNCSND)
+        {
+            spdlog::trace("[{}] CSLSSrt::libsrt_write backpressure, sock={:d}, size={:d}.",
+                         fmt::ptr(this), m_sc.fd, size);
+        }
+        else
+        {
+            spdlog::warn("[{}] CSLSSrt::libsrt_write failed, sock={:d}, ret={:d}, errno={:d}, {}.",
+                         fmt::ptr(this), m_sc.fd, ret, err_no, srt_getlasterror_str());
+        }
     }
     return ret;
 }

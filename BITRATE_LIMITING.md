@@ -1,36 +1,32 @@
-# Maximum Average Input Bitrate Limiting
+# Bitrate Limiting
 
-This feature implements configurable maximum average input bitrate limiting for SRT streams with automatic stream disconnection for sustained violations.
+Configurable maximum input bitrate limiting for SRT streams with automatic disconnection for sustained violations.
 
 ## Overview
 
-The bitrate limiting feature allows you to set a maximum average input bitrate per stream. When streams exceed the limit for a sustained period (configurable, default 30 seconds), they are automatically disconnected. This helps prevent streams from consuming excessive bandwidth while allowing temporary spikes for variable bitrate content.
+The bitrate limiter uses a 5-second sliding window to calculate average bitrate. When the average exceeds the configured limit (adjusted by spike tolerance), a violation timer starts. If the violation is sustained for the configured timeout, the stream is disconnected.
 
 ## Key Features
 
-- **Sliding Window Averaging**: Uses a 5-second sliding window to calculate average bitrate
-- **Spike Tolerance**: Allows temporary spikes up to 2x the configured limit for short periods
-- **Per-Stream Limiting**: Each publisher stream can have its own bitrate limit
-- **Configurable Disconnection**: Disconnects streams after configurable timeout (default 30 seconds) of sustained violations
+- **Sliding Window Averaging**: 5-second sliding window for stable bitrate measurement
+- **Configurable Spike Tolerance**: Controls how much over the limit is allowed before violations start (default: 1.2x)
+- **Per-Stream Limiting**: Each publisher stream gets its own independent limiter
+- **Configurable Timeout**: How long a violation must be sustained before disconnect (default: 30s)
 - **Violation Tracking**: Monitors violation duration and logs detailed information
-- **Statistics**: Tracks total bytes received, violation status, and current bitrate
 
 ## Configuration
 
-Add the following configuration option to your app section in `sls.conf`:
+Add the following to your app section in `sls.conf`:
 
 ```
 app {
     app_player live;
     app_publisher live;
-    
-    # Maximum input bitrate per stream in kilobits per second (0 = unlimited)
-    max_input_bitrate_kbps 20000; # 20 Mbps limit
-    
-    # Timeout in seconds before disconnecting streams that violate bitrate limits
-    max_input_bitrate_violation_timeout 30; # 30 seconds (default)
-    
-    # ... other app configurations
+
+    # Bitrate limiting for IRL streams
+    max_input_bitrate_kbps 15000;              # 15 Mbps limit
+    max_input_bitrate_violation_timeout 30;    # disconnect after 30s sustained violation
+    max_input_bitrate_spike_tolerance 120;     # 1.2x tolerance (triggers at 18 Mbps)
 }
 ```
 
@@ -39,121 +35,71 @@ app {
 - `max_input_bitrate_kbps`: Maximum average bitrate in kilobits per second
   - `0`: Unlimited (default)
   - `> 0`: Specific limit in kbps
-  - Example: `20000` = 20 Mbps limit
+  - Example: `15000` = 15 Mbps limit
 
-- `max_input_bitrate_violation_timeout`: Timeout in seconds before disconnecting violating streams
+- `max_input_bitrate_violation_timeout`: Seconds of sustained violation before disconnect
   - Range: `1-300` seconds
   - Default: `30` seconds
-  - Example: `60` = Disconnect after 1 minute of violations
+
+- `max_input_bitrate_spike_tolerance`: Spike tolerance as a percentage
+  - `100`: No tolerance — configured limit is exact ceiling
+  - `120`: 1.2x tolerance (default) — 15 Mbps limit triggers violations at 18 Mbps
+  - `150`: 1.5x tolerance — 15 Mbps limit triggers violations at 22.5 Mbps
+  - `200`: 2x tolerance — 15 Mbps limit triggers violations at 30 Mbps
+  - Range: `100-500`
 
 ## How It Works
 
 1. **Sliding Window**: Maintains a 5-second sliding window of received data
-2. **Spike Detection**: Allows bursts up to 2x the configured limit for short periods
-3. **Violation Tracking**: Monitors when streams exceed the spike limit continuously
-4. **Configurable Disconnection**: Disconnects streams after the configured timeout of sustained violations
+2. **Average Calculation**: Computes average bitrate over the window
+3. **Spike Check**: Compares average against `limit * spike_tolerance`
+4. **Violation Tracking**: If over the spike threshold, violation timer starts
+5. **Reset on Recovery**: If bitrate drops below threshold, violation timer resets
+6. **Disconnect**: After sustained violation exceeds timeout, stream is disconnected
 
 ## Example Scenarios
 
-### Scenario 1: Normal Operation
-- Configured limit: 20000 kbps (20 Mbps), timeout: 30 seconds
-- Stream sends steady 15000 kbps → Stream continues normally
-- Brief spike to 35000 kbps → Spike allowed due to 2x tolerance (40 Mbps)
-- Extended period at 35000 kbps → Stream disconnected after 30 seconds
+### IRL Streaming (recommended config)
+- Config: `max_input_bitrate_kbps 15000`, spike_tolerance 120, timeout 30s
+- Stream at 12 Mbps → OK
+- VBR spike to 17 Mbps → OK (under 18 Mbps threshold)
+- Sustained 20 Mbps for 30s → Disconnected
+- Stream at 19 Mbps for 10s, drops to 14 Mbps → Violation resets, no disconnect
 
-### Scenario 2: Variable Bitrate Content
-- Configured limit: 10000 kbps (10 Mbps), timeout: 60 seconds
-- Scene with low motion: 5000 kbps → Stream continues normally
-- Action scene spike: 18000 kbps → Allowed temporarily (under 20 Mbps spike limit)
-- Sustained high action: 25000 kbps → Stream disconnected after 60 seconds
+### Strict Limiting
+- Config: `max_input_bitrate_kbps 20000`, spike_tolerance 100, timeout 10s
+- Stream at 20 Mbps → OK (at limit, not over)
+- Stream at 21 Mbps sustained for 10s → Disconnected (no tolerance)
 
-## Implementation Details
-
-### Core Components
-
-1. **CSLSBitrateLimit**: Main bitrate limiting class
-   - Implements sliding window algorithm
-   - Handles spike tolerance logic
-   - Provides statistics and monitoring
-
-2. **SLSRole Integration**: Base role class enhanced with:
-   - Bitrate limiter initialization
-   - Data filtering in `handler_read_data()`
-   - Statistics collection
-
-3. **SLSPublisher Enhancement**: Publisher class updated to:
-   - Initialize bitrate limiter from configuration
-   - Apply limits to incoming SRT data
-
-### Configuration Flow
-
-1. Configuration parsed from `sls.conf`
-2. Publisher initializes with `max_input_bitrate_kbps` setting
-3. Bitrate limiter created if limit > 0
-4. Each data packet checked against limiter before processing
-
-### Data Flow
-
-```
-SRT Data → handler_read_data() → check_data_bitrate() → OK/Violation/Disconnect
-                                      ↓                        ↓
-                              Update sliding window    → Stream Disconnect
-                              Track violations              (invalid_srt())
-                              Calculate current bitrate
-                              Apply spike tolerance
-```
+### Generous Limiting
+- Config: `max_input_bitrate_kbps 10000`, spike_tolerance 150, timeout 60s
+- Effective threshold: 15 Mbps
+- Stream must sustain above 15 Mbps for a full minute before disconnect
 
 ## Monitoring and Logging
 
 ### Log Messages
 
-The system logs the following events:
-
 ```
-[INFO] CSLSBitrateLimit::init, initialized with max_bitrate=20000kbps, violation_timeout=30s, window=5000ms, spike_tolerance=2.00
-[WARN] CSLSBitrateLimit::check_data_bitrate, bitrate violation started. Current bitrate: 35000kbps, spike limit: 40000kbps, max: 20000kbps
-[WARN] CSLSBitrateLimit::check_data_bitrate, sustained violation for 15000ms. Current bitrate: 38000kbps, limit: 40000kbps
-[ERROR] CSLSBitrateLimit::check_data_bitrate, disconnecting stream due to sustained bitrate violation. Duration: 30000ms, current bitrate: 37000kbps, limit: 40000kbps
-[INFO] CSLSBitrateLimit::check_data_bitrate, bitrate violation ended after 8000ms. Current bitrate: 15000kbps
+[INFO] CSLSRole::init_bitrate_limiter, initialized with max_bitrate=15000kbps, violation_timeout=30s, spike_tolerance=1.20
+[WARN] CSLSBitrateLimit::check_data_bitrate, bitrate violation started. Current bitrate: 19000kbps, spike limit: 18000kbps, max: 15000kbps
+[WARN] CSLSBitrateLimit::check_data_bitrate, sustained violation for 15000ms. Current bitrate: 20000kbps, limit: 18000kbps
+[ERROR] CSLSBitrateLimit::check_data_bitrate, disconnecting stream due to sustained bitrate violation. Duration: 30000ms
+[INFO] CSLSBitrateLimit::check_data_bitrate, bitrate violation ended after 8000ms. Current bitrate: 12000kbps
 ```
 
-### Statistics Available
+## Tuning Guide
 
-- Total bytes received
-- Current bitrate (kbps)
-- Whether limiting is currently active
-- Whether stream is currently in violation
-- Current violation duration (if applicable)
-
-## Performance Considerations
-
-- **Memory Usage**: ~40 bytes per data point in sliding window (minimal overhead)
-- **CPU Impact**: Constant time operations for most checks
-- **Cleanup**: Automatic cleanup of old data points every second
-
-## Tuning Parameters
-
-The implementation uses sensible defaults that work well for most scenarios:
-
-- **Violation Timeout**: 30 seconds (configurable, range: 1-300 seconds)
-- **Window Size**: 5 seconds (hardcoded, good balance of responsiveness vs. stability)
-- **Spike Tolerance**: 2.0x (hardcoded, allows reasonable bursts)
-- **Cleanup Interval**: 1 second (hardcoded, efficient without being wasteful)
+| Use Case | Limit | Spike Tolerance | Timeout | Notes |
+|----------|-------|----------------|---------|-------|
+| IRL bonded cellular | 12000-15000 | 120 | 30 | Most IRL streams are 4-12 Mbps |
+| Studio/home via SRTLA | 20000-25000 | 120 | 30 | Stable connections, higher quality |
+| Strict server protection | any | 100 | 10 | No tolerance, fast disconnect |
+| Lenient/shared server | any | 150 | 60 | Generous tolerance for variable content |
 
 ## Limitations
 
 1. **Stream Disconnection**: Streams are disconnected entirely, not throttled
-2. **Fixed Spike Tolerance**: 2x spike tolerance is hardcoded (violation timeout is configurable)
-3. **Per-Stream Only**: Limits apply per publisher, not globally
-4. **SRT-Specific**: Currently integrated only with SRT data flow
-
-## Future Enhancements
-
-Potential improvements for future versions:
-
-- Global bandwidth limits across all streams
-- Configurable spike tolerance (violation threshold is already configurable)
-- Throttling/rate limiting instead of disconnection
-- Warning notifications before disconnection
-- Integration with adaptive bitrate streaming
-- Quality-based violation handling (consider stream importance)
+2. **Per-Stream Only**: Limits apply per publisher, not globally
+3. **SRT-Specific**: Currently integrated only with SRT data flow
+4. **No Encoder Feedback**: SRT Live mode does not signal the encoder to reduce bitrate; the encoder must have its own dynamic bitrate feature (e.g., OBS "Dynamic Bitrate") to react to disconnections

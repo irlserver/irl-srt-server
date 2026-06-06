@@ -33,7 +33,9 @@
 #include <cstdarg>
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <netdb.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -358,6 +360,27 @@ void sls_remove_marks(char *s)
     }
 }
 
+// Streamid components flow into filesystem paths (HLS recording dir,
+// on_event_url) and map keys. Without sanitisation a crafted streamid like
+// "domain/app/../../../tmp/evil" gives an unauthenticated client a write
+// primitive via mkdir_p. Reject empty, path separators, control chars,
+// and bare "." / ".." here so everything downstream is safe by construction.
+bool sls_is_safe_name(const char *s)
+{
+    if (!s || !*s)
+        return false;
+    if (s[0] == '.' && (s[1] == 0 || (s[1] == '.' && s[2] == 0)))
+        return false;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+    {
+        if (*p == '/' || *p == '\\')
+            return false;
+        if (*p < 0x20 || *p == 0x7f)
+            return false;
+    }
+    return true;
+}
+
 int sls_read_pid()
 {
     struct stat stat_file;
@@ -550,6 +573,82 @@ int sls_send_cmd(const char *cmd)
         kill(pid, SIGINT);
         return SLS_OK;
     }
+    return SLS_OK;
+}
+
+int sls_drop_privileges(const char *user, const char *group)
+{
+    bool want_user = (user != NULL && user[0] != '\0');
+    bool want_group = (group != NULL && group[0] != '\0');
+
+    if (!want_user && !want_group)
+        return SLS_OK;
+
+    if (want_group && !want_user)
+    {
+        spdlog::critical("sls_drop_privileges: 'group' set without 'user'. Configure both or neither.");
+        return SLS_ERROR;
+    }
+
+    if (geteuid() != 0)
+    {
+        spdlog::warn("sls_drop_privileges: not running as root, ignoring user='{}' group='{}'.",
+                     user ? user : "", group ? group : "");
+        return SLS_OK;
+    }
+
+    errno = 0;
+    struct passwd *pw = getpwnam(user);
+    if (!pw)
+    {
+        spdlog::critical("sls_drop_privileges: user '{}' not found (errno={}).", user, errno);
+        return SLS_ERROR;
+    }
+    uid_t target_uid = pw->pw_uid;
+    gid_t target_gid = pw->pw_gid;
+
+    if (want_group)
+    {
+        errno = 0;
+        struct group *gr = getgrnam(group);
+        if (!gr)
+        {
+            spdlog::critical("sls_drop_privileges: group '{}' not found (errno={}).", group, errno);
+            return SLS_ERROR;
+        }
+        target_gid = gr->gr_gid;
+    }
+
+    if (initgroups(user, target_gid) != 0)
+    {
+        spdlog::critical("sls_drop_privileges: initgroups('{}', {}) failed: {}.",
+                         user, (int)target_gid, strerror(errno));
+        return SLS_ERROR;
+    }
+
+    if (setgid(target_gid) != 0)
+    {
+        spdlog::critical("sls_drop_privileges: setgid({}) failed: {}.",
+                         (int)target_gid, strerror(errno));
+        return SLS_ERROR;
+    }
+
+    if (setuid(target_uid) != 0)
+    {
+        spdlog::critical("sls_drop_privileges: setuid({}) failed: {}.",
+                         (int)target_uid, strerror(errno));
+        return SLS_ERROR;
+    }
+
+    // Paranoia: confirm the drop is irreversible.
+    if (target_uid != 0 && setuid(0) == 0)
+    {
+        spdlog::critical("sls_drop_privileges: privilege drop did not stick; setuid(0) succeeded.");
+        return SLS_ERROR;
+    }
+
+    spdlog::info("sls_drop_privileges: dropped to uid={} gid={} (user='{}', group='{}').",
+                 (int)target_uid, (int)target_gid, user, want_group ? group : "(from passwd)");
     return SLS_OK;
 }
 
@@ -893,6 +992,90 @@ static int sls_parse_pat(const uint8_t *pat_data, int len, ts_info *ti)
     return SLS_OK;
 }
 
+int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
+{
+    if (len < 12)
+        return SLS_ERROR;
+
+    uint8_t *buffer = (uint8_t *)pmt_data;
+    int section_length = (buffer[1] & 0x0F) << 8 | buffer[2];
+    int program_info_length = (buffer[10] & 0x0F) << 8 | buffer[11];
+
+    int pos = 12 + program_info_length;
+    int end = 3 + section_length - 4; // exclude CRC
+
+    ti->audio_track_count = 0;
+    uint8_t next_stream_id = 0xC0; // audio stream IDs are 0xC0-0xDF
+
+    while (pos + 5 <= end && pos + 5 <= len)
+    {
+        int stream_type = buffer[pos];
+        int elementary_pid = ((buffer[pos + 1] & 0x1F) << 8) | buffer[pos + 2];
+        int es_info_length = ((buffer[pos + 3] & 0x0F) << 8) | buffer[pos + 4];
+
+        bool is_audio = false;
+
+        // Known audio stream types:
+        // 0x03 = MPEG-1 Audio (MP3)
+        // 0x04 = MPEG-2 Audio (MP3)
+        // 0x0F = AAC (ADTS)
+        // 0x11 = AAC (LATM/LOAS)
+        // 0x81 = AC-3 (Dolby Digital) - common in ATSC
+        // 0x06 = Private data (may contain Opus, AC-3, or other codecs via descriptors)
+        if (stream_type == 0x0F || stream_type == 0x11 ||
+            stream_type == 0x03 || stream_type == 0x04 ||
+            stream_type == 0x81)
+        {
+            is_audio = true;
+        }
+        else if (stream_type == 0x06 && es_info_length > 0)
+        {
+            // Check ES descriptors for audio codec identifiers
+            int desc_pos = pos + 5;
+            int desc_end = desc_pos + es_info_length;
+            while (desc_pos + 2 <= desc_end && desc_pos + 2 <= len)
+            {
+                int desc_tag = buffer[desc_pos];
+                int desc_len = buffer[desc_pos + 1];
+                // 0x05 = Registration descriptor (check for 'Opus')
+                // 0x7F = Extension descriptor (check for Opus sub-descriptor 0x80)
+                if (desc_tag == 0x05 && desc_len >= 4 && desc_pos + 6 <= len)
+                {
+                    if (buffer[desc_pos + 2] == 'O' && buffer[desc_pos + 3] == 'p' &&
+                        buffer[desc_pos + 4] == 'u' && buffer[desc_pos + 5] == 's')
+                    {
+                        is_audio = true;
+                    }
+                }
+                desc_pos += 2 + desc_len;
+            }
+        }
+
+        if (is_audio && ti->audio_track_count < MAX_AUDIO_TRACKS)
+        {
+            audio_track_info *at = &ti->audio_tracks[ti->audio_track_count];
+            sls_init_audio_track(at);
+            at->pid = elementary_pid;
+            at->stream_type = stream_type;
+            at->stream_id = next_stream_id++;
+            ti->audio_track_count++;
+
+            spdlog::debug("sls_parse_pmt_for_audio: found audio track {} - PID={}, stream_type={:#x}",
+                          ti->audio_track_count, elementary_pid, stream_type);
+        }
+
+        pos += 5 + es_info_length;
+    }
+
+    if (ti->audio_track_count > 0)
+    {
+        ti->pmt_parsed = true;
+        spdlog::info("sls_parse_pmt_for_audio: found {} audio track(s)", ti->audio_track_count);
+        return SLS_OK;
+    }
+    return SLS_ERROR;
+}
+
 int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
 {
 
@@ -922,6 +1105,18 @@ int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
         {
             memcpy(ti->pmt, packet, TS_PACK_LEN);
             ti->pmt_len = TS_PACK_LEN;
+            // Parse PMT to find audio PID if not yet done
+            if (!ti->pmt_parsed)
+            {
+                int pmt_payload_offset = 4;
+                int afc_pmt = (packet[3] >> 4) & 3;
+                if (afc_pmt & 2)
+                    pmt_payload_offset += 1 + (packet[4] & 0xFF);
+                if (packet[1] & 0x40) // payload unit start
+                    pmt_payload_offset++; // skip pointer field
+                if (pmt_payload_offset < TS_PACK_LEN)
+                    sls_parse_pmt_for_audio(packet + pmt_payload_offset, TS_PACK_LEN - pmt_payload_offset, ti);
+            }
             return SLS_OK;
         }
         if (INVALID_PID != ti->es_pid)
@@ -987,6 +1182,35 @@ int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
     return ret;
 }
 
+void sls_init_audio_track(audio_track_info *at)
+{
+    if (at)
+    {
+        at->pid = INVALID_PID;
+        at->stream_type = 0;
+        at->stream_id = 0xC0;
+        at->last_pts = INVALID_DTS_PTS;
+        at->cc = 0;
+        at->expected_cc = 0;
+        at->cc_initialized = false;
+        at->in_gap = true;  // drop orphaned continuations until first PES start
+        at->sample_rate = 0;
+        at->channels = 0;
+        at->sample_rate_index = 0;
+        at->channel_config = 0;
+        at->profile = 0;
+        at->bitrate_index = 0;
+        at->format_detected = false;
+        at->gap_count = 0;
+        at->silent_frames_inserted = 0;
+        at->silent_packets_inserted = 0;
+        at->silent_bytes_inserted = 0;
+        at->last_gap_pts_delta = 0;
+        at->last_gap_frames = 0;
+        at->partial_pes_dropped = 0;
+    }
+}
+
 void sls_init_ts_info(ts_info *ti)
 {
     if (NULL != ti)
@@ -1000,6 +1224,15 @@ void sls_init_ts_info(ts_info *ti)
         ti->pmt_len = 0;
         ti->pmt_pid = INVALID_PID;
         ti->need_spspps = false;
+        ti->audio_gap_fill_enabled = false;
+        ti->pmt_parsed = false;
+        ti->audio_track_count = 0;
+        ti->gap_count = 0;
+        ti->silent_frames_inserted = 0;
+        ti->silent_packets_inserted = 0;
+        ti->silent_bytes_inserted = 0;
+        for (int t = 0; t < MAX_AUDIO_TRACKS; t++)
+            sls_init_audio_track(&ti->audio_tracks[t]);
 
         memset(ti->ts_data, 0, TS_UDP_LEN);
 

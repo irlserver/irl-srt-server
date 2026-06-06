@@ -9,6 +9,8 @@ set(sls_core_files
 	README.md
 	SLSArray.cpp
 	SLSArray.hpp
+	SLSAudioGapFiller.cpp
+	SLSAudioGapFiller.hpp
 	SLSBitrateLimit.cpp
 	SLSBitrateLimit.hpp
 	SLSClient.cpp
@@ -52,6 +54,8 @@ set(sls_core_files
 	SLSPusher.hpp
 	SLSPusherManager.cpp
 	SLSPusherManager.hpp
+	SLSPushUrlValidator.cpp
+	SLSPushUrlValidator.hpp
 	SLSRecycleArray.cpp
 	SLSRecycleArray.hpp
 	SLSRelay.cpp

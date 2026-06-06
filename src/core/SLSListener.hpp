@@ -64,6 +64,8 @@ int player_key_rate_limit_window;
 int player_key_max_length;
 int player_key_min_length;
 char default_sid[STR_MAX_LEN];
+char srt_passphrase[80];
+int srt_pbkeylen;
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -77,7 +79,7 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, listen_publisher_srtla, "publisher listen port for SRTLA/bonded connections", 1, 65535),
     SLS_SET_CONF(server, int, listen_player, "player listen port", 1, 65535),
     SLS_SET_CONF(server, int, backlog, "how many sockets may be allowed to wait until they are accepted", 1, 1024),
-    SLS_SET_CONF(server, int, latency_min, "minimum allowed latency (ms) - enforced on publisher listeners only", 0, 5000),
+    SLS_SET_CONF(server, int, latency_min, "minimum allowed latency (ms) - enforced on both publisher and player listeners via SRTO_LATENCY handshake floor", 0, 5000),
     SLS_SET_CONF(server, int, latency_max, "maximum allowed latency (ms) - enforced on all connections", 0, 10000),
     SLS_SET_CONF(server, int, idle_streams_timeout, "players idle timeout when no publisher", -1, 86400),
     SLS_SET_CONF(server, string, on_event_url, "on connect/close http url", 1, URL_MAX_LEN - 1),
@@ -89,6 +91,8 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, player_key_max_length, "maximum player key length", 1, 256),
     SLS_SET_CONF(server, int, player_key_min_length, "minimum player key length", 1, 64),
     SLS_SET_CONF(server, string, default_sid, "default sid to use when no streamid is given", 1, STR_MAX_LEN - 1),
+    SLS_SET_CONF(server, string, srt_passphrase, "listener-wide SRT passphrase (10-79 bytes; empty = no encryption)", 0, 79),
+    SLS_SET_CONF(server, int, srt_pbkeylen, "SRT key length: 0/16/24/32 (0 = libsrt default)", 0, 32),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**
@@ -112,7 +116,6 @@ public:
     void set_map_publisher(CSLSMapPublisher *publisher);
     void set_map_puller(CSLSMapRelay *map_puller);
     void set_map_pusher(CSLSMapRelay *map_puller);
-    void set_record_hls_path_prefix(char *path);
     void set_listener_type(bool is_publisher);
     void set_srtla_mode(bool is_srtla);
     void set_legacy_mode(bool is_legacy);
@@ -143,8 +146,7 @@ private:
     char m_default_sid[1024];
     char m_http_url_role[URL_MAX_LEN];
     char m_player_key_auth_url[URL_MAX_LEN];
-    char m_record_hls_path_prefix[URL_MAX_LEN];
-    
+
     // Configuration for player key validation
     std::vector<std::string> m_domain_players;
     std::string m_domain_publisher;

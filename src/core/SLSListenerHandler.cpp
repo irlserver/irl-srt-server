@@ -28,7 +28,6 @@ int CSLSListener::handler()
     char stream_name[URL_MAX_LEN] = {0};
     char key_app[URL_MAX_LEN] = {0};
     char key_stream_name[URL_MAX_LEN] = {0};
-    char tmp[URL_MAX_LEN] = {0};
     char peer_name[IP_MAX_LEN] = {0};
     int peer_port = 0;
     unsigned long peer_addr_raw = 0;
@@ -132,7 +131,14 @@ int CSLSListener::handler()
         sidValid = false;
     }
     if (!sidValid) {
-        spdlog::error("[connection:{}] Parse SID '{}' failed for {}:{}", 
+        spdlog::error("[connection:{}] Parse SID '{}' failed for {}:{}",
+                     session_id, sid, peer_name, peer_port);
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    }
+    if (!sls_is_safe_name(host_name) || !sls_is_safe_name(app_name) || !sls_is_safe_name(stream_name)) {
+        spdlog::error("[connection:{}] Refused SID '{}' from {}:{} — unsafe characters in host/app/stream",
                      session_id, sid, peer_name, peer_port);
         srt->libsrt_close();
         delete srt;
@@ -386,6 +392,14 @@ int CSLSListener::handler()
             return client_count;
         }
 
+        if (!sls_is_safe_name(host_name) || !sls_is_safe_name(app_name) || !sls_is_safe_name(stream_name)) {
+            spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], refused validated stream_id '{}' — unsafe characters in host/app/stream",
+                         fmt::ptr(this), peer_name, peer_port, sid);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+
         snprintf(key_app, sizeof(key_app), "%s/%s", host_name, app_name);
 
         if (!key_is_cached) {
@@ -415,8 +429,6 @@ int CSLSListener::handler()
                     stream_entry.max_players_per_stream = entry.max_players_per_stream_override;
                     stream_entry.expiry_time = entry.expiry_time;
                     m_stream_player_limit_map[std::string(key_stream_name)] = stream_entry;
-                    spdlog::info("[{}] CSLSListener::handler, applied per-stream cap override for stream='{}' to {} (from key).",
-                                 fmt::ptr(this), key_stream_name, stream_entry.max_players_per_stream);
                 }
             }
         }
@@ -440,8 +452,6 @@ int CSLSListener::handler()
             }
             CSLSRelayManager *puller_manager = m_map_puller->add_relay_manager(app_uplive.c_str(), stream_name);
             if (NULL == puller_manager) {
-                spdlog::info("[{}] CSLSListener::handler, m_map_puller->add_relay_manager failed, new role[{}:{:d}], stream='{}', publisher is NULL, no puller_manager.",
-                             fmt::ptr(this), peer_name, peer_port, key_stream_name);
                 srt->libsrt_close();
                 delete srt;
                 return client_count;
@@ -602,6 +612,10 @@ int CSLSListener::handler()
         player->set_srt(srt);
         player->set_map_data(key_stream_name, m_map_data);
         player->set_latency(final_latency);
+        // Seed the role's streamid with the (possibly player-key-resolved) sid
+        // so downstream hooks like on_event_url report the real stream instead
+        // of the raw SRTO_STREAMID the client sent.
+        player->set_streamid(sid);
 
         stat_info_t *stat_info_obj = new stat_info_t();
         stat_info_obj->port = m_port;
@@ -695,23 +709,22 @@ int CSLSListener::handler()
     pub->set_stat_info_base(*stat_info_obj);
 
     pub->set_http_url(m_http_url_role);
-    int nret = snprintf(tmp, sizeof(tmp), "%s/%d/%s",
-                   m_record_hls_path_prefix, m_port, key_stream_name);
-    if (nret < 0 || (unsigned)nret >= sizeof(tmp)) {
-        spdlog::error("[{}] CSLSListener::handler, snprintf failed, ret={:d}, errno={:d}",
-                      fmt::ptr(this), nret, errno);
-        pub->close();
-        srt->libsrt_close();
-        delete srt;
-        delete pub;
-        return client_count;
-    }
-    pub->set_record_hls_path(tmp);
 
     spdlog::info("[{}] CSLSListener::handler, new pub={}, key_stream_name={}.",
                  fmt::ptr(this), fmt::ptr(pub), key_stream_name);
 
-    if (SLS_OK != m_map_data->add(key_stream_name)) {
+    // Size the publisher's ring buffer to the configured max input bitrate
+    // and the SRT latency window. Without this hint CSLSRecycleArray falls
+    // back to its compile-time default; the dynamic sizing here right-fits
+    // each publisher so a subscriber that falls a full latency window
+    // behind is still safe from buffer overrun (which would otherwise
+    // silently corrupt the delivered stream — visible to viewers as
+    // periodic skips that "reset" when they refresh the source).
+    int map_data_bitrate_hint = 0;
+    if (ca != NULL) {
+        map_data_bitrate_hint = ((sls_conf_app_t *)ca)->max_input_bitrate_kbps;
+    }
+    if (SLS_OK != m_map_data->add(key_stream_name, map_data_bitrate_hint, final_latency)) {
         spdlog::warn("[{}] CSLSListener::handler, m_map_data->add failed, new pub[{}:{:d}], stream= {}.",
                      fmt::ptr(this), peer_name, peer_port, key_stream_name);
         pub->uninit();
@@ -730,6 +743,8 @@ int CSLSListener::handler()
     }
     pub->set_map_publisher(m_map_publisher);
     pub->set_map_data(key_stream_name, m_map_data);
+    pub->set_role_list(m_list_role);
+    pub->set_listen_port(m_port);
     pub->on_connect();
     m_list_role->push(pub);
     spdlog::info("[{}] CSLSListener::handler, new publisher[{}:{:d}], key_stream_name= {}.",

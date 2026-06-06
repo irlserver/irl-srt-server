@@ -22,6 +22,8 @@
  */
 
 #include <arpa/inet.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -69,15 +71,22 @@ sls_conf_cmd_t *sls_conf_find(const char *n, sls_conf_cmd_t *cmd, int size)
 const char *sls_conf_set_int(const char *v, sls_conf_cmd_t *cmd, void *conf)
 {
     char *p = (char *)conf;
-    int v1;
     int *np;
+    char *end;
+    long lv;
 
     np = (int *)(p + cmd->offset);
 
-    v1 = atoi(v);
-    if (v1 < cmd->min || v1 > cmd->max)
+    if (v == NULL || *v == '\0')
+        return SLS_CONF_WRONG_TYPE;
+
+    errno = 0;
+    lv = strtol(v, &end, 10);
+    if (end == v || *end != '\0' || errno == ERANGE || lv < INT_MIN || lv > INT_MAX)
+        return SLS_CONF_WRONG_TYPE;
+    if (lv < cmd->min || lv > cmd->max)
         return SLS_CONF_OUT_RANGE;
-    *np = v1;
+    *np = (int)lv;
     return SLS_CONF_OK;
 }
 
@@ -169,6 +178,16 @@ const char *sls_conf_set_string(const char *v, sls_conf_cmd_t *cmd, void *conf)
     char *np;
     int len = strlen(v);
 
+    // Strip a single pair of surrounding quotes (single or double) so users
+    // can naturally write quoted string values. Without this the quotes are
+    // stored as part of the string and downstream comparisons (notably
+    // SRTO_PASSPHRASE against an unquoted client passphrase) silently fail.
+    if (len >= 2 && (v[0] == '"' || v[0] == '\'') && v[len - 1] == v[0])
+    {
+        v += 1;
+        len -= 2;
+    }
+
     if (len < cmd->min || len > cmd->max)
         return SLS_CONF_OUT_RANGE;
 
@@ -181,12 +200,19 @@ const char *sls_conf_set_string(const char *v, sls_conf_cmd_t *cmd, void *conf)
 const char *sls_conf_set_double(const char *v, sls_conf_cmd_t *cmd, void *conf)
 {
     char *p = (char *)conf;
-    double v1;
     double *np;
+    char *end;
+    double v1;
 
     np = (double *)(p + cmd->offset);
 
-    v1 = atof(v);
+    if (v == NULL || *v == '\0')
+        return SLS_CONF_WRONG_TYPE;
+
+    errno = 0;
+    v1 = strtod(v, &end);
+    if (end == v || *end != '\0' || errno == ERANGE)
+        return SLS_CONF_WRONG_TYPE;
     if (v1 < cmd->min || v1 > cmd->max)
         return SLS_CONF_OUT_RANGE;
     *np = v1;
@@ -584,6 +610,11 @@ int sls_parse_argv(int argc, char *argv[], sls_opt_t *sls_opt, sls_conf_cmd_t *c
             return ret;
         }
         i++;
+        if (i >= argc)
+        {
+            spdlog::critical("missing value for parameter '-{}'.", opt_name);
+            return SLS_ERROR;
+        }
         strlcpy(opt_value, argv[i++], sizeof(opt_value));
         sls_remove_marks(opt_value);
         const char *r = it->set(opt_value, it, sls_opt);

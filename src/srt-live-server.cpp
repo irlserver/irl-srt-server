@@ -41,21 +41,24 @@ using namespace httplib;
 using json = nlohmann::json;
 
 /*
- * ctrl + c controller
+ * Signal handlers. Only async-signal-safe operations are allowed here
+ * (POSIX.1-2008 §2.4.3). spdlog and sls_remove_pid (unlink + free) are
+ * not on the safe list, and a plain bool write has no atomicity guarantee
+ * across the signal boundary. Store flags as volatile sig_atomic_t and
+ * let the main loop observe them, log, and clean up.
  */
-static bool b_exit = 0;
+static volatile sig_atomic_t b_exit = 0;
 static void ctrl_c_handler(int s)
 {
-    spdlog::warn("caught signal {:d}, exit.", s);
-    sls_remove_pid();
-    b_exit = true;
+    (void)s;
+    b_exit = 1;
 }
 
-static bool b_reload = 0;
+static volatile sig_atomic_t b_reload = 0;
 static void reload_handler(int s)
 {
-    spdlog::warn("caught signal {:d}, reload.", s);
-    b_reload = true;
+    (void)s;
+    b_reload = 1;
 }
 
 Server svr;
@@ -208,6 +211,15 @@ int main(int argc, char *argv[])
     }
 
     conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf();
+
+    // Drop privileges after listeners have bound (so :<1024 ports still work
+    // if the admin configured one) but before we start handling traffic.
+    if (SLS_OK != sls_drop_privileges(conf_srt->user, conf_srt->group))
+    {
+        spdlog::critical("sls_drop_privileges failed, exiting.");
+        goto EXIT_PROC;
+    }
+
     ret = strnlen(conf_srt->stat_post_url, URL_MAX_LEN);
     if (ret >= URL_MAX_LEN)
     {
@@ -224,6 +236,19 @@ int main(int argc, char *argv[])
     if (strlen(conf_srt->cors_header) > 0) {
         strcpy(cors_header, conf_srt->cors_header);
     }
+
+    // Lightweight liveness/readiness probe. Returns 200 OK unconditionally
+    // as long as the HTTP server is responsive — does NOT iterate publishers
+    // or take any data-path locks, unlike /stats. Kubernetes probes should
+    // target this endpoint to avoid blocking the publisher map_data write
+    // lock every probe interval, which manifests as periodic msRcvBuf
+    // spikes on healthy streams.
+    svr.Get("/healthz", [&](const Request& req, Response& res) {
+        (void)req;
+        res.status = 200;
+        res.set_header("Cache-Control", "no-cache");
+        res.set_content("{\"status\":\"ok\"}", "application/json");
+    });
 
     svr.Get("/stats", [&](const Request& req, Response& res) {
         json ret;
@@ -414,7 +439,7 @@ int main(int argc, char *argv[])
         if (b_reload)
         {
             // Reload
-            b_reload = false;
+            b_reload = 0;
             spdlog::info("Reloading SRT Live Server...");
             ret = sls_manager->reload();
             if (ret != SLS_OK)

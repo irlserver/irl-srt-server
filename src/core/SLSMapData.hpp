@@ -29,18 +29,59 @@
 
 #include "SLSRecycleArray.hpp"
 #include "SLSLock.hpp"
+#include "SLSAudioGapFiller.hpp"
 
 class CSLSMapData
 {
 public:
+    struct AudioGapTrackStats
+    {
+        int pid = INVALID_PID;
+        int stream_type = 0;
+        uint8_t stream_id = 0;
+        bool format_detected = false;
+        int sample_rate = 0;
+        int channels = 0;
+        uint64_t gap_count = 0;
+        uint64_t silent_frames_inserted = 0;
+        uint64_t silent_packets_inserted = 0;
+        uint64_t silent_bytes_inserted = 0;
+        int64_t last_gap_pts_delta = 0;
+        int last_gap_frames = 0;
+    };
+
+    struct AudioGapStreamStats
+    {
+        bool enabled = false;
+        bool pmt_parsed = false;
+        int audio_track_count = 0;
+        uint64_t gap_count = 0;
+        uint64_t silent_frames_inserted = 0;
+        uint64_t silent_packets_inserted = 0;
+        uint64_t silent_bytes_inserted = 0;
+        std::vector<AudioGapTrackStats> tracks;
+    };
+
     CSLSMapData();
     virtual ~CSLSMapData();
 
-    int add(char *key);
+    // Add a publisher data array for `key`. If `max_bitrate_kbps` and
+    // `latency_ms` are both positive, the underlying ring buffer is sized
+    // to hold ~2x the SRT latency window at the configured bitrate, so a
+    // subscriber falling up to one full latency window behind is still
+    // safe from overruns. Both default to 0, in which case the array uses
+    // CSLSRecycleArray's compiled-in DEFAULT_MAX_DATA_SIZE.
+    int add(char *key, int max_bitrate_kbps = 0, int latency_ms = 0);
     int remove(char *key);
     void clear();
 
+    // Cumulative overrun count across the publisher's ring buffer
+    // (writer lapped the reader). Returns -1 if `key` is unknown.
+    int64_t get_overrun_count(const char *key);
+
     int put(char *key, char *data, int len, int64_t *last_read_time = NULL);
+    void set_audio_gap_fill(const char *key, bool enabled);
+    bool get_audio_gap_stats(const char *key, AudioGapStreamStats &stats, int clear = 0);
     int get(char *key, char *data, int len, SLSRecycleArrayID *read_id, int aligned = 0);
 
     bool is_exist(char *key);
@@ -53,4 +94,5 @@ private:
     CSLSRWLock m_rwclock;
 
     int check_ts_info(char *data, int len, ts_info *ti);
+    void check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleArray *array_data);
 };

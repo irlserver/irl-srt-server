@@ -44,12 +44,25 @@ public:
     int init_epoll();
     int uninit_epoll();
 
+    // Wake the worker thread out of its current srt_epoll_wait. Safe to
+    // call from any thread. Used by stop() / reload() so shutdown and
+    // config reload don't have to wait for the next epoll timeout.
+    void wake();
+
 protected:
     virtual int handler();
 
     int add_to_epoll(int fd, bool write);
 
+    // Drain pending wake-fd signals. Returns true if the wake fd was
+    // among the system-socket events returned from srt_epoll_wait.
+    // Subclasses must call this from their handler() loop when system
+    // sockets were reported readable.
+    bool drain_wake_fd();
+    int wake_fd() const { return m_wake_fd; }
+
     int m_eid;
+    int m_wake_fd; // Linux eventfd, signalled by wake() to interrupt epoll.
     SRTSOCKET m_read_socks[MAX_SOCK_COUNT];
     SRTSOCKET m_write_socks[MAX_SOCK_COUNT];
 };
