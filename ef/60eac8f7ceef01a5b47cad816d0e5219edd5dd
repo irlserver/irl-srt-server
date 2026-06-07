@@ -1,0 +1,39 @@
+src/core/conf.cpp
+  s_05e4341d9fac14::t_13944ec1960ee2 94-108,116-122,131-133,147-148
+  s_05e4341d9fac14::t_32ed65e224cc4f 109-115,123-130,134-146,149-180
+  s_05e4341d9fac14::t_c9bbaa15fa1334 33
+src/core/SLSListener.hpp
+  s_05e4341d9fac14::t_af2c7268ea32a3 126-129
+  s_05e4341d9fac14::t_e0e8eca8dc4375 82-84
+  s_05e4341d9fac14::t_6b888f78b80e52 51-57
+  s_05e4341d9fac14::t_0a32e1faba1139 149
+src/core/SLSManager.cpp
+  s_05e4341d9fac14::t_af5e3339a4215d 26-27
+  s_05e4341d9fac14::t_4ad21763554ac6 158,160-162,164-182,184-189,191-193,195,197-220,222-239,242-243,247,258,262,266-269,273,279,283
+src/sls.conf
+  s_05e4341d9fac14::t_defb9b0f5308fe 83,85-87,89-90
+src/core/conf.hpp
+  s_05e4341d9fac14::t_b31eaf28904f41 114-124
+src/core/SLSListenerCore.cpp
+  s_05e4341d9fac14::t_e92967825b2df6 29
+  s_05e4341d9fac14::t_4bfc5d281b1579 120-124
+  s_05e4341d9fac14::t_804fba520eeedf 194-195,197-201
+README.md
+  s_05e4341d9fac14::t_860dd1cf08e27e 57-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "ef60eac8f7ceef01a5b47cad816d0e5219edd5dd",
+  "prompts": {},
+  "sessions": {
+    "s_05e4341d9fac14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "03e1f478-9194-4633-a857-c319026858a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
