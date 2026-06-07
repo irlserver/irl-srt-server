@@ -54,9 +54,20 @@ server {
 }
 ```
 
-- `listen_publisher` - For direct SRT connections (standard behavior)
-- `listen_publisher_srtla` - For SRTLA/bonded connections (enables SRTLA patches automatically)
-- `listen_player` - Single port for all playback (streams from both publisher types)
+- `listen_publisher` (for direct SRT connections, standard behavior)
+- `listen_publisher_srtla` (for SRTLA/bonded connections, enables SRTLA patches automatically)
+- `listen_player` (playback for streams from both publisher types)
+
+**Multiple ports per role**
+`listen_player`, `listen_publisher`, and `listen_publisher_srtla` each accept more than one port. Provide a comma separated list, inclusive ranges (`a-b`), or a mix. One listener is created per port, so a client may connect on any of them.
+
+```
+server {
+    listen_player 4000,4010,5000-5005;   # players may connect on any of these
+    listen_publisher 4001;
+    ...
+}
+```
 
 **Why separate ports?**
 SRTLA bonded connections require special SRT patches that disable dynamic reorder tolerance and periodic NAK reports. Using the wrong setting causes glitching:

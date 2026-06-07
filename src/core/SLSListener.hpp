@@ -48,9 +48,13 @@ SLS_CONF_DYNAMIC_DECLARE_BEGIN(server)
 char domain_player[URL_MAX_LEN];
 char domain_publisher[URL_MAX_LEN];
 int listen;
-int listen_publisher;
-int listen_publisher_srtla;
-int listen_player;
+// Port specs: a single port ("4001"), a comma list ("4001,4011"), or
+// inclusive ranges ("5000-5005"), or any mix. Expanded into one listener
+// per port by CSLSManager. Stored as the raw string so the spec survives
+// the memset-zeroed POD conf block (no std::containers allowed here).
+char listen_publisher[SHORT_STR_MAX_LEN];
+char listen_publisher_srtla[SHORT_STR_MAX_LEN];
+char listen_player[SHORT_STR_MAX_LEN];
 int backlog;
 int latency_min;
 int latency_max;
@@ -75,9 +79,9 @@ SLS_CONF_CMD_DYNAMIC_DECLARE_BEGIN(server)
 SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, string, domain_publisher, "", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, listen, "listen port (legacy, use listen_publisher/listen_player)", 1, 65535),
-    SLS_SET_CONF(server, int, listen_publisher, "publisher listen port (direct SRT)", 1, 65535),
-    SLS_SET_CONF(server, int, listen_publisher_srtla, "publisher listen port for SRTLA/bonded connections", 1, 65535),
-    SLS_SET_CONF(server, int, listen_player, "player listen port", 1, 65535),
+    SLS_SET_CONF(server, portlist, listen_publisher, "publisher listen port(s) (direct SRT); comma list and a-b ranges allowed", 1, SHORT_STR_MAX_LEN - 1),
+    SLS_SET_CONF(server, portlist, listen_publisher_srtla, "publisher listen port(s) for SRTLA/bonded connections; comma list and a-b ranges allowed", 1, SHORT_STR_MAX_LEN - 1),
+    SLS_SET_CONF(server, portlist, listen_player, "player listen port(s); comma list and a-b ranges allowed", 1, SHORT_STR_MAX_LEN - 1),
     SLS_SET_CONF(server, int, backlog, "how many sockets may be allowed to wait until they are accepted", 1, 1024),
     SLS_SET_CONF(server, int, latency_min, "minimum allowed latency (ms) - enforced on both publisher and player listeners via SRTO_LATENCY handshake floor", 0, 5000),
     SLS_SET_CONF(server, int, latency_max, "maximum allowed latency (ms) - enforced on all connections", 0, 10000),
@@ -119,6 +123,10 @@ public:
     void set_listener_type(bool is_publisher);
     void set_srtla_mode(bool is_srtla);
     void set_legacy_mode(bool is_legacy);
+    // Bind this listener to an explicit port instead of deriving it from the
+    // conf block. CSLSManager uses this to expand a multi-port spec into one
+    // listener per port.
+    void set_port_override(int port);
     bool should_handle_app(const std::string& app_name, bool is_publisher_connection);
 
     virtual stat_info_t get_stat_info();
@@ -138,6 +146,7 @@ private:
     bool m_is_publisher_listener;
     bool m_is_srtla_listener;
     bool m_is_legacy_listener;
+    int m_port_override; // >0: bind this explicit port (set by CSLSManager)
 
     CSLSMutex m_mutex;
 

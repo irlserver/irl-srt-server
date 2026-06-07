@@ -30,6 +30,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <algorithm>
 #include "spdlog/spdlog.h"
 
 #include "conf.hpp"
@@ -87,6 +88,93 @@ const char *sls_conf_set_int(const char *v, sls_conf_cmd_t *cmd, void *conf)
     if (lv < cmd->min || lv > cmd->max)
         return SLS_CONF_OUT_RANGE;
     *np = (int)lv;
+    return SLS_CONF_OK;
+}
+
+// Parse a single base-10 port and validate the 1..65535 range. Sets ok=false
+// (and returns 0) on any malformed input or out-of-range value.
+static long sls_parse_single_port(const std::string &s, bool &ok)
+{
+    ok = false;
+    if (s.empty())
+        return 0;
+    char *end = NULL;
+    errno = 0;
+    long p = strtol(s.c_str(), &end, 10);
+    if (end == s.c_str() || *end != '\0' || errno == ERANGE || p < 1 || p > 65535)
+        return 0;
+    ok = true;
+    return p;
+}
+
+int sls_parse_port_list(const char *spec, vector<int> &out_ports)
+{
+    out_ports.clear();
+    if (spec == NULL || *spec == '\0')
+        return 0;
+
+    auto trim_local = [](const std::string &s) -> std::string {
+        size_t a = s.find_first_not_of(" \t");
+        if (a == std::string::npos)
+            return std::string();
+        size_t b = s.find_last_not_of(" \t");
+        return s.substr(a, b - a + 1);
+    };
+    auto push_unique = [&out_ports](int port) {
+        if (std::find(out_ports.begin(), out_ports.end(), port) == out_ports.end())
+            out_ports.push_back(port);
+    };
+
+    vector<string> tokens = sls_conf_string_split(spec, ",");
+    for (const auto &raw : tokens)
+    {
+        std::string tok = trim_local(raw);
+        if (tok.empty())
+            continue; // empty entry, e.g. a stray/trailing comma
+
+        size_t dash = tok.find('-');
+        if (dash == std::string::npos)
+        {
+            bool ok = false;
+            long p = sls_parse_single_port(tok, ok);
+            if (!ok)
+                return -1;
+            push_unique((int)p);
+        }
+        else
+        {
+            bool ok_lo = false, ok_hi = false;
+            long lo = sls_parse_single_port(trim_local(tok.substr(0, dash)), ok_lo);
+            long hi = sls_parse_single_port(trim_local(tok.substr(dash + 1)), ok_hi);
+            if (!ok_lo || !ok_hi || lo > hi)
+                return -1;
+            for (long p = lo; p <= hi; ++p)
+                push_unique((int)p);
+        }
+    }
+    return (int)out_ports.size();
+}
+
+const char *sls_conf_set_portlist(const char *v, sls_conf_cmd_t *cmd, void *conf)
+{
+    char *p = (char *)conf;
+    char *np = (char *)(p + cmd->offset);
+
+    if (v == NULL || *v == '\0')
+        return SLS_CONF_WRONG_TYPE;
+
+    int len = strlen(v);
+    if (len < cmd->min || len > cmd->max)
+        return SLS_CONF_OUT_RANGE;
+
+    // Validate the spec at parse time so a typo surfaces as a config-line error
+    // with a line number, instead of a confusing bind failure during startup.
+    vector<int> ports;
+    if (sls_parse_port_list(v, ports) < 0 || ports.empty())
+        return SLS_CONF_WRONG_TYPE;
+
+    memcpy(np, v, len);
+    np[len] = 0;
     return SLS_CONF_OK;
 }
 

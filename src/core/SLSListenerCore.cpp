@@ -26,6 +26,7 @@ CSLSListener::CSLSListener()
     m_is_publisher_listener = false;
     m_is_srtla_listener = false;
     m_is_legacy_listener = false;
+    m_port_override = 0;
     m_idle_streams_timeout = UNLIMITED_TIMEOUT;
     m_idle_streams_timeout_role = 0;
     m_stat_info = {};
@@ -116,6 +117,11 @@ void CSLSListener::set_legacy_mode(bool is_legacy)
     }
 }
 
+void CSLSListener::set_port_override(int port)
+{
+    m_port_override = port;
+}
+
 int CSLSListener::start()
 {
     int ret = 0;
@@ -185,20 +191,14 @@ int CSLSListener::start()
         }
     }
 
-    if (m_is_legacy_listener) {
-        m_port = server_conf->listen;
-    } else if (m_is_srtla_listener) {
-        m_port = server_conf->listen_publisher_srtla;
-    } else if (m_is_publisher_listener) {
-        m_port = server_conf->listen_publisher;
-        if (m_port <= 0) {
-            m_port = server_conf->listen;
-        }
+    if (m_port_override > 0) {
+        m_port = m_port_override;
     } else {
-        m_port = server_conf->listen_player;
-        if (m_port <= 0) {
-            m_port = server_conf->listen;
-        }
+        // Only the legacy / fallback listener reaches here and binds the single
+        // `listen` directive. Publisher, SRTLA and player listeners always
+        // receive an explicit port from CSLSManager, which expands their
+        // (possibly multi-port) spec into one listener per port.
+        m_port = server_conf->listen;
     }
 
     if (m_port <= 0) {

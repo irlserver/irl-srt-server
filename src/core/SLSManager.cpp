@@ -23,6 +23,8 @@
 
 #include <errno.h>
 #include <string.h>
+#include <algorithm>
+#include <vector>
 #include "spdlog/spdlog.h"
 
 #include <nlohmann/json.hpp>
@@ -153,107 +155,96 @@ int CSLSManager::start()
     {
         spdlog::info("[{}] CSLSManager::start, creating listeners for server {} of {}", fmt::ptr(this), i + 1, m_server_count);
         std::vector<std::string> created_listeners;
-        
-        // 1. Create publisher listener if configured
-        if (conf->listen_publisher > 0)
-        {
-            CSLSListener *pub_listener = new CSLSListener(); //deleted by groups
-            pub_listener->set_role_list(m_list_role);
-            pub_listener->set_conf((sls_conf_base_t *)conf);
-            pub_listener->set_map_data("", &m_map_data[i]);
-            pub_listener->set_map_publisher(&m_map_publisher[i]);
-            pub_listener->set_map_puller(&m_map_puller[i]);
-            pub_listener->set_map_pusher(&m_map_pusher[i]);
-            pub_listener->set_listener_type(true); // Publisher listener
-            
-            if (pub_listener->init() != SLS_OK)
-            {
-                spdlog::error("[{}] CSLSManager::start, publisher listener init failed.", fmt::ptr(this));
-                return SLS_ERROR;
-            }
-            if (pub_listener->start() != SLS_OK)
-            {
-                spdlog::error("[{}] CSLSManager::start, publisher listener start failed.", fmt::ptr(this));
-                return SLS_ERROR;
-            }
-            m_servers.push_back(pub_listener);
-            created_listeners.push_back("publisher (port " + std::to_string(conf->listen_publisher) + ")");
-        }
+        std::vector<int> bound_ports; // ports already bound on this server, to avoid double-bind
 
-        // 2. Create SRTLA publisher listener if configured (for bonded connections)
-        if (conf->listen_publisher_srtla > 0)
-        {
-            CSLSListener *srtla_listener = new CSLSListener(); //deleted by groups
-            srtla_listener->set_role_list(m_list_role);
-            srtla_listener->set_conf((sls_conf_base_t *)conf);
-            srtla_listener->set_map_data("", &m_map_data[i]);
-            srtla_listener->set_map_publisher(&m_map_publisher[i]);
-            srtla_listener->set_map_puller(&m_map_puller[i]);
-            srtla_listener->set_map_pusher(&m_map_pusher[i]);
-            srtla_listener->set_listener_type(true); // Publisher listener
-            srtla_listener->set_srtla_mode(true);    // Enable SRTLA patches
+        auto port_taken = [&bound_ports](int p) {
+            return std::find(bound_ports.begin(), bound_ports.end(), p) != bound_ports.end();
+        };
 
-            if (srtla_listener->init() != SLS_OK)
-            {
-                spdlog::error("[{}] CSLSManager::start, SRTLA publisher listener init failed.", fmt::ptr(this));
-                return SLS_ERROR;
-            }
-            if (srtla_listener->start() != SLS_OK)
-            {
-                spdlog::error("[{}] CSLSManager::start, SRTLA publisher listener start failed.", fmt::ptr(this));
-                return SLS_ERROR;
-            }
-            m_servers.push_back(srtla_listener);
-            created_listeners.push_back("publisher-srtla (port " + std::to_string(conf->listen_publisher_srtla) + ")");
-        }
+        // Build a fully-configured listener for an explicit port. Roles are set
+        // by the flags; the port is forced via set_port_override so the listener
+        // does not re-derive it from the (now multi-port) conf spec.
+        auto make_listener = [&](int port, bool is_publisher, bool srtla, bool legacy) -> CSLSListener * {
+            CSLSListener *l = new CSLSListener(); //deleted by groups
+            l->set_role_list(m_list_role);
+            l->set_conf((sls_conf_base_t *)conf);
+            l->set_map_data("", &m_map_data[i]);
+            l->set_map_publisher(&m_map_publisher[i]);
+            l->set_map_puller(&m_map_puller[i]);
+            l->set_map_pusher(&m_map_pusher[i]);
+            l->set_listener_type(is_publisher);
+            if (srtla)
+                l->set_srtla_mode(true);
+            if (legacy)
+                l->set_legacy_mode(true);
+            l->set_port_override(port);
+            return l;
+        };
 
-        // 3. Create player listener if configured
-        if (conf->listen_player > 0)
-        {
-            CSLSListener *player_listener = new CSLSListener(); //deleted by groups
-            player_listener->set_role_list(m_list_role);
-            player_listener->set_conf((sls_conf_base_t *)conf);
-            player_listener->set_map_data("", &m_map_data[i]);
-            player_listener->set_map_publisher(&m_map_publisher[i]);
-            player_listener->set_map_puller(&m_map_puller[i]);
-            player_listener->set_map_pusher(&m_map_pusher[i]);
-            player_listener->set_listener_type(false); // Player listener
-            
-            if (player_listener->init() != SLS_OK)
+        // Expand a port spec and create one listener per port. Returns false on a
+        // hard failure (a configured listener that could not start).
+        auto create_for_spec = [&](const char *spec, bool is_publisher, bool srtla,
+                                   const char *label) -> bool {
+            std::vector<int> ports;
+            if (sls_parse_port_list(spec, ports) < 0)
             {
-                spdlog::error("[{}] CSLSManager::start, player listener init failed.", fmt::ptr(this));
-                return SLS_ERROR;
+                spdlog::error("[{}] CSLSManager::start, invalid {} port spec '{}'.",
+                              fmt::ptr(this), label, spec);
+                return false;
             }
-            if (player_listener->start() != SLS_OK)
+            for (int port : ports)
             {
-                spdlog::error("[{}] CSLSManager::start, player listener start failed.", fmt::ptr(this));
-                return SLS_ERROR;
+                if (port_taken(port))
+                {
+                    spdlog::warn("[{}] CSLSManager::start, {} port {} already bound on this server, skipping duplicate.",
+                                 fmt::ptr(this), label, port);
+                    continue;
+                }
+                CSLSListener *l = make_listener(port, is_publisher, srtla, false);
+                if (l->init() != SLS_OK)
+                {
+                    spdlog::error("[{}] CSLSManager::start, {} listener init failed on port {}.",
+                                  fmt::ptr(this), label, port);
+                    delete l;
+                    return false;
+                }
+                if (l->start() != SLS_OK)
+                {
+                    spdlog::error("[{}] CSLSManager::start, {} listener start failed on port {}.",
+                                  fmt::ptr(this), label, port);
+                    delete l;
+                    return false;
+                }
+                m_servers.push_back(l);
+                bound_ports.push_back(port);
+                created_listeners.push_back(std::string(label) + " (port " + std::to_string(port) + ")");
             }
-            m_servers.push_back(player_listener);
-            created_listeners.push_back("player (port " + std::to_string(conf->listen_player) + ")");
-        }
-        
-        // 4. Create legacy listener if listen port is different from listen_publisher
-        //    (If they're the same, listen_publisher takes precedence)
-        spdlog::info("[{}] CSLSManager::start, checking legacy listener: listen={}, listen_publisher={}", 
-                     fmt::ptr(this), conf->listen, conf->listen_publisher);
-        if (conf->listen > 0 && conf->listen != conf->listen_publisher)
+            return true;
+        };
+
+        // 1. Publisher listeners (direct SRT). 2. SRTLA publisher listeners
+        //    (bonded). 3. Player listeners. Each accepts a multi-port spec.
+        if (!create_for_spec(conf->listen_publisher, true, false, "publisher"))
+            return SLS_ERROR;
+        if (!create_for_spec(conf->listen_publisher_srtla, true, true, "publisher-srtla"))
+            return SLS_ERROR;
+        if (!create_for_spec(conf->listen_player, false, false, "player"))
+            return SLS_ERROR;
+
+        // 4. Legacy listener (accepts both publishers and players) on the single
+        //    `listen` port, unless that port is already bound by one of the
+        //    role-specific listeners above.
+        spdlog::info("[{}] CSLSManager::start, checking legacy listener: listen={}",
+                     fmt::ptr(this), conf->listen);
+        if (conf->listen > 0 && !port_taken(conf->listen))
         {
             spdlog::info("[{}] CSLSManager::start, creating legacy listener on port {}", fmt::ptr(this), conf->listen);
-            CSLSListener *legacy_listener = new CSLSListener(); //deleted by groups
-            legacy_listener->set_role_list(m_list_role);
-            legacy_listener->set_conf((sls_conf_base_t *)conf);
-            legacy_listener->set_map_data("", &m_map_data[i]);
-            legacy_listener->set_map_publisher(&m_map_publisher[i]);
-            legacy_listener->set_map_puller(&m_map_puller[i]);
-            legacy_listener->set_map_pusher(&m_map_pusher[i]);
-            // Legacy listener accepts both publishers and players for backwards compatibility
-            legacy_listener->set_listener_type(true);
-            legacy_listener->set_legacy_mode(true); // Mark as legacy for backwards compatibility
-            
+            CSLSListener *legacy_listener = make_listener(conf->listen, true, false, true);
+
             if (legacy_listener->init() != SLS_OK)
             {
                 spdlog::error("[{}] CSLSManager::start, legacy listener init failed.", fmt::ptr(this));
+                delete legacy_listener;
                 return SLS_ERROR;
             }
             if (legacy_listener->start() != SLS_OK)
@@ -264,36 +255,32 @@ int CSLSManager::start()
             } else {
                 spdlog::info("[{}] CSLSManager::start, legacy listener started successfully on port {}", fmt::ptr(this), conf->listen);
                 m_servers.push_back(legacy_listener);
+                bound_ports.push_back(conf->listen);
                 created_listeners.push_back("legacy (port " + std::to_string(conf->listen) + ", accepts both)");
             }
         }
-        
+
         // 5. Fallback: if no listeners were created, create a legacy one
         if (created_listeners.empty())
         {
-            int fallback_port = conf->listen > 0 ? conf->listen : (conf->listen_publisher > 0 ? conf->listen_publisher : 30000);
-            
-            CSLSListener *fallback_listener = new CSLSListener(); //deleted by groups
-            fallback_listener->set_role_list(m_list_role);
-            fallback_listener->set_conf((sls_conf_base_t *)conf);
-            fallback_listener->set_map_data("", &m_map_data[i]);
-            fallback_listener->set_map_publisher(&m_map_publisher[i]);
-            fallback_listener->set_map_puller(&m_map_puller[i]);
-            fallback_listener->set_map_pusher(&m_map_pusher[i]);
-            fallback_listener->set_listener_type(true); // Default to publisher listener for backwards compatibility
-            fallback_listener->set_legacy_mode(true); // Fallback is also legacy/backwards compatible
-            
+            int fallback_port = conf->listen > 0 ? conf->listen : 30000;
+
+            CSLSListener *fallback_listener = make_listener(fallback_port, true, false, true);
+
             if (fallback_listener->init() != SLS_OK)
             {
                 spdlog::error("[{}] CSLSManager::start, fallback listener init failed.", fmt::ptr(this));
+                delete fallback_listener;
                 return SLS_ERROR;
             }
             if (fallback_listener->start() != SLS_OK)
             {
                 spdlog::error("[{}] CSLSManager::start, fallback listener start failed.", fmt::ptr(this));
+                delete fallback_listener;
                 return SLS_ERROR;
             }
             m_servers.push_back(fallback_listener);
+            bound_ports.push_back(fallback_port);
             created_listeners.push_back("fallback (port " + std::to_string(fallback_port) + ", accepts both)");
         }
         

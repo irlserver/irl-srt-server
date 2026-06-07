@@ -111,6 +111,17 @@ const char *sls_conf_set_double(const char *v, sls_conf_cmd_t *cmd, void *conf);
 const char *sls_conf_set_bool(const char *v, sls_conf_cmd_t *cmd, void *conf);
 const char *sls_conf_set_ipset(const char *v, sls_conf_cmd_t *cmd, void *conf);
 const char *sls_conf_set_string_list(const char *v, sls_conf_cmd_t *cmd, void *conf);
+const char *sls_conf_set_portlist(const char *v, sls_conf_cmd_t *cmd, void *conf);
+
+/**
+ * Expand a port-list spec into concrete ports. Accepts a comma-separated list
+ * where each entry is either a single port ("4000") or an inclusive range
+ * ("5000-5005"). Whitespace around entries is ignored and duplicates are
+ * collapsed while preserving first-seen order. Returns the number of ports on
+ * success, or -1 if the spec is malformed or any port falls outside 1..65535.
+ * An empty/NULL spec yields 0 ports (not an error).
+ */
+int sls_parse_port_list(const char *spec, vector<int> &out_ports);
 
 /**
  * runtime conf
