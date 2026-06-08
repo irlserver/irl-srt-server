@@ -132,10 +132,27 @@ int CSLSRole::invalid_srt()
     return SLS_OK;
 }
 
+void CSLSRole::request_kick()
+{
+    m_kick_requested.store(true, std::memory_order_relaxed);
+}
+
 int CSLSRole::get_state(int64_t cur_time_ms)
 {
     if (SLS_RS_INVALID == m_state)
         return m_state;
+
+    // Honour a cross-thread kick (publisher takeover). Doing the teardown
+    // here keeps invalid_srt() on the socket-owning worker, so it can't race
+    // a concurrent handler() read on the same CSLSSrt.
+    if (m_kick_requested.load(std::memory_order_relaxed))
+    {
+        spdlog::info("[{}] CSLSRole::get_state, kick requested for {}, fd={:d}, call invalid_srt.",
+                     fmt::ptr(this), m_role_name, get_fd());
+        m_state = SLS_RS_INVALID;
+        invalid_srt();
+        return m_state;
+    }
 
     if (check_idle_streams_duration(cur_time_ms))
     {

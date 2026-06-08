@@ -165,6 +165,11 @@ void CSLSSrt::libsrt_set_latency(int latency)
     m_sc.latency = latency;
 }
 
+void CSLSSrt::libsrt_set_peer_idle_timeout(int timeout_ms)
+{
+    m_sc.peer_idle_timeout = timeout_ms;
+}
+
 void CSLSSrt::libsrt_set_passphrase(const char *passphrase, int pbkeylen)
 {
     if (passphrase != NULL)
@@ -286,6 +291,30 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
         // viewer-link jitter.
         srt_setsockopt(fd, SOL_SOCKET, SRTO_LATENCY, &s->latency, sizeof(s->latency));
         srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERLATENCY, &s->latency, sizeof(s->latency));
+    }
+
+    // SRTO_PEERIDLETIMEO bounds how long a connected peer may go fully silent
+    // (no data, no keepalive) before libsrt declares the link broken. The
+    // belabox SRT fork raises the default so bonded-cellular gaps on the
+    // encoder<->server SRTLA leg don't kill a healthy publisher. The cost is
+    // that when an encoder abandons a connection (SRT session reset / link
+    // flap) its SHUTDOWN frequently never reaches us over that same flapping
+    // path, so the stale server-side socket squats the stream key until
+    // idle_streams_timeout. Set as a listener pre-option here, it is inherited
+    // by every accepted socket. Publisher takeover already handles the
+    // reconnect case; this is the backstop for an encoder that dies without
+    // reconnecting, and is most useful where publishers reach SLS over a
+    // stable hop (e.g. a local srtla_rec terminating the bond). 0 leaves the
+    // fork/libsrt default untouched so bonded direct-SRTLA deploys keep their
+    // tolerance.
+    if (s->peer_idle_timeout > 0)
+    {
+        int peer_idle = s->peer_idle_timeout;
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERIDLETIMEO, &peer_idle, sizeof(peer_idle)) < 0)
+            spdlog::warn("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_PEERIDLETIMEO={} failed: {}.",
+                         fmt::ptr(this), peer_idle, srt_getlasterror_str());
+        else
+            spdlog::info("[{}] CSLSSrt::libsrt_setup, SRTO_PEERIDLETIMEO set to {}ms.", fmt::ptr(this), peer_idle);
     }
     // Kernel UDP socket buffers. Defaults on Linux are ~200KB-1MB which
     // is too tight for SRT live streaming under bursty traffic: when

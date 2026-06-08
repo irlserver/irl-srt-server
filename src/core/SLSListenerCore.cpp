@@ -233,6 +233,12 @@ int CSLSListener::start()
                      m_port, server_conf->srt_pbkeylen);
     }
 
+    // Inherited by every accepted socket on this listener. See libsrt_setup
+    // for the bonding-tolerance tradeoff; 0 leaves the fork default.
+    if (server_conf->peer_idle_timeout > 0) {
+        m_srt->libsrt_set_peer_idle_timeout(server_conf->peer_idle_timeout);
+    }
+
     ret = m_srt->libsrt_setup(m_port, use_srtla_patches);
     if (SLS_OK != ret)
     {

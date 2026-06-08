@@ -37,6 +37,7 @@
 #include "AsyncHttpClient.hpp"
 #include <future>
 #include <memory>
+#include <atomic>
 #include "SLSBitrateLimit.hpp"
 
 enum SLS_ROLE_STATE
@@ -88,6 +89,13 @@ public:
     int get_state(int64_t cur_time_microsec = 0);
     int get_sock_state();
     char *get_role_name();
+
+    // Ask the owning worker to tear this role down on its next state check.
+    // Safe to call from another thread (the listener uses it for publisher
+    // takeover): it only flips an atomic flag. The actual invalid_srt() and
+    // map cleanup still run on the worker that owns the SRT socket, via
+    // get_state(), so we never race a concurrent handler() on the same socket.
+    void request_kick();
 
     void set_conf(sls_conf_base_t *conf);
     void set_map_data(const char *map_key, CSLSMapData *map_data);
@@ -162,6 +170,10 @@ protected:
     int m_latency;              //ms
 
     int m_state;
+    // Cross-thread teardown request set by request_kick(). Observed by
+    // get_state() on the owning worker. Atomic so the listener thread can
+    // signal a takeover without locking the socket hot path.
+    std::atomic<bool> m_kick_requested{false};
     int m_back_log; //maximum number of connections at the same time
     int m_port;
     char m_peer_ip[IP_MAX_LEN];

@@ -682,8 +682,31 @@ int CSLSListener::handler()
 
     CSLSRole *publisher = m_map_publisher->get_publisher(key_stream_name);
     if (NULL != publisher) {
-        spdlog::error("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream='{}',but publisher={} is not NULL.",
-                      fmt::ptr(this), peer_name, peer_port, key_stream_name, fmt::ptr(publisher));
+        // Publisher takeover. A publisher is already registered for this
+        // stream, but a fresh connection for the same key is almost always
+        // the same encoder reconnecting (SRTLA link flap / SRT session
+        // reset). The incumbent's socket can squat the key for the whole
+        // idle_streams_timeout: the peer's SHUTDOWN is sent over the same
+        // flapping path and routinely never arrives, so SLS only notices the
+        // stale publisher via the idle timer (~10s of black screen on every
+        // reconnect). Instead, mark the incumbent for teardown so its owning
+        // worker reaps it within one idle tick (~50ms) through the normal
+        // cleanup path; the encoder's next reconnect then registers cleanly.
+        //
+        // We still refuse THIS connection rather than adopting its socket in
+        // place: evicting the incumbent and swapping in the new socket
+        // atomically would mean touching the incumbent's map_data ring (shared
+        // with any current players) and publisher entry from the listener
+        // thread while another worker still owns that role — not safe. One
+        // extra reconnect is a fine price for staying race-free.
+        //
+        // Caveat: this is last-writer-wins. Two distinct encoders configured
+        // with the same stream key will evict each other on a loop. That
+        // requires possession of the (secret) stream key and passing the IP
+        // ACL, and is logged below so operators can spot it.
+        publisher->request_kick();
+        spdlog::warn("[{}] CSLSListener::handler, publisher takeover for stream='{}', evicting stale publisher={}, new role[{}:{:d}] will reconnect.",
+                     fmt::ptr(this), key_stream_name, fmt::ptr(publisher), peer_name, peer_port);
         srt->libsrt_close();
         delete srt;
         return client_count;
