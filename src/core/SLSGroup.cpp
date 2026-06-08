@@ -52,6 +52,7 @@ CSLSGroup::CSLSGroup()
 
     m_stat_post_last_tm_ms = sls_gettime_ms();
     m_stat_post_interval = 5; // 5s default
+    m_last_idle_check_ms = 0; // force idle_check on the first iteration
 }
 CSLSGroup::~CSLSGroup()
 {
@@ -178,7 +179,7 @@ int CSLSGroup::handler()
         else
             ret = CSLSSrt::libsrt_neterrno();
 
-        idle_check();
+        maybe_idle_check();
         return handler_count;
     }
 
@@ -256,7 +257,7 @@ int CSLSGroup::handler()
         }
     }
 
-    idle_check();
+    maybe_idle_check();
 
     // Spin guard. Player sockets stay registered for SRT_EPOLL_OUT for
     // their whole lifetime. An SRT socket that has drained its send
@@ -287,6 +288,25 @@ void CSLSGroup::idle_check()
     check_reconnect_relay();
     check_invalid_sock();
     check_new_role();
+}
+
+void CSLSGroup::maybe_idle_check()
+{
+    // Housekeeping (relay reconnects, dead-socket cleanup + per-role
+    // srt_getsockstate, new-role pickup, stats) is cheap per call but
+    // not free: check_invalid_sock alone issues one libsrt syscall per
+    // role, each taking libsrt's global control lock. The data loop can
+    // spin thousands of times/sec while a publisher streams, so running
+    // this every iteration starves libsrt's own send/recv/ACK threads
+    // of that lock. Gating to POLLING_TIME restores the cadence the
+    // pre-eventfd loop had (its unconditional trailing msleep paced the
+    // whole loop to ~POLLING_TIME) without reintroducing that sleep on
+    // the data path.
+    int64_t now_ms = sls_gettime_ms();
+    if (now_ms - m_last_idle_check_ms < POLLING_TIME)
+        return;
+    m_last_idle_check_ms = now_ms;
+    idle_check();
 }
 
 void CSLSGroup::check_wait_http_role()
