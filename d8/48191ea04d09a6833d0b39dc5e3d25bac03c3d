@@ -1,0 +1,25 @@
+src/core/common.cpp
+  s_4ca0655cc622fb::t_85ac16e3236499 657-671
+src/core/common.hpp
+  s_4ca0655cc622fb::t_7742bb28b6f8ff 120
+src/core/SLSListenerHandler.cpp
+  s_4ca0655cc622fb::t_e4313be1cdb8da 271-277
+src/core/SLSSrt.cpp
+  s_4ca0655cc622fb::t_568a0c34923808 491,501-503
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "d848191ea04d09a6833d0b39dc5e3d25bac03c3d",
+  "prompts": {},
+  "sessions": {
+    "s_4ca0655cc622fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41530b6e-9e94-4330-9a41-ce8a43ac4b8b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
