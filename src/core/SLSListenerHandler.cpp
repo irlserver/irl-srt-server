@@ -91,6 +91,17 @@ int CSLSListener::handler()
 
     final_latency = negotiated_latency;
 
+    // A connection landing below latency_min means the listener floor
+    // (SRTO_LATENCY/RCVLATENCY set in CSLSListener::start) did not reach
+    // this socket. Warn rather than silently run a too-tight TSBPD window.
+    if (conf_server->latency_min > 0 && negotiated_latency > 0 &&
+        negotiated_latency < conf_server->latency_min)
+    {
+        spdlog::warn("[connection:{}] {} {}:{} negotiated latency {} ms below latency_min {} ms.",
+                     session_id, m_is_publisher_listener ? "publisher" : "player",
+                     peer_name, peer_port, negotiated_latency, conf_server->latency_min);
+    }
+
     if (0 != srt->libsrt_getsockopt(SRTO_STREAMID, "SRTO_STREAMID", &sid, &sid_size)) {
         spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], fd={:d}, get streamid info failed.",
                       fmt::ptr(this), peer_name, peer_port, srt->libsrt_get_fd());

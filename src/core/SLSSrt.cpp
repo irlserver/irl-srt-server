@@ -291,6 +291,9 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
         // viewer-link jitter.
         srt_setsockopt(fd, SOL_SOCKET, SRTO_LATENCY, &s->latency, sizeof(s->latency));
         srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERLATENCY, &s->latency, sizeof(s->latency));
+        // SRTO_LATENCY already seeds RCVLATENCY, but set it explicitly so
+        // the receive floor for publishers doesn't depend on the alias.
+        srt_setsockopt(fd, SOL_SOCKET, SRTO_RCVLATENCY, &s->latency, sizeof(s->latency));
     }
 
     // SRTO_PEERIDLETIMEO bounds how long a connected peer may go fully silent
