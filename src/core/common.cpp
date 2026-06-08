@@ -654,6 +654,21 @@ int sls_drop_privileges(const char *user, const char *group)
 
 #define ADD_VECTOR_END(v, i) (v).push_back((i))
 
+// Clients occasionally paste a streamid with a stray newline or surrounding
+// whitespace (copy/paste from chat, config files with trailing \n). Those
+// bytes would otherwise fail sls_is_safe_name (control chars) or silently
+// produce a distinct map key / on_event_url, so trim once at the parse
+// boundary and everything downstream sees the clean value.
+std::string sls_trim(const std::string &str)
+{
+    const char *ws = " \t\r\n\f\v";
+    string::size_type first = str.find_first_not_of(ws);
+    if (first == string::npos)
+        return "";
+    string::size_type last = str.find_last_not_of(ws);
+    return str.substr(first, last - first + 1);
+}
+
 void sls_split_string(std::string str, std::string separator, std::vector<std::string> &result, int count)
 {
     result.clear();

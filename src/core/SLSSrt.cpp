@@ -488,7 +488,7 @@ std::map<std::string, std::string> CSLSSrt::libsrt_parse_sid(char *sid)
             if (kv.size() == 2)
             {
 
-                ret[kv.at(0)] = kv.at(1);
+                ret[sls_trim(kv.at(0))] = sls_trim(kv.at(1));
             }
         }
     }
@@ -498,9 +498,9 @@ std::map<std::string, std::string> CSLSSrt::libsrt_parse_sid(char *sid)
         sls_split_string(sid, "/", items);
         if (items.size() >= 3)
         {
-            ret["h"] = items.at(0);
-            ret["sls_app"] = items.at(1);
-            ret["r"] = items.at(2);
+            ret["h"] = sls_trim(items.at(0));
+            ret["sls_app"] = sls_trim(items.at(1));
+            ret["r"] = sls_trim(items.at(2));
         }
     }
     return ret;

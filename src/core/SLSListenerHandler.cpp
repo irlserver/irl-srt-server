@@ -268,6 +268,13 @@ int CSLSListener::handler()
     }
     free(sid_copy);
 
+    // strtok keeps any stray whitespace/newline a client tacked onto the
+    // streamid, which would break the m_domain_players/m_app_players matches
+    // below and the player_key sent to the auth URL. Trim before they're used.
+    strlcpy(domain, sls_trim(domain).c_str(), sizeof(domain));
+    strlcpy(app, sls_trim(app).c_str(), sizeof(app));
+    strlcpy(stream_part, sls_trim(stream_part).c_str(), sizeof(stream_part));
+
     bool is_player_domain = false;
     bool is_player_app = false;
 
