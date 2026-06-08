@@ -29,15 +29,23 @@
 #include "SLSGroup.hpp"
 #include "SLSLog.hpp"
 
-// Upper bound on idle-check cadence. The worker blocks in srt_epoll_wait
-// up to this long when there are no socket events AND no wake() pending.
-// Real socket events return immediately via libsrt's epoll. Explicit
-// wakes (stop, reload, new role queued) are delivered via the eventfd
-// registered in CSLSEpollThread::init_epoll, so this timeout only
-// gates the periodic idle housekeeping (relay reconnects, invalid-sock
-// cleanup, picking up newly-queued roles). 50ms gives ~20 idle ticks
-// per second with no per-event latency cost.
-#define POLLING_TIME 50
+// Max time the worker blocks in srt_epoll_wait when nothing is ready.
+// Since players/pushers are no longer permanently armed for
+// SRT_EPOLL_OUT (see CSLSSrt::libsrt_add_to_epoll), egress is driven by
+// the worker's periodic pass over the publisher ring; for a viewer whose
+// publisher lives in a *different* worker, this timeout is therefore the
+// worst-case forwarding latency (that worker has no SRT event to wake it
+// when ring data arrives). 10ms keeps cross-worker egress latency well
+// inside any viewer's TSBPD budget while costing only ~100 idle wakeups
+// per second per worker (each a tiny no-op pass), with no busy-spin
+// because nothing is permanently writable.
+#define POLLING_TIME 10
+
+// Housekeeping cadence (idle_check). Decoupled from POLLING_TIME so the
+// per-role srt_getsockstate sweep and role-list pops run at a steady
+// ~20 Hz regardless of how often the egress tick fires. See
+// maybe_idle_check.
+#define IDLE_CHECK_INTERVAL 50
 
 /**
  * CSLSGroup class implementation
@@ -163,9 +171,12 @@ int CSLSGroup::handler()
     }
 
     // Event-driven wait. Blocks up to POLLING_TIME ms unless a socket
-    // event fires or wake() is called via the eventfd (registered as a
-    // system socket in CSLSEpollThread::init_epoll). No follow-up sleep:
-    // when there's nothing to do, we just sit in srt_epoll_wait.
+    // event fires (publisher IN, a backpressured role's OUT once its send
+    // buffer drains, or any role's ERR) or wake() is called via the
+    // eventfd. On timeout we still fall through to the egress pass below,
+    // because writable roles are no longer permanently armed for OUT and
+    // a role whose publisher lives in another worker has no SRT event to
+    // wake this one when fresh ring data appears.
     ret = srt_epoll_wait(m_eid, m_read_socks, &read_len,
                          m_write_socks, &write_len,
                          POLLING_TIME,
@@ -174,107 +185,99 @@ int CSLSGroup::handler()
     if (ret < 0)
     {
         ret = srt_getlasterror(NULL);
-        if (ret == SRT_ETIMEOUT) // 6003
-            ret = SLSERROR(EAGAIN);
-        else
-            ret = CSLSSrt::libsrt_neterrno();
-
-        maybe_idle_check();
-        return handler_count;
+        if (ret != SRT_ETIMEOUT) // 6003: ordinary idle timeout, not an error
+            CSLSSrt::libsrt_neterrno();
+        // No usable read/write sets on this path; skip the read loop and
+        // go straight to the egress pass + housekeeping.
+        read_len = 0;
     }
-
-    // Drain the wake fd if it fired. We don't care which fd specifically
-    // (only one is registered today) — drain_wake_fd is idempotent.
-    if (sys_read_len > 0)
+    else
     {
-        drain_wake_fd();
-    }
-
-    spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, writable sock count={:d}, readable sock count={:d}.",
-                  fmt::ptr(this), m_worker_number, write_len, read_len);
-
-    for (i = 0; i < write_len; i++)
-    {
-        std::map<int, CSLSRole *>::iterator it = m_map_role.find(m_write_socks[i]);
-        if (it == m_map_role.end())
+        // Drain the wake fd if it fired. We don't care which fd
+        // specifically (only one is registered today) — drain_wake_fd is
+        // idempotent.
+        if (sys_read_len > 0)
         {
-            spdlog::warn("[{}] CSLSGroup::handle, worker_number={:d}, no role map writable sock={:d}, why?",
-                         fmt::ptr(this), m_worker_number, m_write_socks[i]);
-            continue;
+            drain_wake_fd();
         }
 
+        spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, writable sock count={:d}, readable sock count={:d}.",
+                      fmt::ptr(this), m_worker_number, write_len, read_len);
+
+        // Reads: publishers and pullers. (Writable roles are serviced by
+        // the egress pass below, not from m_write_socks — OUT events only
+        // matter as a wake signal for backpressure recovery, which the
+        // pass then handles.)
+        for (i = 0; i < read_len; i++)
+        {
+            std::map<int, CSLSRole *>::iterator it = m_map_role.find(m_read_socks[i]);
+            if (it == m_map_role.end())
+            {
+                spdlog::warn("[{}] CSLSGroup::handle, worker_number={:d}, no role map readable sock={:d}, why?",
+                             fmt::ptr(this), m_worker_number, m_read_socks[i]);
+                continue;
+            }
+
+            CSLSRole *role = it->second;
+            if (!role)
+            {
+                spdlog::warn("[{}] CSLSGroup::handle, worker_number={:d}, role is null, readable sock={:d}, why?",
+                             fmt::ptr(this), m_worker_number, m_read_socks[i]);
+                continue;
+            }
+
+            ret = role->handler();
+            if (ret < 0)
+            {
+                // handle exception
+                spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, readable sock={:d} is invalid, {}={}, readable len={:d}, role_map.size={:d}.",
+                              fmt::ptr(this), m_worker_number, m_read_socks[i], role->get_role_name(), fmt::ptr(role), read_len, m_map_role.size());
+                role->invalid_srt();
+            }
+            else
+            {
+                handler_count += ret;
+            }
+        }
+    }
+
+    // Egress pass. Players/pushers register ERR-only and are driven from
+    // here rather than from a permanently-armed SRT_EPOLL_OUT (which, being
+    // level-triggered, would make srt_epoll_wait busy-return every
+    // iteration and peg a core). Forward any newly-available publisher-ring
+    // data to every writable role, then let the role arm/disarm OUT based
+    // on whether it is backpressured. invalid_srt() here does not erase
+    // from m_map_role (check_invalid_sock does, later), so iterating is
+    // safe.
+    for (std::map<int, CSLSRole *>::iterator it = m_map_role.begin(); it != m_map_role.end(); ++it)
+    {
         CSLSRole *role = it->second;
-        if (!role)
-        {
-            spdlog::warn("[{}] CSLSGroup::handle, worker_number={:d}, role is null, writable sock={:d}, why?",
-                         fmt::ptr(this), m_worker_number, m_write_socks[i]);
+        if (!role || !role->is_write())
             continue;
-        }
 
         ret = role->handler();
         if (ret < 0)
         {
-            // handle exception
-            spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, write sock={:d} is invalid, {}={}, write_len={:d}, role_map.size={:d}.",
-                          fmt::ptr(this), m_worker_number, m_write_socks[i], role->get_role_name(), fmt::ptr(role), write_len, m_map_role.size());
+            spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, egress sock={:d} is invalid, {}={}, role_map.size={:d}.",
+                          fmt::ptr(this), m_worker_number, it->first, role->get_role_name(), fmt::ptr(role), m_map_role.size());
             role->invalid_srt();
         }
         else
         {
             handler_count += ret;
-        }
-    }
-
-    for (i = 0; i < read_len; i++)
-    {
-        std::map<int, CSLSRole *>::iterator it = m_map_role.find(m_read_socks[i]);
-        if (it == m_map_role.end())
-        {
-            spdlog::warn("[{}] CSLSGroup::handle, worker_number={:d}, no role map readable sock={:d}, why?",
-                         fmt::ptr(this), m_worker_number, m_read_socks[i]);
-            continue;
-        }
-
-        CSLSRole *role = it->second;
-        if (!role)
-        {
-            spdlog::warn("[{}] CSLSGroup::handle, worker_number={:d}, role is null, readable sock={:d}, why?",
-                         fmt::ptr(this), m_worker_number, m_read_socks[i]);
-            continue;
-        }
-
-        ret = role->handler();
-        if (ret < 0)
-        {
-            // handle exception
-            spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, readable sock={:d} is invalid, {}={}, readable len={:d}, role_map.size={:d}.",
-                          fmt::ptr(this), m_worker_number, m_read_socks[i], role->get_role_name(), fmt::ptr(role), read_len, m_map_role.size());
-            role->invalid_srt();
-        }
-        else
-        {
-            handler_count += ret;
+            role->update_egress_arming();
         }
     }
 
     maybe_idle_check();
 
-    // Spin guard. Player sockets stay registered for SRT_EPOLL_OUT for
-    // their whole lifetime. An SRT socket that has drained its send
-    // buffer is *always* writable, so level-triggered srt_epoll_wait
-    // returns it on every iteration with zero blocking — even when the
-    // publisher ring has no new data for that player yet. Without a
-    // floor we then busy-loop calling handler_write_data -> get() ->
-    // "no data" -> return, pegging a core (the pre-eventfd code hid
-    // this behind its unconditional trailing msleep).
-    //
-    // handler_count is the bytes actually moved this iteration (publisher
-    // reads + player writes). If it's zero, every returned socket was a
-    // no-op writable player and we should yield briefly instead of
-    // spinning. When real data is flowing handler_count > 0 and we loop
-    // immediately with no added latency. 2ms is far below any player's
-    // TSBPD budget (>=200ms) so it is invisible to playback while
-    // capping idle spin at ~500 wakeups/sec/worker.
+    // Safety floor. With nothing permanently armed for OUT the worker
+    // normally parks in srt_epoll_wait (up to POLLING_TIME) when idle, so
+    // this rarely fires. It only guards the case where srt_epoll_wait
+    // returns immediately with events that move no bytes (e.g. a
+    // backpressured role's OUT flapping while its link is congested):
+    // yield briefly instead of spinning. 2ms is far below any viewer's
+    // TSBPD budget so playback is unaffected.
     if (handler_count == 0)
     {
         msleep(2);
@@ -303,7 +306,7 @@ void CSLSGroup::maybe_idle_check()
     // whole loop to ~POLLING_TIME) without reintroducing that sleep on
     // the data path.
     int64_t now_ms = sls_gettime_ms();
-    if (now_ms - m_last_idle_check_ms < POLLING_TIME)
+    if (now_ms - m_last_idle_check_ms < IDLE_CHECK_INTERVAL)
         return;
     m_last_idle_check_ms = now_ms;
     idle_check();

@@ -118,6 +118,12 @@ public:
     std::map<std::string, std::string>  libsrt_parse_sid(char *sid);
 
     int libsrt_add_to_epoll(int eid, bool write);
+    // Arm/disarm SRT_EPOLL_OUT on an already-registered socket. Writable
+    // roles are registered ERR-only (see libsrt_add_to_epoll); OUT is
+    // armed dynamically only while a write is backpressured so the worker
+    // wakes when the send buffer drains, instead of busy-returning on a
+    // permanently-writable idle socket.
+    int libsrt_arm_epoll_out(bool enable);
     int libsrt_remove_from_epoll();
 
     int libsrt_getsockstate();

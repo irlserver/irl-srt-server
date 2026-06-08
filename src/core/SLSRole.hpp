@@ -59,6 +59,15 @@ enum SLS_ROLE_STATE
 // 100-viewer node is ~11 MB (was ~13 MB of static role buffer space).
 const int DATA_BUFF_SIZE = 16 * 1316;
 const int UNLIMITED_TIMEOUT = -1;
+
+// Max publisher-ring batches drained per handler_write_data() call.
+// Egress is driven by the worker's periodic pass (players are no longer
+// permanently armed for SRT_EPOLL_OUT), so without an inner drain loop
+// throughput would be capped at one DATA_BUFF_SIZE per worker wakeup.
+// 8 * DATA_BUFF_SIZE (~168 KB) per call lets a catching-up viewer pull a
+// large backlog quickly while still bounding how long one role holds the
+// worker before it yields to the publisher read and the other roles.
+const int MAX_EGRESS_BATCHES = 8;
 /**
  * CSLSRole , the base of player, publisher and listener
  */
@@ -86,6 +95,13 @@ public:
 
     int add_to_epoll(int eid);
     int remove_from_epoll();
+    // Reconcile this writable role's SRT_EPOLL_OUT arm state with whether
+    // it still has staged egress data it could not fully send. Called by
+    // the worker after each egress attempt: arms OUT while backpressured
+    // (so the worker wakes when the send buffer drains) and disarms once
+    // caught up (so an idle writable socket does not busy-return). No-op
+    // for read roles. Only issues a syscall on an actual state change.
+    void update_egress_arming();
     int get_state(int64_t cur_time_microsec = 0);
     int get_sock_state();
     char *get_role_name();
@@ -207,6 +223,16 @@ protected:
     // stream) instead of holding their publisher-ring read position
     // open indefinitely.
     int64_t m_backpressure_stuck_since_ms{0};
+
+    // Whether SRT_EPOLL_OUT is currently armed on this writable role's
+    // socket. Writable roles register ERR-only (see libsrt_add_to_epoll);
+    // OUT is toggled on demand by update_egress_arming() so we only pay
+    // the srt_epoll_update_usock syscall when the backpressure state
+    // actually flips. Touched only from the owning worker thread.
+    bool m_epoll_out_armed{false};
+    // Arms/disarms SRT_EPOLL_OUT, updating m_epoll_out_armed. Returns
+    // early without a syscall when already in the requested state.
+    int set_epoll_out(bool enable);
 
     // Floor below which the stuck-viewer timeout will never drop. Even
     // at very low negotiated latency (e.g. 20ms), 500ms gives genuine

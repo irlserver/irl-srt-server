@@ -546,7 +546,6 @@ int CSLSSrt::libsrt_add_to_epoll(int eid, bool write)
 {
     int ret = SLS_OK;
     int fd = m_sc.fd;
-    int modes = write ? SRT_EPOLL_OUT : SRT_EPOLL_IN;
 
     if (!eid)
     {
@@ -554,7 +553,18 @@ int CSLSSrt::libsrt_add_to_epoll(int eid, bool write)
         return SLS_ERROR;
     }
 
-    modes |= SRT_EPOLL_ERR;
+    // Readable roles (publisher/puller) watch IN. Writable roles
+    // (player/pusher) are NOT armed for OUT at rest: SRT_EPOLL_OUT is
+    // level-triggered and a drained SRT socket is always writable, so a
+    // permanently-armed OUT makes srt_epoll_wait return on every single
+    // iteration and turns the worker into a busy-loop. Egress is instead
+    // driven by the worker's periodic pass over the publisher ring, and
+    // OUT is armed on demand (libsrt_arm_epoll_out) only while a write is
+    // backpressured. ERR is always watched so broken sockets surface.
+    int modes = SRT_EPOLL_ERR;
+    if (!write)
+        modes |= SRT_EPOLL_IN;
+
     ret = srt_epoll_add_usock(eid, fd, &modes);
     if (ret < 0)
     {
@@ -563,6 +573,26 @@ int CSLSSrt::libsrt_add_to_epoll(int eid, bool write)
         return libsrt_neterrno();
     }
     return ret;
+}
+
+int CSLSSrt::libsrt_arm_epoll_out(bool enable)
+{
+    if (!m_sc.eid)
+    {
+        spdlog::error("[{}] CSLSSrt::libsrt_arm_epoll_out failed, eid not set.", fmt::ptr(this));
+        return SLS_ERROR;
+    }
+    int modes = SRT_EPOLL_ERR;
+    if (enable)
+        modes |= SRT_EPOLL_OUT;
+    int ret = srt_epoll_update_usock(m_sc.eid, m_sc.fd, &modes);
+    if (ret < 0)
+    {
+        spdlog::warn("[{}] CSLSSrt::libsrt_arm_epoll_out, srt_epoll_update_usock failed, eid={:d}, fd={:d}, enable={}.",
+                     fmt::ptr(this), m_sc.eid, m_sc.fd, enable);
+        return libsrt_neterrno();
+    }
+    return SLS_OK;
 }
 
 int CSLSSrt::libsrt_remove_from_epoll()
