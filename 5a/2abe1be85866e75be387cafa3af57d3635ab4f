@@ -1,0 +1,22 @@
+src/core/SLSListenerHandler.cpp
+  s_b58c99b812b258::t_12522a62a6635a 97-99,101-104
+  s_b58c99b812b258::t_00f7c5b72edecd 94-96,100
+src/core/SLSSrt.cpp
+  s_b58c99b812b258::t_76a70a5dffdab8 294-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "5a2abe1be85866e75be387cafa3af57d3635ab4f",
+  "prompts": {},
+  "sessions": {
+    "s_b58c99b812b258": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b259b096-52d8-4f24-94dd-72a9a86bf6af",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
