@@ -1,0 +1,19 @@
+src/core/SLSSrt.cpp
+  s_b58c99b812b258::t_0604ca1b1b92b5 280-282,284-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "db8ec6d9dc4b164d3be89568ea16094a894d4546",
+  "prompts": {},
+  "sessions": {
+    "s_b58c99b812b258": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b259b096-52d8-4f24-94dd-72a9a86bf6af",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
