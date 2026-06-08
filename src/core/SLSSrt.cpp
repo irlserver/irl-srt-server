@@ -277,23 +277,24 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
        If unspecified or setting fails, system default is used. */
     if (s->latency > 0)
     {
-        // SRTO_LATENCY on a listener only seeds the SRT TSBPD RCVLATENCY
-        // for the receive direction. That clamps publishers (who send
-        // to us) but does nothing for players (who receive from us).
-        // Set SRTO_PEERLATENCY explicitly too so we commit, as sender,
-        // to at least this much queue-time before TLPKTDROP fires for
-        // any player we accept. The SRT handshake then negotiates the
+        // SRTO_RCVLATENCY is the receive-direction TSBPD floor and clamps
+        // publishers (who send to us); SRTO_PEERLATENCY is what we, as
+        // sender, commit to for players (the handshake negotiates the
         // player's effective receive latency to
-        //   max(player.RCVLATENCY, our.PEERLATENCY)
-        // which is what actually decides the SLS-to-viewer delivery
-        // window — and therefore whether srt_sendmsg flips into
-        // continuous EASYNCSND / SRTS_BROKEN under any real-world
-        // viewer-link jitter.
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_LATENCY, &s->latency, sizeof(s->latency));
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERLATENCY, &s->latency, sizeof(s->latency));
-        // SRTO_LATENCY already seeds RCVLATENCY, but set it explicitly so
-        // the receive floor for publishers doesn't depend on the alias.
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_RCVLATENCY, &s->latency, sizeof(s->latency));
+        //   max(player.RCVLATENCY, our.PEERLATENCY)).
+        // SRTO_LATENCY sets both at once, but set RCVLATENCY explicitly
+        // too — and check each return — because a publisher was observed
+        // negotiating 120ms with latency_min=500, i.e. the floor was not
+        // landing on the socket and the failure was being swallowed.
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_LATENCY, &s->latency, sizeof(s->latency)) < 0)
+            spdlog::warn("[{}] CSLSSrt::libsrt_setup, SRTO_LATENCY={} failed: {}.",
+                         fmt::ptr(this), s->latency, srt_getlasterror_str());
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERLATENCY, &s->latency, sizeof(s->latency)) < 0)
+            spdlog::warn("[{}] CSLSSrt::libsrt_setup, SRTO_PEERLATENCY={} failed: {}.",
+                         fmt::ptr(this), s->latency, srt_getlasterror_str());
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_RCVLATENCY, &s->latency, sizeof(s->latency)) < 0)
+            spdlog::warn("[{}] CSLSSrt::libsrt_setup, SRTO_RCVLATENCY={} failed: {}.",
+                         fmt::ptr(this), s->latency, srt_getlasterror_str());
     }
 
     // SRTO_PEERIDLETIMEO bounds how long a connected peer may go fully silent
