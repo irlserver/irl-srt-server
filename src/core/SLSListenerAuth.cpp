@@ -12,6 +12,67 @@
 
 using namespace std;
 
+namespace {
+// Hard ceiling on cached player keys. Each entry is a key string plus a
+// resolved stream id (both bounded by the streamid buffer), so this bounds
+// the cache's memory. Sized well above any plausible legitimate concurrent
+// audience; only a rotating-key flood ever reaches it.
+constexpr size_t MAX_PLAYER_KEY_CACHE_ENTRIES = 50000;
+// Minimum spacing between full expired-entry sweeps of the player-key cache.
+constexpr auto PLAYER_KEY_CACHE_SWEEP_INTERVAL = std::chrono::seconds(5);
+// Hard ceiling on tracked source IPs for player-key rate limiting.
+constexpr size_t MAX_RATE_LIMIT_ENTRIES = 100000;
+// Minimum spacing between full sweeps of the rate-limit map.
+constexpr auto RATE_LIMIT_CLEANUP_INTERVAL = std::chrono::seconds(1);
+} // namespace
+
+void CSLSListener::insert_player_key_cache_locked(const std::string& key, const PlayerKeyCacheEntry& entry)
+{
+    // Refreshing an existing key never grows the map.
+    auto existing = m_player_key_cache.find(key);
+    if (existing != m_player_key_cache.end()) {
+        existing->second = entry;
+        return;
+    }
+
+    if (m_player_key_cache.size() >= MAX_PLAYER_KEY_CACHE_ENTRIES) {
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = m_player_key_cache.begin(); it != m_player_key_cache.end();) {
+            if (it->second.expiry_time <= now)
+                it = m_player_key_cache.erase(it);
+            else
+                ++it;
+        }
+        // All remaining entries are still live: evict the one closest to
+        // expiring so a valid, recently validated key is the last to go.
+        if (m_player_key_cache.size() >= MAX_PLAYER_KEY_CACHE_ENTRIES) {
+            auto victim = m_player_key_cache.begin();
+            for (auto it = std::next(m_player_key_cache.begin()); it != m_player_key_cache.end(); ++it) {
+                if (it->second.expiry_time < victim->second.expiry_time)
+                    victim = it;
+            }
+            if (victim != m_player_key_cache.end())
+                m_player_key_cache.erase(victim);
+        }
+    }
+    m_player_key_cache[key] = entry;
+}
+
+void CSLSListener::sweep_player_key_cache()
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lk(m_cache_mutex);
+    if (now - m_last_player_key_cache_sweep < PLAYER_KEY_CACHE_SWEEP_INTERVAL)
+        return;
+    m_last_player_key_cache_sweep = now;
+    for (auto it = m_player_key_cache.begin(); it != m_player_key_cache.end();) {
+        if (it->second.expiry_time <= now)
+            it = m_player_key_cache.erase(it);
+        else
+            ++it;
+    }
+}
+
 bool CSLSListener::validate_player_key_format(const char* player_key)
 {
     if (!player_key) {
@@ -85,12 +146,45 @@ void CSLSListener::update_rate_limit(const char* client_ip)
 
     auto now = std::chrono::steady_clock::now();
     std::string ip_str(client_ip);
+
+    // Cap the number of tracked source IPs so a distributed / spoofed-source
+    // flood cannot grow the map without bound. A new IP that would exceed the
+    // cap forces an immediate sweep; if the map is still full of live entries
+    // the new IP is simply left untracked (not rate-limited) rather than
+    // admitted, which keeps memory bounded without locking out the existing
+    // tracked sources.
+    if (m_rate_limit_map.find(ip_str) == m_rate_limit_map.end() &&
+        m_rate_limit_map.size() >= MAX_RATE_LIMIT_ENTRIES) {
+        auto window_start = now - std::chrono::milliseconds(m_player_key_rate_limit_window * 2);
+        for (auto it = m_rate_limit_map.begin(); it != m_rate_limit_map.end();) {
+            RateLimitEntry& entry = it->second;
+            while (!entry.request_times.empty() && entry.request_times.front() < window_start) {
+                entry.request_times.pop_front();
+            }
+            if (entry.request_times.empty()) {
+                it = m_rate_limit_map.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        if (m_rate_limit_map.size() >= MAX_RATE_LIMIT_ENTRIES) {
+            return;
+        }
+    }
+
     m_rate_limit_map[ip_str].request_times.push_back(now);
 }
 
 void CSLSListener::cleanup_expired_rate_limits()
 {
     auto now = std::chrono::steady_clock::now();
+    // Time-gate the full-map scan: is_rate_limited calls this on every player
+    // accept, but the per-IP deque trim there already keeps the checked IP
+    // correct, so the map-wide GC only needs to run periodically.
+    if (now - m_last_rate_limit_cleanup < RATE_LIMIT_CLEANUP_INTERVAL) {
+        return;
+    }
+    m_last_rate_limit_cleanup = now;
     auto window_start = now - std::chrono::milliseconds(m_player_key_rate_limit_window * 2);
 
     for (auto it = m_rate_limit_map.begin(); it != m_rate_limit_map.end();) {
@@ -184,7 +278,7 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         negative_cache_entry.max_players_per_stream_override = -1;
         {
             std::lock_guard<std::mutex> lk(m_cache_mutex);
-            m_player_key_cache[key_str] = negative_cache_entry;
+            insert_player_key_cache_locked(key_str, negative_cache_entry);
         }
         spdlog::debug("[{}] CSLSListener::validate_player_key, cached negative result for player_key='{}', expires in {}ms.",
                      fmt::ptr(this), player_key, m_player_key_cache_duration / 4);
@@ -202,7 +296,7 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
         negative_cache_entry.max_players_per_stream_override = -1;
         {
             std::lock_guard<std::mutex> lk(m_cache_mutex);
-            m_player_key_cache[key_str] = negative_cache_entry;
+            insert_player_key_cache_locked(key_str, negative_cache_entry);
         }
         spdlog::debug("[{}] CSLSListener::validate_player_key, cached negative result for player_key='{}', expires in {}ms.",
                      fmt::ptr(this), player_key, m_player_key_cache_duration / 4);
@@ -249,7 +343,7 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     cache_entry.max_players_per_stream_override = json_max_players_override;
     {
         std::lock_guard<std::mutex> lk(m_cache_mutex);
-        m_player_key_cache[key_str] = cache_entry;
+        insert_player_key_cache_locked(key_str, cache_entry);
     }
 
     spdlog::debug("[{}] CSLSListener::validate_player_key, cached result for player_key='{}', expires in {}ms.{}",

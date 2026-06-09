@@ -44,4 +44,10 @@ private:
     mutable std::mutex m_mtx;
     std::unordered_map<std::string, time_t> m_blocked; // streamid -> expiry (epoch seconds)
     time_t m_ttl;
+    // Wall-clock second of the last full sweep. record_failure only sweeps
+    // once per second instead of on every insert, so a streamid-rotating
+    // flood that fails auth thousands of times a second pays an O(n) scan at
+    // most once per second rather than once per failure. Lazy expiry on read
+    // (is_blocked) keeps correctness independent of sweep cadence.
+    time_t m_last_sweep = 0;
 };

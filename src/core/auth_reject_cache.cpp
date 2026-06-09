@@ -14,12 +14,18 @@ void AuthRejectCache::record_failure(const std::string &streamid)
         return;
     time_t now = time(nullptr);
     std::lock_guard<std::mutex> lk(m_mtx);
-    for (auto it = m_blocked.begin(); it != m_blocked.end();)
+    // Time-gate the sweep to at most once per second so a high-rate failure
+    // flood does not turn every insert into an O(n) scan of the map.
+    if (now != m_last_sweep)
     {
-        if (it->second <= now)
-            it = m_blocked.erase(it);
-        else
-            ++it;
+        for (auto it = m_blocked.begin(); it != m_blocked.end();)
+        {
+            if (it->second <= now)
+                it = m_blocked.erase(it);
+            else
+                ++it;
+        }
+        m_last_sweep = now;
     }
     m_blocked[streamid] = now + m_ttl;
 }

@@ -175,12 +175,28 @@ private:
     };
     std::map<std::string, PlayerKeyCacheEntry> m_player_key_cache;
     std::mutex m_cache_mutex;
-    
+    // Last time expired entries were swept from m_player_key_cache. The cache
+    // is otherwise only pruned lazily when the same key is looked up again, so
+    // a flood of distinct never-recurring keys would leak entries until their
+    // TTL without this periodic sweep. Guarded by m_cache_mutex.
+    std::chrono::steady_clock::time_point m_last_player_key_cache_sweep{};
+    // Insert with eviction, assumes m_cache_mutex is already held. Drops
+    // expired entries first, then (if still at the hard cap) the soonest-to-
+    // expire entry, so the map can never grow without bound under a rotating-
+    // key flood while freshly validated hot entries are preserved.
+    void insert_player_key_cache_locked(const std::string& key, const PlayerKeyCacheEntry& entry);
+    // Time-gated sweep of expired player-key cache entries. Cheap no-op when
+    // called more than once within the sweep interval.
+    void sweep_player_key_cache();
+
     // Rate limiting structure
     struct RateLimitEntry {
         std::deque<std::chrono::steady_clock::time_point> request_times;
     };
     std::map<std::string, RateLimitEntry> m_rate_limit_map;
+    // Throttles cleanup_expired_rate_limits so the full-map scan runs at most
+    // once per second instead of on every player accept.
+    std::chrono::steady_clock::time_point m_last_rate_limit_cleanup{};
     
     // Per-stream player limit override structure
     struct StreamPlayerLimitEntry {

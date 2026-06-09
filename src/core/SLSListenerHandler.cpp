@@ -17,6 +17,7 @@
 int CSLSListener::handler()
 {
     cleanupExpiredStreamOverrides();
+    sweep_player_key_cache();
     int ret = SLS_OK;
     int fd_client = 0;
     CSLSSrt *srt = NULL;
