@@ -56,6 +56,7 @@ using namespace std;
 
 #define SLS_OK SLSERRTAG(0x0, 0x0, 0x0, 0x0)                       ///< OK
 #define SLS_ERROR SLSERRTAG(0x0, 0x0, 0x0, 0x1)                    ///<
+#define SLS_PENDING SLSERRTAG(0x0, 0x0, 0x0, 0x2)                  ///< async result not ready yet (e.g. player-key webhook in flight)
 #define SLSERROR_BSF_NOT_FOUND SLSERRTAG(0xF8, 'B', 'S', 'F')      ///< Bitstream filter not found
 #define SLSERROR_BUG SLSERRTAG('B', 'U', 'G', '!')                 ///< Internal bug, also see SLSERROR_BUG2
 #define SLSERROR_BUFFER_TOO_SMALL SLSERRTAG('B', 'U', 'F', 'S')    ///< Buffer too small

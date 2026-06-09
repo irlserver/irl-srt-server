@@ -18,6 +18,10 @@ int CSLSListener::handler()
 {
     cleanupExpiredStreamOverrides();
     sweep_player_key_cache();
+    // Fold any completed async player-key webhooks into the cache before this
+    // accept's lookup, so a client's reconnect after a cold-key rejection sees
+    // the now-resolved result.
+    drain_player_key_validations();
     int ret = SLS_OK;
     int fd_client = 0;
     CSLSSrt *srt = NULL;
@@ -365,6 +369,16 @@ int CSLSListener::handler()
         }
 
         int validation_result = validate_player_key(player_key, validated_stream_id, sizeof(validated_stream_id), peer_name);
+        if (validation_result == SLS_PENDING) {
+            // Uncached key: an async webhook validation was dispatched and this
+            // connection is rejected without blocking the worker. An
+            // auto-reconnecting client will hit the populated cache on retry.
+            spdlog::debug("[connection:{}] Player key '{}' from {}:{} - validation pending, client should retry",
+                         session_id, player_key, peer_name, peer_port);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
         if (validation_result != SLS_OK) {
             spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], player key validation FAILED for key='{}'",
                          fmt::ptr(this), peer_name, peer_port, player_key);

@@ -35,11 +35,13 @@
 #include "SLSMapPublisher.hpp"
 #include "SLSMapRelay.hpp"
 #include "SLSSrt.hpp"
+#include "AsyncHttpClient.hpp"
 #include <map>
 #include <chrono>
 #include <regex>
 #include <deque>
 #include <mutex>
+#include <future>
 
 /**
  * server conf
@@ -136,11 +138,25 @@ public:
     virtual stat_info_t get_stat_info();
 
 protected:
+    // Returns SLS_OK (resolved from cache), SLS_ERROR (hard reject: bad
+    // format, rate limited, or a cached negative result), or SLS_PENDING (no
+    // cached result yet; an async webhook validation has been kicked off and
+    // this connection should be rejected so the client's reconnect can hit the
+    // now-populated cache). Never blocks the worker on the network.
     int validate_player_key(const char* player_key, char* resolved_stream_id, size_t resolved_stream_id_size, const char* client_ip = nullptr);
     bool is_rate_limited(const char* client_ip);
     bool validate_player_key_format(const char* player_key);
     void cleanup_expired_rate_limits();
     void update_rate_limit(const char* client_ip);
+    // Kick a webhook validation for an uncached key into the AsyncHttpClient
+    // pool (deduplicated and capped) without waiting for it. Worker-only.
+    void start_player_key_validation(const std::string& key, const char* client_ip);
+    // Turn a completed webhook response into a positive/negative cache entry.
+    void process_player_key_response(const std::string& key, const AsyncHttpResponse& response);
+    // Poll in-flight validations; fold any that have completed into the cache.
+    // Called at the top of handler() so a reconnect sees the prior attempt's
+    // result. Worker-only.
+    void drain_player_key_validations();
 
 private:
     CSLSRoleList *m_list_role;
@@ -188,6 +204,10 @@ private:
     // Time-gated sweep of expired player-key cache entries. Cheap no-op when
     // called more than once within the sweep interval.
     void sweep_player_key_cache();
+    // In-flight player-key webhook validations, keyed by player key. The
+    // owning worker owns these futures (the pool runs the request), so there
+    // is no detached cross-thread access to this listener. Worker-thread-only.
+    std::map<std::string, std::shared_future<AsyncHttpResponse>> m_pending_player_key_validations;
 
     // Rate limiting structure
     struct RateLimitEntry {
