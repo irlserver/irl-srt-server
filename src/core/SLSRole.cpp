@@ -755,7 +755,14 @@ int CSLSRole::check_http_passed()
         // bad key is rejected at the next handshake (no accept, no webhook).
         // Only publisher roles carry a cache; key on the raw streamid the
         // listener callback also sees so the lookup matches the insert.
-        if (m_auth_reject_cache)
+        //
+        // Only cache on an explicit auth-reject status (401/403): the key
+        // itself is bad, so blocking its repeats is correct. A transport
+        // failure (response.success == false) or a 5xx is the *backend*
+        // faltering, not the key, and caching those would lock a legitimate
+        // publisher out for the whole TTL on a single backend hiccup.
+        if (m_auth_reject_cache && response.success &&
+            (response.status_code == 401 || response.status_code == 403))
             m_auth_reject_cache->record_failure(get_streamid());
         invalid_srt();
         return SLS_ERROR;
