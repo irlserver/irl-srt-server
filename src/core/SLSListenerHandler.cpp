@@ -548,7 +548,10 @@ int CSLSListener::handler()
                 }
             } else {
                 spdlog::error("[{}] CSLSListener::handler ACL check failed: could not get peer address", fmt::ptr(this));
-                spdlog::error("[{}] CSLSListener::handler Accepting connection by default", fmt::ptr(this));
+                spdlog::error("[{}] CSLSListener::handler Rejecting connection by default", fmt::ptr(this));
+                srt->libsrt_close();
+                delete srt;
+                return client_count;
             }
         }
 
@@ -695,7 +698,10 @@ int CSLSListener::handler()
         }
     } else {
         spdlog::error("[{}] CSLSListener::handler ACL check failed: could not get peer address", fmt::ptr(this));
-        spdlog::error("[{}] CSLSListener::handler Accepting connection by default", fmt::ptr(this));
+        spdlog::error("[{}] CSLSListener::handler Rejecting connection by default", fmt::ptr(this));
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
     }
 
     CSLSRole *publisher = m_map_publisher->get_publisher(key_stream_name);

@@ -58,7 +58,7 @@ AsyncHttpResponse AsyncHttpClient::execute_get(const std::string& url, int timeo
             return response;
         }
 
-        httplib::Client client(host, port);
+        httplib::Client client(scheme + "://" + host + ":" + std::to_string(port));
         client.set_connection_timeout(timeout_sec, 0);
         client.set_read_timeout(timeout_sec, 0);
         client.set_write_timeout(timeout_sec, 0);
@@ -106,7 +106,7 @@ AsyncHttpResponse AsyncHttpClient::execute_post(const std::string& url,
             return response;
         }
 
-        httplib::Client client(host, port);
+        httplib::Client client(scheme + "://" + host + ":" + std::to_string(port));
         client.set_connection_timeout(timeout_sec, 0);
         client.set_read_timeout(timeout_sec, 0);
         client.set_write_timeout(timeout_sec, 0);
@@ -148,14 +148,17 @@ bool AsyncHttpClient::parse_url(const std::string& url,
     }
 
     scheme = url.substr(0, scheme_end);
+    if (scheme != "http" && scheme != "https") {
+        return false;
+    }
     size_t host_start = scheme_end + 3;
     
-    size_t path_start = url.find('/', host_start);
+    size_t path_start = url.find_first_of("/?", host_start);
     std::string host_port;
     
     if (path_start != std::string::npos) {
         host_port = url.substr(host_start, path_start - host_start);
-        path = url.substr(path_start);
+        path = url[path_start] == '?' ? "/" + url.substr(path_start) : url.substr(path_start);
     } else {
         host_port = url.substr(host_start);
         path = "/";
@@ -168,6 +171,9 @@ bool AsyncHttpClient::parse_url(const std::string& url,
     } else {
         host = host_port;
         port = (scheme == "https") ? 443 : 80;
+    }
+    if (host.empty() || port <= 0 || port > 65535) {
+        return false;
     }
 
     return true;
