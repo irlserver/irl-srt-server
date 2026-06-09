@@ -1,0 +1,25 @@
+src/core/AsyncHttpClient.cpp
+  s_4f90d763a76b5a::t_01e950a287ec5d 61,109,151-153,156,161,175-176
+src/srt-live-server.cpp
+  s_4f90d763a76b5a::t_01e950a287ec5d 267-287,297
+CMakeLists.txt
+  s_4f90d763a76b5a::t_01e950a287ec5d 32,44-45
+src/core/SLSListenerHandler.cpp
+  s_4f90d763a76b5a::t_01e950a287ec5d 551-554,701-704
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "148f1db7ebfc7ae07bc01f8aa60a5d93e08bbea5",
+  "prompts": {},
+  "sessions": {
+    "s_4f90d763a76b5a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eac59-06b4-76f3-b1fb-dfa5ac661782",
+        "model": "gpt-5.5"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
