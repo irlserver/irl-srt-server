@@ -272,6 +272,18 @@ int CSLSListener::start()
             spdlog::warn("[listener] set_listen_callback failed | port={}", m_port);
         }
     }
+    else
+    {
+        // Player listeners get a format-only gate: reject malformed streamids
+        // at the handshake so a garbage-streamid flood never reaches
+        // srt_accept. No auth cache here (the player path authorizes via the
+        // player_key webhook post-accept, not the publisher negative cache).
+        if (m_srt->libsrt_set_listen_callback(sls_player_listen_callback,
+                                              nullptr) != SLS_OK)
+        {
+            spdlog::warn("[listener] set_listen_callback (player) failed | port={}", m_port);
+        }
+    }
 
     if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
 			spdlog::debug("[listener] Checking role list");

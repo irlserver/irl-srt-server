@@ -83,3 +83,20 @@ int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
 
     return 0; // accept; the post-accept webhook still authorizes the key
 }
+
+int sls_player_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
+                               const struct sockaddr *peeraddr,
+                               const char *streamid)
+{
+    (void)opaque;
+    (void)hsversion;
+    (void)peeraddr;
+
+    if (!sls_validate_sid_format(streamid))
+    {
+        srt_setrejectreason(ns, SRT_REJ_ROGUE);
+        return -1;
+    }
+
+    return 0; // accept; the post-accept handler resolves and authorizes
+}

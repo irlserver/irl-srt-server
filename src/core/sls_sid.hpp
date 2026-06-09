@@ -31,3 +31,14 @@ bool sls_validate_sid_format(const char *sid);
 int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
                                   const struct sockaddr *peeraddr,
                                   const char *streamid);
+
+// srt_listen_callback hook for the player listener. Rejects malformed
+// streamids at the handshake (SRT_REJ_ROGUE), before srt_accept and any
+// per-connection allocation, so a connect/RST flood of garbage streamids
+// is bounced cheaply instead of costing an accept + CSLSSrt + player object.
+// Format-only: the post-accept handler still resolves the publisher and (for
+// player-key apps) authorizes the key. The opaque pointer is unused. Returns
+// 0 to accept, -1 to reject. Must stay non-blocking.
+int sls_player_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
+                               const struct sockaddr *peeraddr,
+                               const char *streamid);

@@ -14,6 +14,16 @@
 #include <string.h>
 #include <chrono>
 
+namespace {
+// Hard ceiling on the shared handoff list (roles accepted by a listener but
+// not yet picked up by a worker). Under normal operation workers drain this
+// to near-zero; it only backs up when accepts outpace the workers, i.e. a
+// connection flood. Refusing new accepts past this keeps the list (and the
+// live role/object count it feeds) bounded. Generous so it never trips under
+// legitimate load.
+constexpr int MAX_HANDOFF_BACKLOG = 4096;
+} // namespace
+
 int CSLSListener::handler()
 {
     cleanupExpiredStreamOverrides();
@@ -66,6 +76,25 @@ int CSLSListener::handler()
                      session_id, peer_name, peer_port, fd_client,
                      m_is_publisher_listener ? "publisher" : "player",
                      m_is_legacy_listener, m_port);
+    }
+
+    // Global backpressure: if the shared handoff list (roles accepted but not
+    // yet picked up by a worker) has backed up past the ceiling, the workers
+    // cannot keep pace, so stop admitting new connections until it drains
+    // instead of letting accepts pile up unbounded. Self-correcting: size()
+    // falls as workers pop, so there is no counter to leak. Log is
+    // rate-limited to avoid amplifying a flood into log spam.
+    if (m_list_role != NULL && m_list_role->size() >= MAX_HANDOFF_BACKLOG) {
+        std::string rate_key = std::string("handoff_backlog:") + std::to_string(m_port);
+        CSLSLogRateLimiter::EventStats stats;
+        if (!sls_get_log_config().rate_limit_enabled ||
+            sls_get_rate_limiter().should_log(rate_key, stats)) {
+            spdlog::warn("[{}] CSLSListener::handler, refused [{}:{:d}]: handoff backlog at ceiling ({}), workers overloaded.",
+                         fmt::ptr(this), peer_name, peer_port, MAX_HANDOFF_BACKLOG);
+        }
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
     }
 
     sls_conf_server_t* conf_server = (sls_conf_server_t*)m_conf;
