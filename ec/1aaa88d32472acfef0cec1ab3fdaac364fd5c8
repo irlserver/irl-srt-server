@@ -1,0 +1,26 @@
+src/core/sls_sid.cpp
+  s_9d9ecb5914d123::t_331fadce4066bf 86-102
+src/core/sls_sid.hpp
+  s_9d9ecb5914d123::t_885a02f593a4e5 34-44
+src/core/SLSListenerHandler.cpp
+  s_9d9ecb5914d123::t_3820222611a8d3 17-26
+  s_9d9ecb5914d123::t_daf0251baf44a8 81-99
+src/core/SLSListenerCore.cpp
+  s_9d9ecb5914d123::t_6a96a34b8bed98 275-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "ec1aaa88d32472acfef0cec1ab3fdaac364fd5c8",
+  "prompts": {},
+  "sessions": {
+    "s_9d9ecb5914d123": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "df9604f8-d9b2-40d8-92d5-6aafb685e0d2",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
