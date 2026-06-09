@@ -1,0 +1,29 @@
+src/core/SLSListenerHandler.cpp
+  s_9d9ecb5914d123::t_d473e18b7b008b 372-381
+  s_9d9ecb5914d123::t_863d3ff0340e2f 21-24
+src/core/SLSListener.hpp
+  s_9d9ecb5914d123::t_10125c4474903f 207-210
+  s_9d9ecb5914d123::t_bbfabf37d266a0 38,44
+  s_9d9ecb5914d123::t_8106fb83a90558 141-145,151-159
+src/core/SLSListenerAuth.cpp
+  s_9d9ecb5914d123::t_be90c44654a08e 250-275,282-283,286,288-289,292-312,314-317,321-324,331,335-336,343,347-348,351-356,367,370-371,373,375-389
+  s_9d9ecb5914d123::t_09121dfaa90812 27-31
+src/core/common.hpp
+  s_9d9ecb5914d123::t_bac90853f3f375 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "b5b7e5ee78978a77b399fa8994be56d9db00dec4",
+  "prompts": {},
+  "sessions": {
+    "s_9d9ecb5914d123": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "df9604f8-d9b2-40d8-92d5-6aafb685e0d2",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
