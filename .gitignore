@@ -2,6 +2,7 @@ logs/
 build/
 bin/
 build-srt/
+build-wsl/
 external/
 # CMake artifacts
 CMakeFiles/
