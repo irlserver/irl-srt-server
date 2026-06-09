@@ -252,7 +252,15 @@ int CSLSGroup::handler()
     for (std::map<int, CSLSRole *>::iterator it = m_map_role.begin(); it != m_map_role.end(); ++it)
     {
         CSLSRole *role = it->second;
-        if (!role || !role->is_write())
+        if (!role)
+            continue;
+
+        // Periodic hook for every role, independent of socket events. The
+        // listener uses it to complete deferred player accepts whose async
+        // validation has resolved, even when no new connection arrives.
+        role->on_worker_tick();
+
+        if (!role->is_write())
             continue;
 
         ret = role->handler();

@@ -121,6 +121,7 @@ public:
     virtual int stop();
 
     virtual int handler();
+    virtual void on_worker_tick();
 
     void set_role_list(CSLSRoleList *list_role);
     void set_map_publisher(CSLSMapPublisher *publisher);
@@ -208,6 +209,41 @@ private:
     // owning worker owns these futures (the pool runs the request), so there
     // is no detached cross-thread access to this listener. Worker-thread-only.
     std::map<std::string, std::shared_future<AsyncHttpResponse>> m_pending_player_key_validations;
+
+    // A player connection accepted at the SRT layer but held while its
+    // player-key webhook is still in flight (deferred accept). The socket
+    // stays open so a one-shot client (VLC, ffplay) that does not reconnect
+    // still gets in: once the validation resolves the worker completes the
+    // accept, or closes the socket on rejection/timeout. Worker-thread-only.
+    struct PendingPlayerConnection {
+        CSLSSrt *srt = nullptr;
+        std::string app_uplive;   // publisher uplive for the player's app (from the original sid)
+        std::string player_key;   // key being validated; also the cache lookup key
+        std::string session_id;
+        std::string peer_name;
+        int peer_port = 0;
+        int final_latency = 0;
+        std::string cur_time;
+        std::chrono::steady_clock::time_point deadline{};
+    };
+    std::vector<PendingPlayerConnection> m_pending_player_connections;
+    // Complete a player accept once the (possibly player-key-resolved) stream
+    // is known. Shared by the synchronous accept path and the deferred path.
+    // Takes ownership of `srt`: on every return the socket has either been
+    // handed to a pushed CSLSPlayer or been closed and deleted. Returns 1.
+    int finish_player_accept(CSLSSrt *srt,
+                             const std::string &app_uplive,
+                             const std::string &stream_name,
+                             const std::string &effective_sid,
+                             const std::string &player_key,
+                             bool player_key_validation_required,
+                             const char *peer_name, int peer_port,
+                             int final_latency,
+                             const std::string &session_id,
+                             const std::string &cur_time);
+    // Advance held connections: finish those whose validation resolved valid,
+    // close those rejected or past their deadline. Worker-tick driven.
+    void drive_pending_player_connections();
 
     // Rate limiting structure
     struct RateLimitEntry {

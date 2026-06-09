@@ -22,16 +22,18 @@ namespace {
 // live role/object count it feeds) bounded. Generous so it never trips under
 // legitimate load.
 constexpr int MAX_HANDOFF_BACKLOG = 4096;
+// Hard ceiling on player connections held open awaiting their async
+// player-key validation (deferred accept). Bounds the open SRT sockets a
+// flood of uncached keys can park; past it, a new uncached connection is
+// refused outright instead of held.
+constexpr size_t MAX_PENDING_PLAYER_CONNECTIONS = 1024;
 } // namespace
 
 int CSLSListener::handler()
 {
-    cleanupExpiredStreamOverrides();
-    sweep_player_key_cache();
-    // Fold any completed async player-key webhooks into the cache before this
-    // accept's lookup, so a client's reconnect after a cold-key rejection sees
-    // the now-resolved result.
-    drain_player_key_validations();
+    // Periodic maintenance (override sweep, player-key cache sweep, draining
+    // completed async validations, advancing deferred accepts) runs in
+    // on_worker_tick on every worker pass, not just on a new connection.
     int ret = SLS_OK;
     int fd_client = 0;
     CSLSSrt *srt = NULL;
@@ -399,13 +401,33 @@ int CSLSListener::handler()
 
         int validation_result = validate_player_key(player_key, validated_stream_id, sizeof(validated_stream_id), peer_name);
         if (validation_result == SLS_PENDING) {
-            // Uncached key: an async webhook validation was dispatched and this
-            // connection is rejected without blocking the worker. An
-            // auto-reconnecting client will hit the populated cache on retry.
-            spdlog::debug("[connection:{}] Player key '{}' from {}:{} - validation pending, client should retry",
+            // Uncached key: an async webhook validation was dispatched. Hold
+            // the accepted socket open (deferred accept) instead of rejecting,
+            // so a one-shot client that does not auto-reconnect (VLC, ffplay)
+            // still gets in once the validation resolves. The worker completes
+            // or closes it in drive_pending_player_connections. srt ownership
+            // transfers to the pending list on success below.
+            if (m_pending_player_connections.size() >= MAX_PENDING_PLAYER_CONNECTIONS) {
+                spdlog::warn("[connection:{}] deferred player accept: pending cap reached ({}), refusing key='{}'.",
+                             session_id, m_pending_player_connections.size(), player_key);
+                srt->libsrt_close();
+                delete srt;
+                return client_count;
+            }
+            PendingPlayerConnection pend;
+            pend.srt = srt;
+            pend.app_uplive = app_uplive;
+            pend.player_key = player_key;
+            pend.session_id = session_id;
+            pend.peer_name = peer_name;
+            pend.peer_port = peer_port;
+            pend.final_latency = final_latency;
+            pend.cur_time = cur_time;
+            pend.deadline = std::chrono::steady_clock::now() +
+                            std::chrono::milliseconds(m_player_key_auth_timeout + 2000);
+            m_pending_player_connections.push_back(std::move(pend));
+            spdlog::debug("[connection:{}] Player key '{}' from {}:{} - validation pending, holding connection",
                          session_id, player_key, peer_name, peer_port);
-            srt->libsrt_close();
-            delete srt;
             return client_count;
         }
         if (validation_result != SLS_OK) {
@@ -471,235 +493,9 @@ int CSLSListener::handler()
     }
 
     if (app_uplive.length() > 0) {
-        snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", app_uplive.c_str(), stream_name);
-        if (player_key_validation_required) {
-            auto now_ts = std::chrono::steady_clock::now();
-            PlayerKeyCacheEntry entry;
-            bool found_entry = false;
-            {
-                std::lock_guard<std::mutex> lk(m_cache_mutex);
-                auto it_cache = m_player_key_cache.find(std::string(player_key));
-                if (it_cache != m_player_key_cache.end()) {
-                    entry = it_cache->second;
-                    found_entry = true;
-                }
-            }
-            if (found_entry) {
-                if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
-                    StreamPlayerLimitEntry stream_entry;
-                    stream_entry.has_override = true;
-                    stream_entry.max_players_per_stream = entry.max_players_per_stream_override;
-                    stream_entry.expiry_time = entry.expiry_time;
-                    m_stream_player_limit_map[std::string(key_stream_name)] = stream_entry;
-                }
-            }
-        }
-        CSLSRole *pub = m_map_publisher->get_publisher(key_stream_name);
-        if (NULL == pub) {
-            if (NULL == m_map_puller) {
-                // Rate-limit "stream offline" logs to reduce noise from repeated reconnection attempts
-                std::string rate_key = std::string(peer_name) + ":stream_offline:" + key_stream_name;
-                CSLSLogRateLimiter::EventStats stats;
-                if (sls_get_log_config().rate_limit_enabled &&
-                    !sls_get_rate_limiter().should_log(rate_key, stats)) {
-                    spdlog::debug("[connection:{}] Stream '{}' offline, refusing {}:{} (suppressed, {} attempts)",
-                                 session_id, key_stream_name, peer_name, peer_port, stats.count);
-                } else {
-                    spdlog::info("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream='{}', publisher is NULL and m_map_puller is NULL.",
-                                 fmt::ptr(this), peer_name, peer_port, key_stream_name);
-                }
-                srt->libsrt_close();
-                delete srt;
-                return client_count;
-            }
-            CSLSRelayManager *puller_manager = m_map_puller->add_relay_manager(app_uplive.c_str(), stream_name);
-            if (NULL == puller_manager) {
-                srt->libsrt_close();
-                delete srt;
-                return client_count;
-            }
-
-            puller_manager->set_map_data(m_map_data);
-            puller_manager->set_map_publisher(m_map_publisher);
-            puller_manager->set_role_list(m_list_role);
-            puller_manager->set_listen_port(m_port);
-
-            if (SLS_OK != puller_manager->start()) {
-                spdlog::info("[{}] CSLSListener::handler, puller_manager->start failed, new client[{}:{:d}], stream='{}'.",
-                             fmt::ptr(this), peer_name, peer_port, key_stream_name);
-                srt->libsrt_close();
-                delete srt;
-                return client_count;
-            }
-            spdlog::info("[{}] CSLSListener::handler, puller_manager->start ok, new client[{}:{:d}], stream={}.",
-                         fmt::ptr(this), peer_name, peer_port, key_stream_name);
-
-            pub = m_map_publisher->get_publisher(key_stream_name);
-            if (NULL == pub) {
-                // Rate-limit "publisher not ready" logs to reduce noise from repeated reconnection attempts
-                std::string rate_key = std::string(peer_name) + ":pub_not_ready:" + key_stream_name;
-                CSLSLogRateLimiter::EventStats stats;
-                if (sls_get_log_config().rate_limit_enabled &&
-                    !sls_get_rate_limiter().should_log(rate_key, stats)) {
-                    spdlog::debug("[connection:{}] Publisher not ready for '{}', refusing {}:{} (suppressed, {} attempts)",
-                                 session_id, key_stream_name, peer_name, peer_port, stats.count);
-                } else {
-                    spdlog::warn("[{}] CSLSListener::handler, publisher not ready after puller start, new client[{}:{:d}], stream='{}'. Client should retry.",
-                                 fmt::ptr(this), peer_name, peer_port, key_stream_name);
-                }
-                srt->libsrt_close();
-                delete srt;
-                return client_count;
-            }
-            spdlog::info("[{}] CSLSListener::handler, m_map_publisher->get_publisher ok, pub={}, new client[{}:{:d}], stream='{}'.",
-                         fmt::ptr(this), fmt::ptr(pub), peer_name, peer_port, key_stream_name);
-        }
-
-        ca = (sls_conf_app_t *)m_map_publisher->get_ca(app_uplive);
-        if (ca == nullptr) {
-            spdlog::error("[{}] CSLSListener::handler, refused, configuration does not exist [stream={}]",
-                           fmt::ptr(this), key_stream_name);
-            srt->libsrt_close();
-            delete srt;
-            return client_count;
-        } else {
-            if (srt->libsrt_getpeeraddr_raw(peer_addr_raw, peer_addr6_raw) == SLS_OK) {
-                bool address_matched = false;
-                for (sls_ip_access_t &acl_entry : ca->ip_actions.play) {
-                    if (acl_entry.ip_address == peer_addr_raw || acl_entry.ip_address == 0) {
-                        switch (acl_entry.action) {
-                        case sls_access_action::ACCEPT:
-                            address_matched = true;
-                            spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}'",
-                                         fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
-                            break;
-                        case sls_access_action::DENY:
-                            spdlog::warn("[{}] CSLSListener::handler Rejected connection from {}:{:d} for app '{}'",
-                                         fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
-                            srt->libsrt_close();
-                            delete srt;
-                            return client_count;
-                        default:
-                            spdlog::error("[{}] CSLSListener::handler Unknown action [sls_access_action={:d}], ignoring",
-                                          fmt::ptr(this), (int)acl_entry.action);
-                        }
-                    }
-                    if (address_matched) break;
-                }
-                if (!address_matched) {
-                    spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}' by default",
-                                 fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
-                }
-            } else {
-                spdlog::error("[{}] CSLSListener::handler ACL check failed: could not get peer address", fmt::ptr(this));
-                spdlog::error("[{}] CSLSListener::handler Rejecting connection by default", fmt::ptr(this));
-                srt->libsrt_close();
-                delete srt;
-                return client_count;
-            }
-        }
-
-        CSLSRole *pub_check = m_map_publisher->get_publisher(key_stream_name);
-        if (NULL == pub_check) {
-            spdlog::error("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream={}, publisher no longer exists.",
-                          fmt::ptr(this), peer_name, peer_port, key_stream_name);
-            srt->libsrt_close();
-            delete srt;
-            return client_count;
-        }
-
-        {
-            int effective_max_players = ca->max_players_per_stream;
-            bool using_override = false;
-            auto now_ts = std::chrono::steady_clock::now();
-
-            auto it_stream_cap = m_stream_player_limit_map.find(std::string(key_stream_name));
-            if (it_stream_cap != m_stream_player_limit_map.end()) {
-                const StreamPlayerLimitEntry &sentry = it_stream_cap->second;
-                if (sentry.has_override && now_ts < sentry.expiry_time) {
-                    effective_max_players = sentry.max_players_per_stream;
-                    using_override = true;
-                } else if (now_ts >= sentry.expiry_time) {
-                    m_stream_player_limit_map.erase(it_stream_cap);
-                }
-            }
-
-            if (!using_override && player_key_validation_required) {
-                PlayerKeyCacheEntry entry;
-                bool found_entry = false;
-                {
-                    std::lock_guard<std::mutex> lk(m_cache_mutex);
-                    auto it_cache = m_player_key_cache.find(std::string(player_key));
-                    if (it_cache != m_player_key_cache.end()) {
-                        entry = it_cache->second;
-                        found_entry = true;
-                    }
-                }
-                if (found_entry) {
-                    if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
-                        effective_max_players = entry.max_players_per_stream_override;
-                        using_override = true;
-                    }
-                }
-            }
-
-            if (effective_max_players > 0) {
-                int current_player_count = m_list_role->count_players_for_stream(key_stream_name);
-                if (current_player_count >= effective_max_players) {
-                    spdlog::warn("[{}] CSLSListener::handler, refused, new player[{}:{:d}], stream={}, player limit reached ({:d}/{:d}){}.",
-                                 fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
-                                 using_override ? " [override]" : "");
-                    srt->libsrt_close();
-                    delete srt;
-                    return client_count;
-                }
-                spdlog::debug("[{}] CSLSListener::handler, new player[{}:{:d}], stream={}, player count ({:d}/{:d}){}.",
-                              fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
-                              using_override ? " [override]" : "");
-            }
-        }
-
-        if (srt->libsrt_socket_nonblock(0) < 0)
-            spdlog::warn("[{}] CSLSListener::handler, new player[{}:{:d}], libsrt_socket_nonblock failed.",
-                         fmt::ptr(this), peer_name, peer_port);
-
-        CSLSPlayer *player = new CSLSPlayer;
-        if (NULL == player) {
-            spdlog::error("[{}] CSLSListener::handler, failed to allocate player for [{}:{:d}]",
-                         fmt::ptr(this), peer_name, peer_port);
-            srt->libsrt_close();
-            delete srt;
-            return client_count;
-        }
-
-        player->init();
-        player->set_idle_streams_timeout(m_idle_streams_timeout_role);
-        player->set_srt(srt);
-        player->set_map_data(key_stream_name, m_map_data);
-        player->set_latency(final_latency);
-        // Seed the role's streamid with the (possibly player-key-resolved) sid
-        // so downstream hooks like on_event_url report the real stream instead
-        // of the raw SRTO_STREAMID the client sent.
-        player->set_streamid(sid);
-
-        stat_info_t *stat_info_obj = new stat_info_t();
-        stat_info_obj->port = m_port;
-        stat_info_obj->role = player->get_role_name();
-        stat_info_obj->pub_domain_app = app_uplive;
-        stat_info_obj->stream_name = stream_name;
-        stat_info_obj->url = sid;
-        stat_info_obj->remote_ip = peer_name;
-        stat_info_obj->remote_port = peer_port;
-        stat_info_obj->start_time = cur_time;
-        player->set_stat_info_base(*stat_info_obj);
-
-        player->set_http_url(m_http_url_role);
-        player->on_connect();
-
-        m_list_role->push(player);
-        spdlog::info("[{}] CSLSListener::handler, new player[{}] =[{}:{:d}], key_stream_name={}, {}={}, m_list_role->size={:d}.",
-                     fmt::ptr(this), fmt::ptr(player), peer_name, peer_port, key_stream_name, player->get_role_name(), fmt::ptr(player), m_list_role->size());
-        return client_count;
+        return finish_player_accept(srt, app_uplive, stream_name, sid,
+                                    std::string(player_key), player_key_validation_required,
+                                    peer_name, peer_port, final_latency, session_id, cur_time);
     }
 
     app_uplive = key_app;
@@ -874,6 +670,323 @@ void CSLSListener::cleanupExpiredStreamOverrides()
             it = m_stream_player_limit_map.erase(it);
         } else {
             ++it;
+        }
+    }
+}
+
+int CSLSListener::finish_player_accept(CSLSSrt *srt,
+                                       const std::string &app_uplive,
+                                       const std::string &stream_name,
+                                       const std::string &effective_sid,
+                                       const std::string &player_key,
+                                       bool player_key_validation_required,
+                                       const char *peer_name, int peer_port,
+                                       int final_latency,
+                                       const std::string &session_id,
+                                       const std::string &cur_time)
+{
+    int client_count = 1;
+    char key_stream_name[URL_MAX_LEN] = {0};
+    unsigned long peer_addr_raw = 0;
+    struct in6_addr peer_addr6_raw;
+    sls_conf_app_t *ca = NULL;
+
+    snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", app_uplive.c_str(), stream_name.c_str());
+    if (player_key_validation_required) {
+        auto now_ts = std::chrono::steady_clock::now();
+        PlayerKeyCacheEntry entry;
+        bool found_entry = false;
+        {
+            std::lock_guard<std::mutex> lk(m_cache_mutex);
+            auto it_cache = m_player_key_cache.find(player_key);
+            if (it_cache != m_player_key_cache.end()) {
+                entry = it_cache->second;
+                found_entry = true;
+            }
+        }
+        if (found_entry) {
+            if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
+                StreamPlayerLimitEntry stream_entry;
+                stream_entry.has_override = true;
+                stream_entry.max_players_per_stream = entry.max_players_per_stream_override;
+                stream_entry.expiry_time = entry.expiry_time;
+                m_stream_player_limit_map[std::string(key_stream_name)] = stream_entry;
+            }
+        }
+    }
+    CSLSRole *pub = m_map_publisher->get_publisher(key_stream_name);
+    if (NULL == pub) {
+        if (NULL == m_map_puller) {
+            // Rate-limit "stream offline" logs to reduce noise from repeated reconnection attempts
+            std::string rate_key = std::string(peer_name) + ":stream_offline:" + key_stream_name;
+            CSLSLogRateLimiter::EventStats stats;
+            if (sls_get_log_config().rate_limit_enabled &&
+                !sls_get_rate_limiter().should_log(rate_key, stats)) {
+                spdlog::debug("[connection:{}] Stream '{}' offline, refusing {}:{} (suppressed, {} attempts)",
+                             session_id, key_stream_name, peer_name, peer_port, stats.count);
+            } else {
+                spdlog::info("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream='{}', publisher is NULL and m_map_puller is NULL.",
+                             fmt::ptr(this), peer_name, peer_port, key_stream_name);
+            }
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+        CSLSRelayManager *puller_manager = m_map_puller->add_relay_manager(app_uplive.c_str(), stream_name.c_str());
+        if (NULL == puller_manager) {
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+
+        puller_manager->set_map_data(m_map_data);
+        puller_manager->set_map_publisher(m_map_publisher);
+        puller_manager->set_role_list(m_list_role);
+        puller_manager->set_listen_port(m_port);
+
+        if (SLS_OK != puller_manager->start()) {
+            spdlog::info("[{}] CSLSListener::handler, puller_manager->start failed, new client[{}:{:d}], stream='{}'.",
+                         fmt::ptr(this), peer_name, peer_port, key_stream_name);
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+        spdlog::info("[{}] CSLSListener::handler, puller_manager->start ok, new client[{}:{:d}], stream={}.",
+                     fmt::ptr(this), peer_name, peer_port, key_stream_name);
+
+        pub = m_map_publisher->get_publisher(key_stream_name);
+        if (NULL == pub) {
+            // Rate-limit "publisher not ready" logs to reduce noise from repeated reconnection attempts
+            std::string rate_key = std::string(peer_name) + ":pub_not_ready:" + key_stream_name;
+            CSLSLogRateLimiter::EventStats stats;
+            if (sls_get_log_config().rate_limit_enabled &&
+                !sls_get_rate_limiter().should_log(rate_key, stats)) {
+                spdlog::debug("[connection:{}] Publisher not ready for '{}', refusing {}:{} (suppressed, {} attempts)",
+                             session_id, key_stream_name, peer_name, peer_port, stats.count);
+            } else {
+                spdlog::warn("[{}] CSLSListener::handler, publisher not ready after puller start, new client[{}:{:d}], stream='{}'. Client should retry.",
+                             fmt::ptr(this), peer_name, peer_port, key_stream_name);
+            }
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+        spdlog::info("[{}] CSLSListener::handler, m_map_publisher->get_publisher ok, pub={}, new client[{}:{:d}], stream='{}'.",
+                     fmt::ptr(this), fmt::ptr(pub), peer_name, peer_port, key_stream_name);
+    }
+
+    ca = (sls_conf_app_t *)m_map_publisher->get_ca(app_uplive);
+    if (ca == nullptr) {
+        spdlog::error("[{}] CSLSListener::handler, refused, configuration does not exist [stream={}]",
+                       fmt::ptr(this), key_stream_name);
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    } else {
+        if (srt->libsrt_getpeeraddr_raw(peer_addr_raw, peer_addr6_raw) == SLS_OK) {
+            bool address_matched = false;
+            for (sls_ip_access_t &acl_entry : ca->ip_actions.play) {
+                if (acl_entry.ip_address == peer_addr_raw || acl_entry.ip_address == 0) {
+                    switch (acl_entry.action) {
+                    case sls_access_action::ACCEPT:
+                        address_matched = true;
+                        spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}'",
+                                     fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
+                        break;
+                    case sls_access_action::DENY:
+                        spdlog::warn("[{}] CSLSListener::handler Rejected connection from {}:{:d} for app '{}'",
+                                     fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
+                        srt->libsrt_close();
+                        delete srt;
+                        return client_count;
+                    default:
+                        spdlog::error("[{}] CSLSListener::handler Unknown action [sls_access_action={:d}], ignoring",
+                                      fmt::ptr(this), (int)acl_entry.action);
+                    }
+                }
+                if (address_matched) break;
+            }
+            if (!address_matched) {
+                spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}' by default",
+                             fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
+            }
+        } else {
+            spdlog::error("[{}] CSLSListener::handler ACL check failed: could not get peer address", fmt::ptr(this));
+            spdlog::error("[{}] CSLSListener::handler Rejecting connection by default", fmt::ptr(this));
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
+    }
+
+    CSLSRole *pub_check = m_map_publisher->get_publisher(key_stream_name);
+    if (NULL == pub_check) {
+        spdlog::error("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream={}, publisher no longer exists.",
+                      fmt::ptr(this), peer_name, peer_port, key_stream_name);
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    }
+
+    {
+        int effective_max_players = ca->max_players_per_stream;
+        bool using_override = false;
+        auto now_ts = std::chrono::steady_clock::now();
+
+        auto it_stream_cap = m_stream_player_limit_map.find(std::string(key_stream_name));
+        if (it_stream_cap != m_stream_player_limit_map.end()) {
+            const StreamPlayerLimitEntry &sentry = it_stream_cap->second;
+            if (sentry.has_override && now_ts < sentry.expiry_time) {
+                effective_max_players = sentry.max_players_per_stream;
+                using_override = true;
+            } else if (now_ts >= sentry.expiry_time) {
+                m_stream_player_limit_map.erase(it_stream_cap);
+            }
+        }
+
+        if (!using_override && player_key_validation_required) {
+            PlayerKeyCacheEntry entry;
+            bool found_entry = false;
+            {
+                std::lock_guard<std::mutex> lk(m_cache_mutex);
+                auto it_cache = m_player_key_cache.find(player_key);
+                if (it_cache != m_player_key_cache.end()) {
+                    entry = it_cache->second;
+                    found_entry = true;
+                }
+            }
+            if (found_entry) {
+                if (entry.is_valid && now_ts < entry.expiry_time && entry.has_max_players_override) {
+                    effective_max_players = entry.max_players_per_stream_override;
+                    using_override = true;
+                }
+            }
+        }
+
+        if (effective_max_players > 0) {
+            int current_player_count = m_list_role->count_players_for_stream(key_stream_name);
+            if (current_player_count >= effective_max_players) {
+                spdlog::warn("[{}] CSLSListener::handler, refused, new player[{}:{:d}], stream={}, player limit reached ({:d}/{:d}){}.",
+                             fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
+                             using_override ? " [override]" : "");
+                srt->libsrt_close();
+                delete srt;
+                return client_count;
+            }
+            spdlog::debug("[{}] CSLSListener::handler, new player[{}:{:d}], stream={}, player count ({:d}/{:d}){}.",
+                          fmt::ptr(this), peer_name, peer_port, key_stream_name, current_player_count, effective_max_players,
+                          using_override ? " [override]" : "");
+        }
+    }
+
+    if (srt->libsrt_socket_nonblock(0) < 0)
+        spdlog::warn("[{}] CSLSListener::handler, new player[{}:{:d}], libsrt_socket_nonblock failed.",
+                     fmt::ptr(this), peer_name, peer_port);
+
+    CSLSPlayer *player = new CSLSPlayer;
+    if (NULL == player) {
+        spdlog::error("[{}] CSLSListener::handler, failed to allocate player for [{}:{:d}]",
+                     fmt::ptr(this), peer_name, peer_port);
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    }
+
+    player->init();
+    player->set_idle_streams_timeout(m_idle_streams_timeout_role);
+    player->set_srt(srt);
+    player->set_map_data(key_stream_name, m_map_data);
+    player->set_latency(final_latency);
+    // Seed the role's streamid with the (possibly player-key-resolved) sid
+    // so downstream hooks like on_event_url report the real stream instead
+    // of the raw SRTO_STREAMID the client sent.
+    player->set_streamid(effective_sid.c_str());
+
+    stat_info_t *stat_info_obj = new stat_info_t();
+    stat_info_obj->port = m_port;
+    stat_info_obj->role = player->get_role_name();
+    stat_info_obj->pub_domain_app = app_uplive;
+    stat_info_obj->stream_name = stream_name;
+    stat_info_obj->url = effective_sid;
+    stat_info_obj->remote_ip = peer_name;
+    stat_info_obj->remote_port = peer_port;
+    stat_info_obj->start_time = cur_time;
+    player->set_stat_info_base(*stat_info_obj);
+
+    player->set_http_url(m_http_url_role);
+    player->on_connect();
+
+    m_list_role->push(player);
+    spdlog::info("[{}] CSLSListener::handler, new player[{}] =[{}:{:d}], key_stream_name={}, {}={}, m_list_role->size={:d}.",
+                 fmt::ptr(this), fmt::ptr(player), peer_name, peer_port, key_stream_name, player->get_role_name(), fmt::ptr(player), m_list_role->size());
+    return client_count;
+}
+
+void CSLSListener::on_worker_tick()
+{
+    cleanupExpiredStreamOverrides();
+    sweep_player_key_cache();
+    // Fold completed async player-key webhooks into the cache, then advance
+    // any connections held open waiting on those results.
+    drain_player_key_validations();
+    drive_pending_player_connections();
+}
+
+void CSLSListener::drive_pending_player_connections()
+{
+    if (m_pending_player_connections.empty())
+        return;
+
+    auto now = std::chrono::steady_clock::now();
+    for (auto it = m_pending_player_connections.begin(); it != m_pending_player_connections.end();) {
+        bool found = false;
+        bool valid = false;
+        std::string resolved;
+        {
+            std::lock_guard<std::mutex> lk(m_cache_mutex);
+            auto c = m_player_key_cache.find(it->player_key);
+            if (c != m_player_key_cache.end() && now < c->second.expiry_time) {
+                found = true;
+                valid = c->second.is_valid;
+                resolved = c->second.resolved_stream_id;
+            }
+        }
+
+        if (found && valid) {
+            // Parse and safety-check the resolved stream id, mirroring the
+            // synchronous post-validation path, then complete the accept.
+            char resolved_buf[1024] = {0};
+            strlcpy(resolved_buf, resolved.c_str(), sizeof(resolved_buf));
+            std::map<std::string, std::string> kv = it->srt->libsrt_parse_sid(resolved_buf);
+            if (kv.count("h") && kv.count("sls_app") && kv.count("r") &&
+                sls_is_safe_name(kv.at("h").c_str()) &&
+                sls_is_safe_name(kv.at("sls_app").c_str()) &&
+                sls_is_safe_name(kv.at("r").c_str())) {
+                finish_player_accept(it->srt, it->app_uplive, kv.at("r"), resolved,
+                                     it->player_key, true,
+                                     it->peer_name.c_str(), it->peer_port,
+                                     it->final_latency, it->session_id, it->cur_time);
+            } else {
+                spdlog::error("[connection:{}] deferred player accept: resolved stream_id '{}' invalid for key='{}', closing.",
+                             it->session_id, resolved, it->player_key);
+                it->srt->libsrt_close();
+                delete it->srt;
+            }
+            it = m_pending_player_connections.erase(it);
+        } else if (found && !valid) {
+            spdlog::debug("[connection:{}] deferred player accept: key='{}' rejected by auth, closing.",
+                         it->session_id, it->player_key);
+            it->srt->libsrt_close();
+            delete it->srt;
+            it = m_pending_player_connections.erase(it);
+        } else if (now >= it->deadline) {
+            spdlog::warn("[connection:{}] deferred player accept: key='{}' not resolved before deadline, closing.",
+                         it->session_id, it->player_key);
+            it->srt->libsrt_close();
+            delete it->srt;
+            it = m_pending_player_connections.erase(it);
+        } else {
+            ++it; // still waiting on the webhook result
         }
     }
 }

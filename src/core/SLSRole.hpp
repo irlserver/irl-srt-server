@@ -82,6 +82,12 @@ public:
     virtual int init();
     virtual int uninit();
     virtual int handler();
+    // Periodic hook run by the worker on every role in its map once per loop
+    // pass (~POLLING_TIME), independent of socket events. Default no-op;
+    // CSLSListener overrides it to advance work that must progress without a
+    // new connection event (draining async player-key validations and
+    // completing deferred player accepts). Runs on the owning worker thread.
+    virtual void on_worker_tick() {}
 
     int open(char *url);
     int close();
