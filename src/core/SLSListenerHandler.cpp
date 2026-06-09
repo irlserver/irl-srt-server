@@ -750,6 +750,9 @@ int CSLSListener::handler()
     pub->set_stat_info_base(*stat_info_obj);
 
     pub->set_http_url(m_http_url_role);
+    // Hand the publisher the shared negative-auth cache so a non-200 webhook
+    // response records this streamid for handshake-time rejection of repeats.
+    pub->set_auth_reject_cache(m_auth_reject_cache);
 
     spdlog::info("[{}] CSLSListener::handler, new pub={}, key_stream_name={}.",
                  fmt::ptr(this), fmt::ptr(pub), key_stream_name);

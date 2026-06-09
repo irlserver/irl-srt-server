@@ -33,6 +33,7 @@
 #include "SLSLog.hpp"
 #include "SLSLock.hpp"
 #include "util.hpp"
+#include "sls_sid.hpp"
 
 /**
  * CSLSSrt class implementation
@@ -388,8 +389,8 @@ int CSLSSrt::libsrt_listen(int backlog)
     return SLS_OK;
 }
 
-int CSLSSrt::libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn) {
-    int ret = srt_listen_callback(m_sc.fd, listen_callback_fn, NULL);
+int CSLSSrt::libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn, void *opaque) {
+    int ret = srt_listen_callback(m_sc.fd, listen_callback_fn, opaque);
     if (ret) {
         return SLS_ERROR;
     }
@@ -474,36 +475,9 @@ int CSLSSrt::libsrt_socket_nonblock(int enable)
 
 std::map<std::string, std::string> CSLSSrt::libsrt_parse_sid(char *sid)
 {
-    static const char stdhdr[] = "#!::";
-    uint32_t *pattern = (uint32_t *)stdhdr;
-    std::map<std::string, std::string> ret;
-    if (strlen(sid) > 4 && *(uint32_t *)sid == *pattern)
-    {
-        std::vector<string> items;
-        sls_split_string(sid + 4, ",", items);
-        for (auto &i : items)
-        {
-            std::vector<string> kv;
-            sls_split_string(i, "=", kv);
-            if (kv.size() == 2)
-            {
-
-                ret[sls_trim(kv.at(0))] = sls_trim(kv.at(1));
-            }
-        }
-    }
-    else
-    {
-        std::vector<string> items;
-        sls_split_string(sid, "/", items);
-        if (items.size() >= 3)
-        {
-            ret["h"] = sls_trim(items.at(0));
-            ret["sls_app"] = sls_trim(items.at(1));
-            ret["r"] = sls_trim(items.at(2));
-        }
-    }
-    return ret;
+    // Delegates to the free function in sls_sid so the handshake callback
+    // (no CSLSSrt instance yet) and this post-accept path parse identically.
+    return sls_parse_streamid(sid);
 }
 
 int CSLSSrt::libsrt_read(char *buf, int size)

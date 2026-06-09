@@ -40,6 +40,8 @@
 #include <atomic>
 #include "SLSBitrateLimit.hpp"
 
+class AuthRejectCache;
+
 enum SLS_ROLE_STATE
 {
     SLS_RS_UNINIT = 0,
@@ -135,6 +137,10 @@ public:
     virtual int get_peer_info(char *peer_name, int &peer_port);
 
     void set_http_url(const char *http_url);
+    // Inject the shared negative-auth cache. Only publisher roles receive a
+    // non-null cache; check_http_passed records a failed key here so the
+    // listener callback can reject its repeats at the next handshake.
+    void set_auth_reject_cache(std::shared_ptr<AuthRejectCache> cache);
     int on_connect();
     int on_close();
     // Push destinations harvested from the publish-auth webhook response.
@@ -267,6 +273,9 @@ protected:
 
     // Push destinations from publish-auth webhook (publisher roles only).
     std::vector<std::string> m_push_urls;
+
+    // Shared negative-auth cache (publisher roles only; null otherwise).
+    std::shared_ptr<AuthRejectCache> m_auth_reject_cache;
 
     int handler_write_data();
     int handler_read_data(int64_t *last_read_time = NULL);

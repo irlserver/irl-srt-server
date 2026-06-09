@@ -99,7 +99,7 @@ public:
     int libsrt_close();
 
     int libsrt_listen(int backlog);
-    int libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn);
+    int libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn, void *opaque = nullptr);
     int libsrt_accept();
 
     int libsrt_get_fd();

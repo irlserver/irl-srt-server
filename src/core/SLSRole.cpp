@@ -36,6 +36,7 @@
 #include "SLSPushUrlValidator.hpp"
 #include "util.hpp"
 #include "SLSBitrateLimit.hpp"
+#include "auth_reject_cache.hpp"
 
 /**
  * CSLSRole class implementation
@@ -683,6 +684,11 @@ void CSLSRole::set_http_url(const char *http_url)
     m_http_passed = false;
 }
 
+void CSLSRole::set_auth_reject_cache(std::shared_ptr<AuthRejectCache> cache)
+{
+    m_auth_reject_cache = std::move(cache);
+}
+
 int CSLSRole::on_connect()
 {
     if (strlen(m_http_url) == 0)
@@ -745,6 +751,12 @@ int CSLSRole::check_http_passed()
     if (!response.success || response.status_code != 200) {
         spdlog::error("[{}] CSLSRole::check_http_client_response, http refused, invalid {} http_url='{}', status={}, error='{}'.",
                       fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.error);
+        // Negative-cache the streamid so a rotating client hammering the same
+        // bad key is rejected at the next handshake (no accept, no webhook).
+        // Only publisher roles carry a cache; key on the raw streamid the
+        // listener callback also sees so the lookup matches the insert.
+        if (m_auth_reject_cache)
+            m_auth_reject_cache->record_failure(get_streamid());
         invalid_srt();
         return SLS_ERROR;
     }

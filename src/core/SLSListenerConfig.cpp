@@ -1,6 +1,7 @@
 #include "SLSListener.hpp"
 #include "SLSMapPublisher.hpp"
 #include "SLSMapRelay.hpp"
+#include "auth_reject_cache.hpp"
 #include "spdlog/spdlog.h"
 #include <regex>
 #include <vector>
@@ -80,6 +81,11 @@ int CSLSListener::init_conf_app()
     m_player_key_rate_limit_window = conf_server->player_key_rate_limit_window;
     m_player_key_max_length = conf_server->player_key_max_length;
     m_player_key_min_length = conf_server->player_key_min_length;
+
+    // The cache itself is owned by CSLSManager and shared across listeners;
+    // set_ttl ignores a zero/unset value and keeps the 30s default.
+    if (m_auth_reject_cache)
+        m_auth_reject_cache->set_ttl(conf_server->auth_reject_cache_ttl);
 
     char regex_pattern[256];
     snprintf(regex_pattern, sizeof(regex_pattern), "^[\\x20-\\x7E]{%d,%d}$",

@@ -1,6 +1,7 @@
 #include "SLSListener.hpp"
 #include "SLSSrt.hpp"
 #include "SLSRoleList.hpp"
+#include "sls_sid.hpp"
 #include "spdlog/spdlog.h"
 #include <string.h>
 #include <errno.h>
@@ -256,6 +257,20 @@ int CSLSListener::start()
     {
         spdlog::error("[listener] Start failed, libsrt_listen error | port={}", m_port);
         return ret;
+    }
+
+    // Reject malformed streamids and recently-failed publisher keys during the
+    // handshake, before srt_accept and any webhook. Publisher listeners only
+    // (the DoS-relevant path); the negative cache is passed as the opaque and
+    // may be null, in which case only the format gate applies. Non-fatal: a
+    // failure here just falls back to the post-accept validation.
+    if (m_is_publisher_listener)
+    {
+        if (m_srt->libsrt_set_listen_callback(sls_publisher_listen_callback,
+                                              m_auth_reject_cache.get()) != SLS_OK)
+        {
+            spdlog::warn("[listener] set_listen_callback failed | port={}", m_port);
+        }
     }
 
     if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
