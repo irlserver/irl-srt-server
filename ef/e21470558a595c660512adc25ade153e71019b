@@ -1,0 +1,59 @@
+src/sls.conf
+  s_4ca0655cc622fb::t_e3881d15506dfa 133-138
+src/core/SLSSrt.hpp
+  s_4ca0655cc622fb::t_a304db9ddcdda1 102
+src/core/SLSManager.hpp
+  s_4ca0655cc622fb::t_045c59ec453afd 144-148
+src/core/SLSManager.cpp
+  s_4ca0655cc622fb::t_33cae3e0c384f0 176
+  s_4ca0655cc622fb::t_f1b9cae35cb7ad 38
+  s_4ca0655cc622fb::t_365c8d90a9f6f1 154-158
+src/core/SLSListenerHandler.cpp
+  s_4ca0655cc622fb::t_882bc2ffc4e4f1 753-755
+src/core/SLSListenerConfig.cpp
+  s_4ca0655cc622fb::t_dcdb35eb60de1f 85-88
+src/core/sls_sid.cpp
+  s_4ca0655cc622fb::t_d4c96955951da0 1-85
+src/core/SLSListener.hpp
+  s_4ca0655cc622fb::t_eac7b45689340c 74
+  s_4ca0655cc622fb::t_f1d2d0a8a48e0e 103
+src/core/auth_reject_cache.hpp
+  s_4ca0655cc622fb::t_a752762ed752fb 1-47
+src/core/SLSListenerCore.cpp
+  s_4ca0655cc622fb::t_b8ea950c2eba36 4
+  s_4ca0655cc622fb::t_bd8e7485a859a8 262-275
+src/core/SLSRole.cpp
+  s_4ca0655cc622fb::t_56324b54dbb932 39
+  s_4ca0655cc622fb::t_ebacd6203d477b 687-691
+  s_4ca0655cc622fb::t_99444fa09436de 754-759
+src/core/auth_reject_cache.cpp
+  s_4ca0655cc622fb::t_6b3323823c344e 1-48
+src/core/sls_sid.hpp
+  s_4ca0655cc622fb::t_3c206679853b71 1-33
+src/core/SLSSrt.cpp
+  s_4ca0655cc622fb::t_d630c59d2de4ac 36
+  s_4ca0655cc622fb::t_58be9606185bc8 392-393
+  s_4ca0655cc622fb::t_e949f2ccdb7acf 478-480
+src/core/SLSRole.hpp
+  s_4ca0655cc622fb::t_fb028919065f76 140-143
+  s_4ca0655cc622fb::t_a6259580616993 277-279
+  s_4ca0655cc622fb::t_7255281ee3d3d6 43-44
+src/core/CMakeLists.txt
+  s_4ca0655cc622fb::t_b5c3103cc7d099 9-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "efe21470558a595c660512adc25ade153e71019b",
+  "prompts": {},
+  "sessions": {
+    "s_4ca0655cc622fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41530b6e-9e94-4330-9a41-ce8a43ac4b8b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
