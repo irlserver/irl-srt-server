@@ -1,0 +1,19 @@
+.gitignore
+  s_9d9ecb5914d123::t_e7ec08d5be872e 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "5af0c62e278b55bd25b7ba930874eb44bf2a3c70",
+  "prompts": {},
+  "sessions": {
+    "s_9d9ecb5914d123": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "df9604f8-d9b2-40d8-92d5-6aafb685e0d2",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
