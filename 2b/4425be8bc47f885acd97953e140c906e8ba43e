@@ -1,0 +1,19 @@
+src/core/SLSRole.cpp
+  s_4ca0655cc622fb::t_fa2b9b2d63c6e3 758-765
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "2b4425be8bc47f885acd97953e140c906e8ba43e",
+  "prompts": {},
+  "sessions": {
+    "s_4ca0655cc622fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41530b6e-9e94-4330-9a41-ce8a43ac4b8b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
