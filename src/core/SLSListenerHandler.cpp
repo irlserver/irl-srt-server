@@ -100,16 +100,30 @@ int CSLSListener::handler()
     }
 
     sls_conf_server_t* conf_server = (sls_conf_server_t*)m_conf;
+    const bool is_publisher = m_is_publisher_listener;
+    const char* role = is_publisher ? "publisher" : "player";
+
+    // The latency that governs quality differs by role, and SRTO_LATENCY's
+    // getter is just an alias for SRTO_RCVLATENCY (see srt.h). For a publisher
+    // we are the receiver, so SRTO_RCVLATENCY is the real TSBPD window that
+    // absorbs retransmits (too small => glitching on lossy links). For a player
+    // we are the sender and never receive media from them, so RCVLATENCY is
+    // meaningless; what matters is SRTO_PEERLATENCY, the floor we impose on the
+    // viewer's own receive buffer. Reading the role-appropriate field keeps the
+    // floor/ceiling checks meaningful instead of flagging players on a value
+    // that does not affect them.
+    const SRT_SOCKOPT lat_opt = is_publisher ? SRTO_RCVLATENCY : SRTO_PEERLATENCY;
+    const char* lat_opt_name = is_publisher ? "SRTO_RCVLATENCY" : "SRTO_PEERLATENCY";
+
     int negotiated_latency = 0;
     int latency_len = sizeof(negotiated_latency);
     int final_latency = 0;
 
-    if (0 != srt->libsrt_getsockopt(SRTO_LATENCY, "SRTO_LATENCY", &negotiated_latency, &latency_len)) {
+    if (0 != srt->libsrt_getsockopt(lat_opt, lat_opt_name, &negotiated_latency, &latency_len)) {
         negotiated_latency = conf_server->latency_min > 0 ? conf_server->latency_min : 120;
         spdlog::warn("[{}] CSLSListener::handler, [{}:{:d}], failed to read latency, using fallback {} ms.",
                 fmt::ptr(this), peer_name, peer_port, negotiated_latency);
     } else {
-        const char* role = m_is_publisher_listener ? "publisher" : "player";
         // Log latency at DEBUG level
         if (sls_should_log_category(SLSLogCategory::CONNECTION, spdlog::level::debug))
         {
@@ -128,14 +142,22 @@ int CSLSListener::handler()
     final_latency = negotiated_latency;
 
     // A connection landing below latency_min means the listener floor
-    // (SRTO_LATENCY/RCVLATENCY set in CSLSListener::start) did not reach
-    // this socket. Warn rather than silently run a too-tight TSBPD window.
+    // (SRTO_LATENCY/RCVLATENCY/PEERLATENCY set in CSLSListener::start) did not
+    // win the handshake negotiation for this peer. Our pre-bind floor should
+    // force effective = max(our_floor, peer_proposed), so a sub-floor result is
+    // peer-dependent: certain (often older/HSv4) SRT senders negotiate it down.
+    // We cannot raise it post-accept (RCVLATENCY is a pre-connect option), so
+    // capture the peer's SRT version here to identify the offending clients.
     if (conf_server->latency_min > 0 && negotiated_latency > 0 &&
         negotiated_latency < conf_server->latency_min)
     {
-        spdlog::warn("[connection:{}] {} {}:{} negotiated latency {} ms below latency_min {} ms.",
-                     session_id, m_is_publisher_listener ? "publisher" : "player",
-                     peer_name, peer_port, negotiated_latency, conf_server->latency_min);
+        int peer_version = 0;
+        int peer_version_len = sizeof(peer_version);
+        srt->libsrt_getsockopt(SRTO_PEERVERSION, "SRTO_PEERVERSION",
+                               &peer_version, &peer_version_len);
+        spdlog::warn("[connection:{}] {} {}:{} negotiated {} {} ms below latency_min {} ms (peer SRT version {:#x}).",
+                     session_id, role, peer_name, peer_port, lat_opt_name,
+                     negotiated_latency, conf_server->latency_min, peer_version);
     }
 
     if (0 != srt->libsrt_getsockopt(SRTO_STREAMID, "SRTO_STREAMID", &sid, &sid_size)) {
