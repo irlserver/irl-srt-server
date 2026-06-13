@@ -37,7 +37,10 @@
 #include "AsyncHttpClient.hpp"
 #include <future>
 #include <memory>
+#include <atomic>
 #include "SLSBitrateLimit.hpp"
+
+class AuthRejectCache;
 
 enum SLS_ROLE_STATE
 {
@@ -58,6 +61,15 @@ enum SLS_ROLE_STATE
 // 100-viewer node is ~11 MB (was ~13 MB of static role buffer space).
 const int DATA_BUFF_SIZE = 16 * 1316;
 const int UNLIMITED_TIMEOUT = -1;
+
+// Max publisher-ring batches drained per handler_write_data() call.
+// Egress is driven by the worker's periodic pass (players are no longer
+// permanently armed for SRT_EPOLL_OUT), so without an inner drain loop
+// throughput would be capped at one DATA_BUFF_SIZE per worker wakeup.
+// 8 * DATA_BUFF_SIZE (~168 KB) per call lets a catching-up viewer pull a
+// large backlog quickly while still bounding how long one role holds the
+// worker before it yields to the publisher read and the other roles.
+const int MAX_EGRESS_BATCHES = 8;
 /**
  * CSLSRole , the base of player, publisher and listener
  */
@@ -70,6 +82,12 @@ public:
     virtual int init();
     virtual int uninit();
     virtual int handler();
+    // Periodic hook run by the worker on every role in its map once per loop
+    // pass (~POLLING_TIME), independent of socket events. Default no-op;
+    // CSLSListener overrides it to advance work that must progress without a
+    // new connection event (draining async player-key validations and
+    // completing deferred player accepts). Runs on the owning worker thread.
+    virtual void on_worker_tick() {}
 
     int open(char *url);
     int close();
@@ -85,9 +103,23 @@ public:
 
     int add_to_epoll(int eid);
     int remove_from_epoll();
+    // Reconcile this writable role's SRT_EPOLL_OUT arm state with whether
+    // it still has staged egress data it could not fully send. Called by
+    // the worker after each egress attempt: arms OUT while backpressured
+    // (so the worker wakes when the send buffer drains) and disarms once
+    // caught up (so an idle writable socket does not busy-return). No-op
+    // for read roles. Only issues a syscall on an actual state change.
+    void update_egress_arming();
     int get_state(int64_t cur_time_microsec = 0);
     int get_sock_state();
     char *get_role_name();
+
+    // Ask the owning worker to tear this role down on its next state check.
+    // Safe to call from another thread (the listener uses it for publisher
+    // takeover): it only flips an atomic flag. The actual invalid_srt() and
+    // map cleanup still run on the worker that owns the SRT socket, via
+    // get_state(), so we never race a concurrent handler() on the same socket.
+    void request_kick();
 
     void set_conf(sls_conf_base_t *conf);
     void set_map_data(const char *map_key, CSLSMapData *map_data);
@@ -111,6 +143,10 @@ public:
     virtual int get_peer_info(char *peer_name, int &peer_port);
 
     void set_http_url(const char *http_url);
+    // Inject the shared negative-auth cache. Only publisher roles receive a
+    // non-null cache; check_http_passed records a failed key here so the
+    // listener callback can reject its repeats at the next handshake.
+    void set_auth_reject_cache(std::shared_ptr<AuthRejectCache> cache);
     int on_connect();
     int on_close();
     // Push destinations harvested from the publish-auth webhook response.
@@ -162,6 +198,10 @@ protected:
     int m_latency;              //ms
 
     int m_state;
+    // Cross-thread teardown request set by request_kick(). Observed by
+    // get_state() on the owning worker. Atomic so the listener thread can
+    // signal a takeover without locking the socket hot path.
+    std::atomic<bool> m_kick_requested{false};
     int m_back_log; //maximum number of connections at the same time
     int m_port;
     char m_peer_ip[IP_MAX_LEN];
@@ -196,6 +236,16 @@ protected:
     // open indefinitely.
     int64_t m_backpressure_stuck_since_ms{0};
 
+    // Whether SRT_EPOLL_OUT is currently armed on this writable role's
+    // socket. Writable roles register ERR-only (see libsrt_add_to_epoll);
+    // OUT is toggled on demand by update_egress_arming() so we only pay
+    // the srt_epoll_update_usock syscall when the backpressure state
+    // actually flips. Touched only from the owning worker thread.
+    bool m_epoll_out_armed{false};
+    // Arms/disarms SRT_EPOLL_OUT, updating m_epoll_out_armed. Returns
+    // early without a syscall when already in the requested state.
+    int set_epoll_out(bool enable);
+
     // Floor below which the stuck-viewer timeout will never drop. Even
     // at very low negotiated latency (e.g. 20ms), 500ms gives genuine
     // network blips room to recover before we kick. Independent of any
@@ -229,6 +279,9 @@ protected:
 
     // Push destinations from publish-auth webhook (publisher roles only).
     std::vector<std::string> m_push_urls;
+
+    // Shared negative-auth cache (publisher roles only; null otherwise).
+    std::shared_ptr<AuthRejectCache> m_auth_reject_cache;
 
     int handler_write_data();
     int handler_read_data(int64_t *last_read_time = NULL);

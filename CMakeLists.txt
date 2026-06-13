@@ -29,6 +29,7 @@ add_compile_definitions(SLS_VERSION="${PROJECT_VERSION}")
 
 # --- External libraries ---
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 # spdlog
 add_subdirectory(lib/spdlog)
@@ -40,6 +41,8 @@ add_subdirectory(lib/json)
 # cpp-httplib (header-only)
 add_library(httplib INTERFACE)
 target_include_directories(httplib INTERFACE ${PROJECT_SOURCE_DIR}/lib/cpp-httplib)
+target_compile_definitions(httplib INTERFACE CPPHTTPLIB_OPENSSL_SUPPORT)
+target_link_libraries(httplib INTERFACE OpenSSL::SSL OpenSSL::Crypto)
 
 # BS thread pool (header-only)
 add_library(BS_thread_pool INTERFACE)

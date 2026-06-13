@@ -35,11 +35,13 @@
 #include "SLSMapPublisher.hpp"
 #include "SLSMapRelay.hpp"
 #include "SLSSrt.hpp"
+#include "AsyncHttpClient.hpp"
 #include <map>
 #include <chrono>
 #include <regex>
 #include <deque>
 #include <mutex>
+#include <future>
 
 /**
  * server conf
@@ -70,6 +72,8 @@ int player_key_min_length;
 char default_sid[STR_MAX_LEN];
 char srt_passphrase[80];
 int srt_pbkeylen;
+int peer_idle_timeout; //SRTO_PEERIDLETIMEO (ms) applied to accepted sockets; 0 = libsrt/fork default
+int auth_reject_cache_ttl; //negative-auth-cache TTL (seconds); 0 = default 30
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -97,6 +101,8 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, string, default_sid, "default sid to use when no streamid is given", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(server, string, srt_passphrase, "listener-wide SRT passphrase (10-79 bytes; empty = no encryption)", 0, 79),
     SLS_SET_CONF(server, int, srt_pbkeylen, "SRT key length: 0/16/24/32 (0 = libsrt default)", 0, 32),
+    SLS_SET_CONF(server, int, peer_idle_timeout, "SRTO_PEERIDLETIMEO (ms) for accepted sockets; reaps dead publishers faster (0 = libsrt/fork default)", 0, 60000),
+    SLS_SET_CONF(server, int, auth_reject_cache_ttl, "negative auth cache TTL in seconds; rejects recently-failed publisher keys at the handshake (0 = default 30)", 0, 3600),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**
@@ -115,6 +121,7 @@ public:
     virtual int stop();
 
     virtual int handler();
+    virtual void on_worker_tick();
 
     void set_role_list(CSLSRoleList *list_role);
     void set_map_publisher(CSLSMapPublisher *publisher);
@@ -132,11 +139,25 @@ public:
     virtual stat_info_t get_stat_info();
 
 protected:
+    // Returns SLS_OK (resolved from cache), SLS_ERROR (hard reject: bad
+    // format, rate limited, or a cached negative result), or SLS_PENDING (no
+    // cached result yet; an async webhook validation has been kicked off and
+    // this connection should be rejected so the client's reconnect can hit the
+    // now-populated cache). Never blocks the worker on the network.
     int validate_player_key(const char* player_key, char* resolved_stream_id, size_t resolved_stream_id_size, const char* client_ip = nullptr);
     bool is_rate_limited(const char* client_ip);
     bool validate_player_key_format(const char* player_key);
     void cleanup_expired_rate_limits();
     void update_rate_limit(const char* client_ip);
+    // Kick a webhook validation for an uncached key into the AsyncHttpClient
+    // pool (deduplicated and capped) without waiting for it. Worker-only.
+    void start_player_key_validation(const std::string& key, const char* client_ip);
+    // Turn a completed webhook response into a positive/negative cache entry.
+    void process_player_key_response(const std::string& key, const AsyncHttpResponse& response);
+    // Poll in-flight validations; fold any that have completed into the cache.
+    // Called at the top of handler() so a reconnect sees the prior attempt's
+    // result. Worker-only.
+    void drain_player_key_validations();
 
 private:
     CSLSRoleList *m_list_role;
@@ -171,12 +192,67 @@ private:
     };
     std::map<std::string, PlayerKeyCacheEntry> m_player_key_cache;
     std::mutex m_cache_mutex;
-    
+    // Last time expired entries were swept from m_player_key_cache. The cache
+    // is otherwise only pruned lazily when the same key is looked up again, so
+    // a flood of distinct never-recurring keys would leak entries until their
+    // TTL without this periodic sweep. Guarded by m_cache_mutex.
+    std::chrono::steady_clock::time_point m_last_player_key_cache_sweep{};
+    // Insert with eviction, assumes m_cache_mutex is already held. Drops
+    // expired entries first, then (if still at the hard cap) the soonest-to-
+    // expire entry, so the map can never grow without bound under a rotating-
+    // key flood while freshly validated hot entries are preserved.
+    void insert_player_key_cache_locked(const std::string& key, const PlayerKeyCacheEntry& entry);
+    // Time-gated sweep of expired player-key cache entries. Cheap no-op when
+    // called more than once within the sweep interval.
+    void sweep_player_key_cache();
+    // In-flight player-key webhook validations, keyed by player key. The
+    // owning worker owns these futures (the pool runs the request), so there
+    // is no detached cross-thread access to this listener. Worker-thread-only.
+    std::map<std::string, std::shared_future<AsyncHttpResponse>> m_pending_player_key_validations;
+
+    // A player connection accepted at the SRT layer but held while its
+    // player-key webhook is still in flight (deferred accept). The socket
+    // stays open so a one-shot client (VLC, ffplay) that does not reconnect
+    // still gets in: once the validation resolves the worker completes the
+    // accept, or closes the socket on rejection/timeout. Worker-thread-only.
+    struct PendingPlayerConnection {
+        CSLSSrt *srt = nullptr;
+        std::string app_uplive;   // publisher uplive for the player's app (from the original sid)
+        std::string player_key;   // key being validated; also the cache lookup key
+        std::string session_id;
+        std::string peer_name;
+        int peer_port = 0;
+        int final_latency = 0;
+        std::string cur_time;
+        std::chrono::steady_clock::time_point deadline{};
+    };
+    std::vector<PendingPlayerConnection> m_pending_player_connections;
+    // Complete a player accept once the (possibly player-key-resolved) stream
+    // is known. Shared by the synchronous accept path and the deferred path.
+    // Takes ownership of `srt`: on every return the socket has either been
+    // handed to a pushed CSLSPlayer or been closed and deleted. Returns 1.
+    int finish_player_accept(CSLSSrt *srt,
+                             const std::string &app_uplive,
+                             const std::string &stream_name,
+                             const std::string &effective_sid,
+                             const std::string &player_key,
+                             bool player_key_validation_required,
+                             const char *peer_name, int peer_port,
+                             int final_latency,
+                             const std::string &session_id,
+                             const std::string &cur_time);
+    // Advance held connections: finish those whose validation resolved valid,
+    // close those rejected or past their deadline. Worker-tick driven.
+    void drive_pending_player_connections();
+
     // Rate limiting structure
     struct RateLimitEntry {
         std::deque<std::chrono::steady_clock::time_point> request_times;
     };
     std::map<std::string, RateLimitEntry> m_rate_limit_map;
+    // Throttles cleanup_expired_rate_limits so the full-map scan runs at most
+    // once per second instead of on every player accept.
+    std::chrono::steady_clock::time_point m_last_rate_limit_cleanup{};
     
     // Per-stream player limit override structure
     struct StreamPlayerLimitEntry {

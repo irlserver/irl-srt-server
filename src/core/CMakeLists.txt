@@ -6,6 +6,10 @@ set(sls_core_files
 	constants.hpp
 	AsyncHttpClient.cpp
 	AsyncHttpClient.hpp
+	auth_reject_cache.cpp
+	auth_reject_cache.hpp
+	sls_sid.cpp
+	sls_sid.hpp
 	README.md
 	SLSArray.cpp
 	SLSArray.hpp

@@ -59,6 +59,7 @@ typedef struct SRTContext
     int64_t inputbw;
     int oheadbw;
     int64_t latency;
+    int peer_idle_timeout; // SRTO_PEERIDLETIMEO (ms) for accepted sockets; 0 = leave libsrt/fork default
     int tlpktdrop;
     int nakreport;
     int64_t connect_timeout;
@@ -98,7 +99,7 @@ public:
     int libsrt_close();
 
     int libsrt_listen(int backlog);
-    int libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn);
+    int libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn, void *opaque = nullptr);
     int libsrt_accept();
 
     int libsrt_get_fd();
@@ -117,6 +118,12 @@ public:
     std::map<std::string, std::string>  libsrt_parse_sid(char *sid);
 
     int libsrt_add_to_epoll(int eid, bool write);
+    // Arm/disarm SRT_EPOLL_OUT on an already-registered socket. Writable
+    // roles are registered ERR-only (see libsrt_add_to_epoll); OUT is
+    // armed dynamically only while a write is backpressured so the worker
+    // wakes when the send buffer drains, instead of busy-returning on a
+    // permanently-writable idle socket.
+    int libsrt_arm_epoll_out(bool enable);
     int libsrt_remove_from_epoll();
 
     int libsrt_getsockstate();
@@ -125,6 +132,7 @@ public:
     int libsrt_get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
 
     void libsrt_set_latency(int latency);
+    void libsrt_set_peer_idle_timeout(int timeout_ms);
     void libsrt_set_passphrase(const char *passphrase, int pbkeylen);
 
     static int libsrt_neterrno();

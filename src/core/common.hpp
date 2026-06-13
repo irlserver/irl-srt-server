@@ -56,6 +56,7 @@ using namespace std;
 
 #define SLS_OK SLSERRTAG(0x0, 0x0, 0x0, 0x0)                       ///< OK
 #define SLS_ERROR SLSERRTAG(0x0, 0x0, 0x0, 0x1)                    ///<
+#define SLS_PENDING SLSERRTAG(0x0, 0x0, 0x0, 0x2)                  ///< async result not ready yet (e.g. player-key webhook in flight)
 #define SLSERROR_BSF_NOT_FOUND SLSERRTAG(0xF8, 'B', 'S', 'F')      ///< Bitstream filter not found
 #define SLSERROR_BUG SLSERRTAG('B', 'U', 'G', '!')                 ///< Internal bug, also see SLSERROR_BUG2
 #define SLSERROR_BUFFER_TOO_SMALL SLSERRTAG('B', 'U', 'F', 'S')    ///< Buffer too small
@@ -117,6 +118,7 @@ int sls_remove_pid();
 int sls_send_cmd(const char *cmd);
 int sls_drop_privileges(const char *user, const char *group);
 
+std::string sls_trim(const std::string &str);
 void sls_split_string(std::string str, std::string separator, std::vector<std::string> &result, int count = -1);
 std::string sls_find_string(std::vector<std::string> &src, std::string &dst, bool caseSensitive = true);
 

@@ -141,4 +141,9 @@ private:
 
     CSLSRoleList *m_list_role;
     CSLSGroup *m_single_group;
+
+    // Process-wide negative-auth cache, shared (by shared_ptr) with every
+    // publisher listener and the roles they create. Held here so it outlives
+    // any listener whose handshake callback still references it via .get().
+    std::shared_ptr<AuthRejectCache> m_auth_reject_cache;
 };

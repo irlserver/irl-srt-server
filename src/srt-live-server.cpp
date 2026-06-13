@@ -264,6 +264,27 @@ int main(int argc, char *argv[])
         }
 
         int clear = req.has_param("reset") ? 1 : 0;
+        auto is_authorized = [&]() -> bool {
+            if (conf_srt->api_keys.empty() || !req.has_header("Authorization")) {
+                return false;
+            }
+            std::string auth_header = req.get_header_value("Authorization");
+            for (const auto& key : conf_srt->api_keys) {
+                if (key == auth_header) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (clear && !is_authorized()) {
+            ret["status"] = "error";
+            ret["message"] = "Unauthorized: API key required or invalid for reset.";
+            res.status = 401;
+            res.set_header("Access-Control-Allow-Origin", cors_header);
+            res.set_content(ret.dump(), "application/json");
+            return;
+        }
 
         // If publisher param exists, use old logic
         if (req.has_param("publisher")) {
@@ -273,24 +294,7 @@ int main(int argc, char *argv[])
             }
         } else {
             // Publisher param missing: List all publishers if API key is configured
-            bool authorized = false;
-            if (conf_srt->api_keys.empty()) {
-                // No API keys configured, disallow access
-                authorized = false;
-            } else {
-                // API keys configured, check Authorization header
-                if (req.has_header("Authorization")) {
-                    std::string auth_header = req.get_header_value("Authorization");
-                    for (const auto& key : conf_srt->api_keys) {
-                        if (key == auth_header) {
-                            authorized = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (authorized) {
+            if (is_authorized()) {
                 ret = sls_manager->generate_json_for_all_publishers(clear);
                 // Status should already be 'ok' from generate_json_for_all_publishers
                 // No need to set 404 here, as we are listing all (even if empty)

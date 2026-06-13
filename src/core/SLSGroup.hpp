@@ -64,6 +64,10 @@ private:
     std::list<CSLSRelayManager *> m_list_reconnect_relay_manager;
 
     void idle_check();
+    // Runs idle_check() only if at least POLLING_TIME ms have elapsed
+    // since the last run, so worker housekeeping keeps its original
+    // ~POLLING_TIME cadence regardless of how hot the data loop spins.
+    void maybe_idle_check();
     void check_reconnect_relay();
     void check_invalid_sock();
     void check_new_role();
@@ -76,6 +80,11 @@ private:
 
     int64_t m_stat_post_last_tm_ms;
     int m_stat_post_interval;
+    // Wall-clock (ms) of the last idle_check() run. idle_check does
+    // per-role libsrt syscalls (srt_getsockstate) plus role-list pops;
+    // running it every worker iteration hammers libsrt's global control
+    // lock at spin frequency. Gate it to POLLING_TIME cadence instead.
+    int64_t m_last_idle_check_ms;
     CSLSMutex m_mutex_stat;
     std::vector<stat_info_t> m_stat_info;
 };

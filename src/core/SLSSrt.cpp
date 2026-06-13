@@ -33,6 +33,7 @@
 #include "SLSLog.hpp"
 #include "SLSLock.hpp"
 #include "util.hpp"
+#include "sls_sid.hpp"
 
 /**
  * CSLSSrt class implementation
@@ -165,6 +166,11 @@ void CSLSSrt::libsrt_set_latency(int latency)
     m_sc.latency = latency;
 }
 
+void CSLSSrt::libsrt_set_peer_idle_timeout(int timeout_ms)
+{
+    m_sc.peer_idle_timeout = timeout_ms;
+}
+
 void CSLSSrt::libsrt_set_passphrase(const char *passphrase, int pbkeylen)
 {
     if (passphrase != NULL)
@@ -272,20 +278,48 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
        If unspecified or setting fails, system default is used. */
     if (s->latency > 0)
     {
-        // SRTO_LATENCY on a listener only seeds the SRT TSBPD RCVLATENCY
-        // for the receive direction. That clamps publishers (who send
-        // to us) but does nothing for players (who receive from us).
-        // Set SRTO_PEERLATENCY explicitly too so we commit, as sender,
-        // to at least this much queue-time before TLPKTDROP fires for
-        // any player we accept. The SRT handshake then negotiates the
+        // SRTO_RCVLATENCY is the receive-direction TSBPD floor and clamps
+        // publishers (who send to us); SRTO_PEERLATENCY is what we, as
+        // sender, commit to for players (the handshake negotiates the
         // player's effective receive latency to
-        //   max(player.RCVLATENCY, our.PEERLATENCY)
-        // which is what actually decides the SLS-to-viewer delivery
-        // window — and therefore whether srt_sendmsg flips into
-        // continuous EASYNCSND / SRTS_BROKEN under any real-world
-        // viewer-link jitter.
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_LATENCY, &s->latency, sizeof(s->latency));
-        srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERLATENCY, &s->latency, sizeof(s->latency));
+        //   max(player.RCVLATENCY, our.PEERLATENCY)).
+        // SRTO_LATENCY sets both at once, but set RCVLATENCY explicitly
+        // too — and check each return — because a publisher was observed
+        // negotiating 120ms with latency_min=500, i.e. the floor was not
+        // landing on the socket and the failure was being swallowed.
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_LATENCY, &s->latency, sizeof(s->latency)) < 0)
+            spdlog::warn("[{}] CSLSSrt::libsrt_setup, SRTO_LATENCY={} failed: {}.",
+                         fmt::ptr(this), s->latency, srt_getlasterror_str());
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERLATENCY, &s->latency, sizeof(s->latency)) < 0)
+            spdlog::warn("[{}] CSLSSrt::libsrt_setup, SRTO_PEERLATENCY={} failed: {}.",
+                         fmt::ptr(this), s->latency, srt_getlasterror_str());
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_RCVLATENCY, &s->latency, sizeof(s->latency)) < 0)
+            spdlog::warn("[{}] CSLSSrt::libsrt_setup, SRTO_RCVLATENCY={} failed: {}.",
+                         fmt::ptr(this), s->latency, srt_getlasterror_str());
+    }
+
+    // SRTO_PEERIDLETIMEO bounds how long a connected peer may go fully silent
+    // (no data, no keepalive) before libsrt declares the link broken. The
+    // belabox SRT fork raises the default so bonded-cellular gaps on the
+    // encoder<->server SRTLA leg don't kill a healthy publisher. The cost is
+    // that when an encoder abandons a connection (SRT session reset / link
+    // flap) its SHUTDOWN frequently never reaches us over that same flapping
+    // path, so the stale server-side socket squats the stream key until
+    // idle_streams_timeout. Set as a listener pre-option here, it is inherited
+    // by every accepted socket. Publisher takeover already handles the
+    // reconnect case; this is the backstop for an encoder that dies without
+    // reconnecting, and is most useful where publishers reach SLS over a
+    // stable hop (e.g. a local srtla_rec terminating the bond). 0 leaves the
+    // fork/libsrt default untouched so bonded direct-SRTLA deploys keep their
+    // tolerance.
+    if (s->peer_idle_timeout > 0)
+    {
+        int peer_idle = s->peer_idle_timeout;
+        if (srt_setsockopt(fd, SOL_SOCKET, SRTO_PEERIDLETIMEO, &peer_idle, sizeof(peer_idle)) < 0)
+            spdlog::warn("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_PEERIDLETIMEO={} failed: {}.",
+                         fmt::ptr(this), peer_idle, srt_getlasterror_str());
+        else
+            spdlog::info("[{}] CSLSSrt::libsrt_setup, SRTO_PEERIDLETIMEO set to {}ms.", fmt::ptr(this), peer_idle);
     }
     // Kernel UDP socket buffers. Defaults on Linux are ~200KB-1MB which
     // is too tight for SRT live streaming under bursty traffic: when
@@ -355,8 +389,8 @@ int CSLSSrt::libsrt_listen(int backlog)
     return SLS_OK;
 }
 
-int CSLSSrt::libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn) {
-    int ret = srt_listen_callback(m_sc.fd, listen_callback_fn, NULL);
+int CSLSSrt::libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn, void *opaque) {
+    int ret = srt_listen_callback(m_sc.fd, listen_callback_fn, opaque);
     if (ret) {
         return SLS_ERROR;
     }
@@ -441,36 +475,9 @@ int CSLSSrt::libsrt_socket_nonblock(int enable)
 
 std::map<std::string, std::string> CSLSSrt::libsrt_parse_sid(char *sid)
 {
-    static const char stdhdr[] = "#!::";
-    uint32_t *pattern = (uint32_t *)stdhdr;
-    std::map<std::string, std::string> ret;
-    if (strlen(sid) > 4 && *(uint32_t *)sid == *pattern)
-    {
-        std::vector<string> items;
-        sls_split_string(sid + 4, ",", items);
-        for (auto &i : items)
-        {
-            std::vector<string> kv;
-            sls_split_string(i, "=", kv);
-            if (kv.size() == 2)
-            {
-
-                ret[kv.at(0)] = kv.at(1);
-            }
-        }
-    }
-    else
-    {
-        std::vector<string> items;
-        sls_split_string(sid, "/", items);
-        if (items.size() >= 3)
-        {
-            ret["h"] = items.at(0);
-            ret["sls_app"] = items.at(1);
-            ret["r"] = items.at(2);
-        }
-    }
-    return ret;
+    // Delegates to the free function in sls_sid so the handshake callback
+    // (no CSLSSrt instance yet) and this post-accept path parse identically.
+    return sls_parse_streamid(sid);
 }
 
 int CSLSSrt::libsrt_read(char *buf, int size)
@@ -517,7 +524,6 @@ int CSLSSrt::libsrt_add_to_epoll(int eid, bool write)
 {
     int ret = SLS_OK;
     int fd = m_sc.fd;
-    int modes = write ? SRT_EPOLL_OUT : SRT_EPOLL_IN;
 
     if (!eid)
     {
@@ -525,7 +531,18 @@ int CSLSSrt::libsrt_add_to_epoll(int eid, bool write)
         return SLS_ERROR;
     }
 
-    modes |= SRT_EPOLL_ERR;
+    // Readable roles (publisher/puller) watch IN. Writable roles
+    // (player/pusher) are NOT armed for OUT at rest: SRT_EPOLL_OUT is
+    // level-triggered and a drained SRT socket is always writable, so a
+    // permanently-armed OUT makes srt_epoll_wait return on every single
+    // iteration and turns the worker into a busy-loop. Egress is instead
+    // driven by the worker's periodic pass over the publisher ring, and
+    // OUT is armed on demand (libsrt_arm_epoll_out) only while a write is
+    // backpressured. ERR is always watched so broken sockets surface.
+    int modes = SRT_EPOLL_ERR;
+    if (!write)
+        modes |= SRT_EPOLL_IN;
+
     ret = srt_epoll_add_usock(eid, fd, &modes);
     if (ret < 0)
     {
@@ -534,6 +551,26 @@ int CSLSSrt::libsrt_add_to_epoll(int eid, bool write)
         return libsrt_neterrno();
     }
     return ret;
+}
+
+int CSLSSrt::libsrt_arm_epoll_out(bool enable)
+{
+    if (!m_sc.eid)
+    {
+        spdlog::error("[{}] CSLSSrt::libsrt_arm_epoll_out failed, eid not set.", fmt::ptr(this));
+        return SLS_ERROR;
+    }
+    int modes = SRT_EPOLL_ERR;
+    if (enable)
+        modes |= SRT_EPOLL_OUT;
+    int ret = srt_epoll_update_usock(m_sc.eid, m_sc.fd, &modes);
+    if (ret < 0)
+    {
+        spdlog::warn("[{}] CSLSSrt::libsrt_arm_epoll_out, srt_epoll_update_usock failed, eid={:d}, fd={:d}, enable={}.",
+                     fmt::ptr(this), m_sc.eid, m_sc.fd, enable);
+        return libsrt_neterrno();
+    }
+    return SLS_OK;
 }
 
 int CSLSSrt::libsrt_remove_from_epoll()
