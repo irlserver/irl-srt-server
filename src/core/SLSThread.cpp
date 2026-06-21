@@ -56,7 +56,7 @@ int CSLSThread::start()
 		return -1;
 	}
 	m_th_id = th_id;
-	spdlog::info("[{}] CSLSThread::start, pthread_create ok, m_th_id={:d}.", fmt::ptr(this), m_th_id);
+	spdlog::info("[{}] CSLSThread::start, pthread_create ok, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
 
 	return ret;
 }
@@ -67,7 +67,7 @@ int CSLSThread::stop()
 	{
 		return ret;
 	}
-	spdlog::info("[{}] CSLSThread::stop, m_th_id={:d}.", fmt::ptr(this), m_th_id);
+	spdlog::info("[{}] CSLSThread::stop, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
 
 	m_exit = 1;
 	pthread_join(m_th_id, NULL);

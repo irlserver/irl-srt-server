@@ -25,6 +25,8 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string>
@@ -37,6 +39,11 @@ using json = nlohmann::json;
 #include "constants.hpp"
 
 using namespace std;
+
+// Portable formatting of pthread_t for logs. pthread_t is an integer on
+// Linux and an opaque pointer on macOS; spdlog/fmt rejects raw non-void
+// pointers. The C-style cast through uintptr_t compiles for both forms.
+inline unsigned long long sls_tid(pthread_t t) { return (unsigned long long)(uintptr_t)t; }
 
 /**********************************************
  * function return type

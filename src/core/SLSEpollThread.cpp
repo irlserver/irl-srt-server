@@ -60,7 +60,7 @@ int CSLSEpollThread::init_epoll()
     m_eid = CSLSSrt::libsrt_epoll_create();
     if (m_eid < 0)
     {
-        spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_create failed. th_id={:d}.", fmt::ptr(this), m_th_id);
+        spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_create failed. th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
         return CSLSSrt::libsrt_neterrno();
     }
     // compatible with srt v1.4.0 when container is empty.
@@ -129,7 +129,7 @@ int CSLSEpollThread::uninit_epoll()
     if (m_eid >= 0)
     {
         CSLSSrt::libsrt_epoll_release(m_eid);
-        spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_release ok, m_th_id={:d}.", fmt::ptr(this), m_th_id);
+        spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_release ok, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
         m_eid = -1;
     }
     return ret;
@@ -169,7 +169,7 @@ bool CSLSEpollThread::drain_wake_fd()
 int CSLSEpollThread::work()
 {
     int ret = 0;
-    spdlog::info("[{}] CSLSEpollThread::work, begin th_id={:d}.", fmt::ptr(this), m_th_id);
+    spdlog::info("[{}] CSLSEpollThread::work, begin th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
     // epoll loop
     while (!m_exit)
     {
@@ -177,7 +177,7 @@ int CSLSEpollThread::work()
     }
 
     clear();
-    spdlog::info("[{}] CSLSEpollThread::work, end th_id={:d}.", fmt::ptr(this), m_th_id);
+    spdlog::info("[{}] CSLSEpollThread::work, end th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
     return ret;
 }
 
