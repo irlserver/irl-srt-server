@@ -1,0 +1,25 @@
+src/core/SLSEpollThread.cpp
+  s_a2ad363f024564::t_10aef7b0b8781c 75,83-100,107-108,110
+  s_a2ad363f024564::t_55910bc3274412 124-125,127
+  s_a2ad363f024564::t_7a126d26198954 140,143-147
+  s_a2ad363f024564::t_23a3f4bf9fd3c5 28-31
+  s_a2ad363f024564::t_d74b2c33811c58 49
+src/core/SLSEpollThread.hpp
+  s_a2ad363f024564::t_dd8ad8c4a4b895 65-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "305090eadbf6c4813864612dc4e0ce46279a8ff3",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
