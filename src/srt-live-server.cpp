@@ -443,17 +443,23 @@ int main(int argc, char *argv[])
         }
         //*/
 
-        // Check reloaded manager
-        std::vector<CSLSManager *>::iterator it;
-        for (it = reload_manager_list.begin(); it != reload_manager_list.end(); it++)
+        // Check reloaded manager. erase() invalidates the iterator, so use the
+        // returned next-iterator and only advance when nothing was removed;
+        // the old `it++` after erase() was UB whenever ≥2 managers retired in
+        // one pass.
+        for (auto it = reload_manager_list.begin(); it != reload_manager_list.end(); )
         {
             CSLSManager *manager = *it;
             if (nullptr != manager && SLS_OK == manager->check_invalid())
             {
                 spdlog::info("Checking reloaded manager, deleting manager={:p} ...", fmt::ptr(manager));
                 manager->stop();
-                reload_manager_list.erase(it);
+                it = reload_manager_list.erase(it);
                 delete manager;
+            }
+            else
+            {
+                ++it;
             }
         }
 
