@@ -2,6 +2,7 @@
 #include "SLSMapPublisher.hpp"
 #include "SLSMapRelay.hpp"
 #include "auth_reject_cache.hpp"
+#include "util.hpp"
 #include "spdlog/spdlog.h"
 #include <regex>
 #include <vector>
