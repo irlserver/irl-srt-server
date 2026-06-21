@@ -764,13 +764,31 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
                 p_end = (uint8_t *)es + pos;
                 if (H264_NAL_SPS == nal_type)
                 {
-                    ti->sps_len = p_end - p;
-                    memcpy(ti->sps, p, ti->sps_len);
+                    int n = (int)(p_end - p);
+                    if (n < 0 || n > (int)sizeof(ti->sps))
+                    {
+                        spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.",
+                                     n, (int)sizeof(ti->sps));
+                    }
+                    else
+                    {
+                        ti->sps_len = n;
+                        memcpy(ti->sps, p, n);
+                    }
                 }
                 else if (H264_NAL_PPS == nal_type)
                 {
-                    ti->pps_len = p_end - p;
-                    memcpy(ti->pps, p, ti->pps_len);
+                    int n = (int)(p_end - p);
+                    if (n < 0 || n > (int)sizeof(ti->pps))
+                    {
+                        spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.",
+                                     n, (int)sizeof(ti->pps));
+                    }
+                    else
+                    {
+                        ti->pps_len = n;
+                        memcpy(ti->pps, p, n);
+                    }
                 }
                 else
                 {
@@ -805,13 +823,31 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
         p_end = (uint8_t *)es + es_len;
         if (H264_NAL_SPS == nal_type)
         {
-            ti->sps_len = p_end - p;
-            memcpy(ti->sps, p, ti->sps_len);
+            int n = (int)(p_end - p);
+            if (n < 0 || n > (int)sizeof(ti->sps))
+            {
+                spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.",
+                             n, (int)sizeof(ti->sps));
+            }
+            else
+            {
+                ti->sps_len = n;
+                memcpy(ti->sps, p, n);
+            }
         }
         else if (H264_NAL_PPS == nal_type)
         {
-            ti->pps_len = p_end - p;
-            memcpy(ti->pps, p, ti->pps_len);
+            int n = (int)(p_end - p);
+            if (n < 0 || n > (int)sizeof(ti->pps))
+            {
+                spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.",
+                             n, (int)sizeof(ti->pps));
+            }
+            else
+            {
+                ti->pps_len = n;
+                memcpy(ti->pps, p, n);
+            }
         }
         else
         {
