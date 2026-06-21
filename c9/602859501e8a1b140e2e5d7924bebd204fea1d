@@ -1,0 +1,19 @@
+src/core/common.cpp
+  s_a2ad363f024564::t_40ccf85277eb15 378-388
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "c9602859501e8a1b140e2e5d7924bebd204fea1d",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
