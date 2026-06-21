@@ -612,17 +612,17 @@ int CSLSListener::handler()
     pub->set_idle_streams_timeout(m_idle_streams_timeout_role);
     pub->set_latency(final_latency);
 
-    stat_info_t *stat_info_obj = new stat_info_t();
-    stat_info_obj->port = m_port;
-    stat_info_obj->role = pub->get_role_name();
-    stat_info_obj->pub_domain_app = app_uplive;
-    stat_info_obj->stream_name = stream_name;
-    stat_info_obj->url = sid;
-    stat_info_obj->remote_ip = peer_name;
-    stat_info_obj->remote_port = peer_port;
-    stat_info_obj->start_time = cur_time;
+    stat_info_t stat_info_obj{};
+    stat_info_obj.port = m_port;
+    stat_info_obj.role = pub->get_role_name();
+    stat_info_obj.pub_domain_app = app_uplive;
+    stat_info_obj.stream_name = stream_name;
+    stat_info_obj.url = sid;
+    stat_info_obj.remote_ip = peer_name;
+    stat_info_obj.remote_port = peer_port;
+    stat_info_obj.start_time = cur_time;
 
-    pub->set_stat_info_base(*stat_info_obj);
+    pub->set_stat_info_base(stat_info_obj);
 
     pub->set_http_url(m_http_url_role);
     // Hand the publisher the shared negative-auth cache so a non-200 webhook
@@ -931,16 +931,16 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
     // of the raw SRTO_STREAMID the client sent.
     player->set_streamid(effective_sid.c_str());
 
-    stat_info_t *stat_info_obj = new stat_info_t();
-    stat_info_obj->port = m_port;
-    stat_info_obj->role = player->get_role_name();
-    stat_info_obj->pub_domain_app = app_uplive;
-    stat_info_obj->stream_name = stream_name;
-    stat_info_obj->url = effective_sid;
-    stat_info_obj->remote_ip = peer_name;
-    stat_info_obj->remote_port = peer_port;
-    stat_info_obj->start_time = cur_time;
-    player->set_stat_info_base(*stat_info_obj);
+    stat_info_t stat_info_obj{};
+    stat_info_obj.port = m_port;
+    stat_info_obj.role = player->get_role_name();
+    stat_info_obj.pub_domain_app = app_uplive;
+    stat_info_obj.stream_name = stream_name;
+    stat_info_obj.url = effective_sid;
+    stat_info_obj.remote_ip = peer_name;
+    stat_info_obj.remote_port = peer_port;
+    stat_info_obj.start_time = cur_time;
+    player->set_stat_info_base(stat_info_obj);
 
     player->set_http_url(m_http_url_role);
     player->on_connect();
