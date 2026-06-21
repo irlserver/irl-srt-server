@@ -234,7 +234,7 @@ int CTCPRole::listen(int port, int backlog)
     serverAdd.sin_addr.s_addr = htonl(INADDR_ANY);
     serverAdd.sin_port = htons(port);
 
-    int ret = bind(m_fd, (struct sockaddr *)&serverAdd, sizeof(serverAdd));
+    int ret = ::bind(m_fd, (struct sockaddr *)&serverAdd, sizeof(serverAdd));
     if (ret < 0)
     {
         spdlog::error("[{}] CTCPRole::listen, bind failure, m_fd={:d}, port={:d}.", fmt::ptr(this), m_fd, port);
