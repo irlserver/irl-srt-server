@@ -11,13 +11,21 @@ verified step) at the maintainer's request.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001  | Verification baseline (tests, sanitizers, CI) | P1 | M | — | TODO |
-| 002  | Security quick wins | P1 | M | 001 (soft) | TODO |
-| 003  | Memory & concurrency fixes | P1 | M | 001 | TODO |
-| 004  | Correctness & perf cleanups (lower-leverage) | P2 | S | 001 (soft) | TODO |
-| 005  | Build, tooling & supply-chain hardening | P2 | M | — | TODO |
-| 006  | Documentation | P3 | M | — | TODO |
-| 007  | Architecture refactors (design/spike) | P3 | L | 001 | TODO |
+| 000  | Restore macOS build support (portable epoll wakeup) | P0 | S | — | DONE (advisor/execute-all) |
+| 001  | Verification baseline (tests, sanitizers, CI) | P1 | M | 000 | DONE (advisor/execute-all) |
+| 002  | Security quick wins | P1 | M | 001 (soft) | DONE (advisor/execute-all) |
+| 003  | Memory & concurrency fixes | P1 | M | 001 | DONE (advisor/execute-all) |
+| 004  | Correctness & perf cleanups (lower-leverage) | P2 | S | 001 (soft) | DONE (advisor/execute-all) |
+| 005  | Build, tooling & supply-chain hardening | P2 | M | — | DONE (advisor/execute-all) |
+| 006  | Documentation | P3 | M | — | DONE (advisor/execute-all) |
+| 007  | Architecture refactors (design/spike) | P3 | L | 001 | DONE (advisor/execute-all) |
+| 008  | MapData lock rework (per-entry pointer caching) | P3 | L | 010 | TODO (spike output) |
+| 009  | Decompose CSLSListener::handler | P3 | L | 001 | TODO (spike output) |
+| 010  | Split common.cpp + SLSManager::start | P3 | M-L | 001 | TODO (spike output) |
+| 011  | Puller/Pusher relay-manager dedup | P3 | M | 001 | TODO (spike output) |
+| 012  | Worker affinity (cross-worker latency) | P3 | M | 008 | TODO (spike output) |
+
+**Execution note (2026-06-21):** Plans 000–007 were executed by dispatched executor subagents in git worktree `advisor/execute-all` (32 commits), reviewed and approved by the advisor. The macOS build was restored first (plan 000, new — the `eventfd` regression from `0167cc38`), which also unblocked local verification. Plans 008–012 are the design/spike outputs of 007 and remain TODO. The branch is left for the maintainer to merge (the advisor never merges/pushes). Build needs the SRT belabox fork; tests via `-DSLS_BUILD_TESTS=ON` + `ctest`.
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (reason) | REJECTED (rationale)
 
