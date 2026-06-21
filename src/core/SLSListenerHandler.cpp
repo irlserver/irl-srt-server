@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <string.h>
 #include <chrono>
+#include <vector>
 
 namespace {
 // Hard ceiling on the shared handoff list (roles accepted by a listener but
@@ -27,6 +28,68 @@ constexpr int MAX_HANDOFF_BACKLOG = 4096;
 // flood of uncached keys can park; past it, a new uncached connection is
 // refused outright instead of held.
 constexpr size_t MAX_PENDING_PLAYER_CONNECTIONS = 1024;
+
+// IP-ACL match outcome shared between the publisher and player ACL paths.
+enum class AclMatch { ACCEPT, DENY, NO_MATCH };
+
+// Evaluate the configured IPv4 ACL entries against a peer.
+//
+// The ACL config (sls_ip_access_t) only carries an IPv4 ip_address — see
+// conf.cpp / "TODO: IPv6 support". For IPv6 peers we cannot match a
+// specific allow/deny entry, but we MUST NOT silently treat the peer as if
+// the ACL passed when the operator has configured non-wildcard rules:
+// that would let an IPv6 client bypass an explicit deny. The policy here:
+//
+//   - IPv4 peer: match against entries as before (specific IP or wildcard 0).
+//   - IPv6 peer: only the wildcard entry (ip_address == 0) can match. If a
+//     wildcard matches we honour it; otherwise we return NO_MATCH and log
+//     a one-time-per-call warning so operators see that IPv6 ACL matching
+//     is unimplemented. The caller then applies its documented default
+//     (currently "accept by default") — the same default IPv4 peers get
+//     when no ACL entry matches. This is a known limitation; configuring
+//     a deny rule for a specific IPv6 address is not yet supported.
+AclMatch sls_check_ip_acl(const std::vector<sls_ip_access_t> &entries,
+                          unsigned long peer_addr_v4,
+                          bool peer_is_ipv6,
+                          const void *log_tag,
+                          const char *peer_name,
+                          int peer_port,
+                          const char *app_name)
+{
+    bool warned_ipv6_unimplemented = false;
+    for (const sls_ip_access_t &acl_entry : entries) {
+        bool matched = false;
+        if (peer_is_ipv6) {
+            // Only the wildcard matches an IPv6 peer; specific IPv4 entries
+            // are inapplicable. Surface that the explicit entries are being
+            // ignored so an operator who set a deny rule isn't surprised.
+            if (acl_entry.ip_address == 0) {
+                matched = true;
+            } else if (!warned_ipv6_unimplemented) {
+                warned_ipv6_unimplemented = true;
+                spdlog::warn("[{}] CSLSListener::handler IPv6 peer {}:{:d} cannot be matched against IPv4 ACL entries for app '{}'; IPv6 ACL matching is unimplemented.",
+                             log_tag, peer_name, peer_port, app_name);
+            }
+        } else {
+            matched = (acl_entry.ip_address == peer_addr_v4 || acl_entry.ip_address == 0);
+        }
+        if (!matched) continue;
+        switch (acl_entry.action) {
+        case sls_access_action::ACCEPT:
+            spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}'",
+                         log_tag, peer_name, peer_port, app_name);
+            return AclMatch::ACCEPT;
+        case sls_access_action::DENY:
+            spdlog::warn("[{}] CSLSListener::handler Rejected connection from {}:{:d} for app '{}'",
+                         log_tag, peer_name, peer_port, app_name);
+            return AclMatch::DENY;
+        default:
+            spdlog::error("[{}] CSLSListener::handler Unknown action [sls_access_action={:d}], ignoring",
+                          log_tag, (int)acl_entry.action);
+        }
+    }
+    return AclMatch::NO_MATCH;
+}
 } // namespace
 
 int CSLSListener::handler()
@@ -307,6 +370,13 @@ int CSLSListener::handler()
     char stream_part[URL_MAX_LEN] = {0};
 
     char* sid_copy = strdup(sid);
+    if (!sid_copy) {
+        spdlog::error("[{}] CSLSListener::handler, strdup(sid) failed (OOM); rejecting connection from {}:{}.",
+                     fmt::ptr(this), peer_name, peer_port);
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    }
     char* token = strtok(sid_copy, "/");
     int part_count = 0;
 
@@ -532,29 +602,19 @@ int CSLSListener::handler()
     }
 
     if (srt->libsrt_getpeeraddr_raw(peer_addr_raw, peer_addr6_raw) == SLS_OK) {
-        bool address_matched = false;
-        for (sls_ip_access_t &acl_entry : ca->ip_actions.publish) {
-            if (acl_entry.ip_address == peer_addr_raw || acl_entry.ip_address == 0) {
-                switch (acl_entry.action) {
-                case sls_access_action::ACCEPT:
-                    address_matched = true;
-                    spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}'",
-                                 fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
-                    break;
-                case sls_access_action::DENY:
-                    spdlog::warn("[{}] CSLSListener::handler Rejected connection from {}:{:d} for app '{}'",
-                                 fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
-                    srt->libsrt_close();
-                    delete srt;
-                    return client_count;
-                default:
-                    spdlog::error("[{}] CSLSListener::handler Unknown action [sls_access_action={:d}], ignoring",
-                                   fmt::ptr(this), (int)acl_entry.action);
-                }
-            }
-            if (address_matched) break;
+        AclMatch acl_result = sls_check_ip_acl(ca->ip_actions.publish, peer_addr_raw,
+                                               srt->libsrt_is_ipv6_peer(),
+                                               fmt::ptr(this), peer_name, peer_port,
+                                               ca->app_publisher);
+        if (acl_result == AclMatch::DENY) {
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
         }
-        if (!address_matched) {
+        if (acl_result == AclMatch::NO_MATCH) {
+            // Documented default: accept when no entry matched. For IPv6
+            // peers with non-wildcard rules configured this is the
+            // fallback path noted in sls_check_ip_acl.
             spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}' by default",
                          fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
         }
@@ -605,17 +665,17 @@ int CSLSListener::handler()
     pub->set_idle_streams_timeout(m_idle_streams_timeout_role);
     pub->set_latency(final_latency);
 
-    stat_info_t *stat_info_obj = new stat_info_t();
-    stat_info_obj->port = m_port;
-    stat_info_obj->role = pub->get_role_name();
-    stat_info_obj->pub_domain_app = app_uplive;
-    stat_info_obj->stream_name = stream_name;
-    stat_info_obj->url = sid;
-    stat_info_obj->remote_ip = peer_name;
-    stat_info_obj->remote_port = peer_port;
-    stat_info_obj->start_time = cur_time;
+    stat_info_t stat_info_obj{};
+    stat_info_obj.port = m_port;
+    stat_info_obj.role = pub->get_role_name();
+    stat_info_obj.pub_domain_app = app_uplive;
+    stat_info_obj.stream_name = stream_name;
+    stat_info_obj.url = sid;
+    stat_info_obj.remote_ip = peer_name;
+    stat_info_obj.remote_port = peer_port;
+    stat_info_obj.start_time = cur_time;
 
-    pub->set_stat_info_base(*stat_info_obj);
+    pub->set_stat_info_base(stat_info_obj);
 
     pub->set_http_url(m_http_url_role);
     // Hand the publisher the shared negative-auth cache so a non-200 webhook
@@ -806,29 +866,16 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
         return client_count;
     } else {
         if (srt->libsrt_getpeeraddr_raw(peer_addr_raw, peer_addr6_raw) == SLS_OK) {
-            bool address_matched = false;
-            for (sls_ip_access_t &acl_entry : ca->ip_actions.play) {
-                if (acl_entry.ip_address == peer_addr_raw || acl_entry.ip_address == 0) {
-                    switch (acl_entry.action) {
-                    case sls_access_action::ACCEPT:
-                        address_matched = true;
-                        spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}'",
-                                     fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
-                        break;
-                    case sls_access_action::DENY:
-                        spdlog::warn("[{}] CSLSListener::handler Rejected connection from {}:{:d} for app '{}'",
-                                     fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
-                        srt->libsrt_close();
-                        delete srt;
-                        return client_count;
-                    default:
-                        spdlog::error("[{}] CSLSListener::handler Unknown action [sls_access_action={:d}], ignoring",
-                                      fmt::ptr(this), (int)acl_entry.action);
-                    }
-                }
-                if (address_matched) break;
+            AclMatch acl_result = sls_check_ip_acl(ca->ip_actions.play, peer_addr_raw,
+                                                   srt->libsrt_is_ipv6_peer(),
+                                                   fmt::ptr(this), peer_name, peer_port,
+                                                   ca->app_publisher);
+            if (acl_result == AclMatch::DENY) {
+                srt->libsrt_close();
+                delete srt;
+                return client_count;
             }
-            if (!address_matched) {
+            if (acl_result == AclMatch::NO_MATCH) {
                 spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}' by default",
                              fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
             }
@@ -924,16 +971,16 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
     // of the raw SRTO_STREAMID the client sent.
     player->set_streamid(effective_sid.c_str());
 
-    stat_info_t *stat_info_obj = new stat_info_t();
-    stat_info_obj->port = m_port;
-    stat_info_obj->role = player->get_role_name();
-    stat_info_obj->pub_domain_app = app_uplive;
-    stat_info_obj->stream_name = stream_name;
-    stat_info_obj->url = effective_sid;
-    stat_info_obj->remote_ip = peer_name;
-    stat_info_obj->remote_port = peer_port;
-    stat_info_obj->start_time = cur_time;
-    player->set_stat_info_base(*stat_info_obj);
+    stat_info_t stat_info_obj{};
+    stat_info_obj.port = m_port;
+    stat_info_obj.role = player->get_role_name();
+    stat_info_obj.pub_domain_app = app_uplive;
+    stat_info_obj.stream_name = stream_name;
+    stat_info_obj.url = effective_sid;
+    stat_info_obj.remote_ip = peer_name;
+    stat_info_obj.remote_port = peer_port;
+    stat_info_obj.start_time = cur_time;
+    player->set_stat_info_base(stat_info_obj);
 
     player->set_http_url(m_http_url_role);
     player->on_connect();

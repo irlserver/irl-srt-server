@@ -41,6 +41,19 @@ std::map<std::string, std::string> sls_parse_streamid(const char *sid)
     return ret;
 }
 
+std::string sls_canonical_sid_key(const std::string &streamid)
+{
+    if (streamid.empty())
+        return streamid;
+    std::map<std::string, std::string> kv = sls_parse_streamid(streamid.c_str());
+    auto h = kv.find("h");
+    auto a = kv.find("sls_app");
+    auto r = kv.find("r");
+    if (h == kv.end() || a == kv.end() || r == kv.end())
+        return streamid;
+    return h->second + "/" + a->second + "/" + r->second;
+}
+
 bool sls_validate_sid_format(const char *sid)
 {
     if (!sid || sid[0] == '\0')
@@ -75,7 +88,7 @@ int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
     }
 
     AuthRejectCache *cache = static_cast<AuthRejectCache *>(opaque);
-    if (cache != nullptr && cache->is_blocked(streamid))
+    if (cache != nullptr && cache->is_blocked(sls_canonical_sid_key(streamid)))
     {
         srt_setrejectreason(ns, SRT_REJ_RESOURCE);
         return -1;

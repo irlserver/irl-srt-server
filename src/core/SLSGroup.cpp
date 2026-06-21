@@ -201,8 +201,8 @@ int CSLSGroup::handler()
             drain_wake_fd();
         }
 
-        spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, writable sock count={:d}, readable sock count={:d}.",
-                      fmt::ptr(this), m_worker_number, write_len, read_len);
+        SPDLOG_TRACE("[{}] CSLSGroup::handle, worker_number={:d}, writable sock count={:d}, readable sock count={:d}.",
+                     fmt::ptr(this), m_worker_number, write_len, read_len);
 
         // Reads: publishers and pullers. (Writable roles are serviced by
         // the egress pass below, not from m_write_socks — OUT events only
@@ -230,8 +230,8 @@ int CSLSGroup::handler()
             if (ret < 0)
             {
                 // handle exception
-                spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, readable sock={:d} is invalid, {}={}, readable len={:d}, role_map.size={:d}.",
-                              fmt::ptr(this), m_worker_number, m_read_socks[i], role->get_role_name(), fmt::ptr(role), read_len, m_map_role.size());
+                SPDLOG_TRACE("[{}] CSLSGroup::handle, worker_number={:d}, readable sock={:d} is invalid, {}={}, readable len={:d}, role_map.size={:d}.",
+                             fmt::ptr(this), m_worker_number, m_read_socks[i], role->get_role_name(), fmt::ptr(role), read_len, m_map_role.size());
                 role->invalid_srt();
             }
             else
@@ -266,8 +266,8 @@ int CSLSGroup::handler()
         ret = role->handler();
         if (ret < 0)
         {
-            spdlog::trace("[{}] CSLSGroup::handle, worker_number={:d}, egress sock={:d} is invalid, {}={}, role_map.size={:d}.",
-                          fmt::ptr(this), m_worker_number, it->first, role->get_role_name(), fmt::ptr(role), m_map_role.size());
+            SPDLOG_TRACE("[{}] CSLSGroup::handle, worker_number={:d}, egress sock={:d} is invalid, {}={}, role_map.size={:d}.",
+                         fmt::ptr(this), m_worker_number, it->first, role->get_role_name(), fmt::ptr(role), m_map_role.size());
             role->invalid_srt();
         }
         else

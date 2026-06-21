@@ -37,6 +37,7 @@
 #include "util.hpp"
 #include "SLSBitrateLimit.hpp"
 #include "auth_reject_cache.hpp"
+#include "sls_sid.hpp"
 
 /**
  * CSLSRole class implementation
@@ -135,7 +136,11 @@ int CSLSRole::invalid_srt()
 
 void CSLSRole::request_kick()
 {
-    m_kick_requested.store(true, std::memory_order_relaxed);
+    // Release pairs with the acquire load in get_state(): whatever state the
+    // requesting thread set up before the kick (e.g. a streamName lookup in
+    // the disconnect path) is published to the owning worker before the flag
+    // becomes visible there.
+    m_kick_requested.store(true, std::memory_order_release);
 }
 
 int CSLSRole::get_state(int64_t cur_time_ms)
@@ -143,10 +148,11 @@ int CSLSRole::get_state(int64_t cur_time_ms)
     if (SLS_RS_INVALID == m_state)
         return m_state;
 
-    // Honour a cross-thread kick (publisher takeover). Doing the teardown
-    // here keeps invalid_srt() on the socket-owning worker, so it can't race
-    // a concurrent handler() read on the same CSLSSrt.
-    if (m_kick_requested.load(std::memory_order_relaxed))
+    // Honour a cross-thread kick (publisher takeover, /disconnect endpoint).
+    // Doing the teardown here keeps invalid_srt() on the socket-owning worker,
+    // so it can't race a concurrent handler() read on the same CSLSSrt.
+    // Acquire pairs with the release store in request_kick().
+    if (m_kick_requested.load(std::memory_order_acquire))
     {
         spdlog::info("[{}] CSLSRole::get_state, kick requested for {}, fd={:d}, call invalid_srt.",
                      fmt::ptr(this), m_role_name, get_fd());
@@ -432,7 +438,7 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
 
     if (n != TS_UDP_LEN)
     {
-        spdlog::trace("[{}] CSLSRole::handler_read_data, libsrt_read n={:d}, expect {:d}.", fmt::ptr(this), n, TS_UDP_LEN);
+        SPDLOG_TRACE("[{}] CSLSRole::handler_read_data, libsrt_read n={:d}, expect {:d}.", fmt::ptr(this), n, TS_UDP_LEN);
     }
 
     if (NULL == m_map_data)
@@ -441,7 +447,7 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
         return SLS_ERROR;
     }
 
-    spdlog::trace("[{}] CSLSRole::handler_read_data, ok, libsrt_read n={:d}.", fmt::ptr(this), n);
+    SPDLOG_TRACE("[{}] CSLSRole::handler_read_data, ok, libsrt_read n={:d}.", fmt::ptr(this), n);
     int ret = m_map_data->put(m_map_data_key, szData, n, last_read_time);
 
     return ret;
@@ -603,8 +609,8 @@ int CSLSRole::handler_write_data()
                             return SLS_ERROR;
                         }
 
-                        spdlog::trace("[{}] CSLSRole::handler_write_data, backpressure, pos={:d}, remaining={:d}.",
-                                      fmt::ptr(this), m_data_pos, remainer);
+                        SPDLOG_TRACE("[{}] CSLSRole::handler_write_data, backpressure, pos={:d}, remaining={:d}.",
+                                     fmt::ptr(this), m_data_pos, remainer);
                         return write_size;
                     }
                     spdlog::error("[{}] CSLSRole::handler_write_data, write data failed, len={:d}, ret={:d}, errno={:d}, not {:d}.",
@@ -642,7 +648,7 @@ int CSLSRole::handler_write_data()
             // unexpected short-write path; EASYNCSND already returned
             // above). Preserve the offset and stop — the worker arms OUT
             // and we resume next cycle.
-            spdlog::trace("[{}] CSLSRole::handler_write_data, write data, len={:d}, remainder={:d}.", fmt::ptr(this), len, m_data_len - m_data_pos);
+            SPDLOG_TRACE("[{}] CSLSRole::handler_write_data, write data, len={:d}, remainder={:d}.", fmt::ptr(this), len, m_data_len - m_data_pos);
             return write_size;
         }
 
@@ -753,8 +759,9 @@ int CSLSRole::check_http_passed()
                       fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.error);
         // Negative-cache the streamid so a rotating client hammering the same
         // bad key is rejected at the next handshake (no accept, no webhook).
-        // Only publisher roles carry a cache; key on the raw streamid the
-        // listener callback also sees so the lookup matches the insert.
+        // Only publisher roles carry a cache; key on the canonical streamid
+        // form (h/sls_app/r) so byte-level variants of the same logical
+        // streamid collide with the same cache entry.
         //
         // Only cache on an explicit auth-reject status (401/403): the key
         // itself is bad, so blocking its repeats is correct. A transport
@@ -763,7 +770,7 @@ int CSLSRole::check_http_passed()
         // publisher out for the whole TTL on a single backend hiccup.
         if (m_auth_reject_cache && response.success &&
             (response.status_code == 401 || response.status_code == 403))
-            m_auth_reject_cache->record_failure(get_streamid());
+            m_auth_reject_cache->record_failure(sls_canonical_sid_key(get_streamid()));
         invalid_srt();
         return SLS_ERROR;
     }

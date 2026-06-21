@@ -42,7 +42,7 @@ CSLSRecycleArray::CSLSRecycleArray()
 {
     m_nDataSize = DEFAULT_MAX_DATA_SIZE;
     m_nWritePos = 0;
-    m_nDataCount = 0;
+    m_nDataCount.store(0, std::memory_order_relaxed);
     m_overrun_count.store(0, std::memory_order_relaxed);
 
     m_last_read_time = sls_gettime_ms();
@@ -62,18 +62,24 @@ CSLSRecycleArray::~CSLSRecycleArray()
 
 int CSLSRecycleArray::count()
 {
-    CSLSLock lock(&m_rwclock, false);
-    return m_nDataCount;
+    // Atomic load; m_nDataCount is published outside the rwlock by put().
+    return (int)m_nDataCount.load(std::memory_order_relaxed);
 }
 
 //please call this function before get and put,
 //if not, the read data will be make confusion.
 void CSLSRecycleArray::setSize(int n)
 {
-    CSLSLock lock(&m_rwclock, false);
+    // Write lock: setSize() reallocates the underlying buffer, so any
+    // concurrent reader (which holds the read lock in get()) must be
+    // serialised against it or it will dereference freed memory.
+    CSLSLock lock(&m_rwclock, true);
     delete[] m_arrayData;
     m_nDataSize = n;
     m_nWritePos = 0;
+    // The buffer is being replaced wholesale; the byte counter is meaningful
+    // only relative to the live buffer, so reset it alongside the realloc.
+    m_nDataCount.store(0, std::memory_order_relaxed);
     m_arrayData = new char[m_nDataSize];
 }
 
@@ -89,7 +95,7 @@ int CSLSRecycleArray::put(char *data, int len)
     if (len > m_nDataSize)
     {
         spdlog::error("[{}] CSLSRecycleArray::put, failed, len={:d} is bigger than m_nDataSize={:d}.",
-                      fmt::ptr(this), data, len, m_nDataSize);
+                      fmt::ptr(this), len, m_nDataSize);
         return SLS_ERROR;
     }
 
@@ -112,10 +118,12 @@ int CSLSRecycleArray::put(char *data, int len)
         if (m_nWritePos == m_nDataSize)
             m_nWritePos = 0;
     }
-    //no consider int wrapround;
-    m_nDataCount += len;
-    spdlog::trace("[{}] CSLSRecycleArray::put, len={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
-                  fmt::ptr(this), len, m_nWritePos, m_nDataCount, m_nDataSize);
+    // m_nDataCount is std::atomic<int64_t> so this increment is safe outside
+    // the rwlock; the int64 width also retires the old "no consider int
+    // wrapround" caveat — the counter won't overflow in any realistic uptime.
+    int64_t new_count = m_nDataCount.fetch_add(len, std::memory_order_relaxed) + len;
+    SPDLOG_TRACE("[{}] CSLSRecycleArray::put, len={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
+                 fmt::ptr(this), len, m_nWritePos, new_count, m_nDataSize);
     return len;
 }
 
@@ -135,17 +143,22 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
 
     if (read_id->bFirst)
     {
+        // Snapshot the write head and byte counter under the read lock so a
+        // concurrent put() can't tear the pair (write head moved forward but
+        // the byte counter still showing the pre-write value, or vice versa).
+        CSLSLock lock(&m_rwclock, false);
         read_id->nReadPos = m_nWritePos;
-        read_id->nDataCount = m_nDataCount;
+        read_id->nDataCount = m_nDataCount.load(std::memory_order_relaxed);
         read_id->bFirst = false;
-        spdlog::trace("[{}] CSLSRecycleArray::get, the first time.", fmt::ptr(this));
+        SPDLOG_TRACE("[{}] CSLSRecycleArray::get, the first time.", fmt::ptr(this));
         return SLS_OK;
     }
 
     CSLSLock lock(&m_rwclock, false);
-    if (read_id->nReadPos == m_nWritePos && m_nDataCount == read_id->nDataCount)
+    int64_t cur_data_count = m_nDataCount.load(std::memory_order_relaxed);
+    if (read_id->nReadPos == m_nWritePos && cur_data_count == read_id->nDataCount)
     {
-        spdlog::trace("[{}] CSLSRecycleArray::get, no new data.", fmt::ptr(this));
+        SPDLOG_TRACE("[{}] CSLSRecycleArray::get, no new data.", fmt::ptr(this));
         return SLS_OK;
     }
 
@@ -157,8 +170,7 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
     // reader's logical position — producing corrupt TS / out-of-order
     // delivery to the subscriber. Force the reader to resync to the
     // current write head and count the event for diagnostics.
-    int64_t bytes_since_last_read =
-        (int64_t)m_nDataCount - (int64_t)read_id->nDataCount;
+    int64_t bytes_since_last_read = cur_data_count - read_id->nDataCount;
     if (bytes_since_last_read >= (int64_t)m_nDataSize)
     {
         int64_t new_count =
@@ -169,12 +181,12 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
                      fmt::ptr(this), (int)bytes_since_last_read, m_nDataSize,
                      (int)new_count);
         read_id->nReadPos = m_nWritePos;
-        read_id->nDataCount = m_nDataCount;
+        read_id->nDataCount = cur_data_count;
         return SLS_OK;
     }
 
-    spdlog::trace("[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
-                  fmt::ptr(this), read_id->nReadPos, m_nWritePos, m_nDataCount, m_nDataSize);
+    SPDLOG_TRACE("[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
+                 fmt::ptr(this), read_id->nReadPos, m_nWritePos, cur_data_count, m_nDataSize);
 
     //update the last read time
     m_last_read_time = sls_gettime_ms();
@@ -234,9 +246,9 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
                      fmt::ptr(this), read_id->nReadPos, m_nDataSize);
         read_id->nReadPos = 0;
     }
-    read_id->nDataCount = m_nDataCount;
-    spdlog::trace("[{}] CSLSRecycleArray::get, copy_data_lens={:d}.",
-                  fmt::ptr(this), copy_data_len);
+    read_id->nDataCount = cur_data_count;
+    SPDLOG_TRACE("[{}] CSLSRecycleArray::get, copy_data_lens={:d}.",
+                 fmt::ptr(this), copy_data_len);
     return copy_data_len;
 }
 

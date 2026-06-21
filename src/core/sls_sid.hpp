@@ -21,6 +21,14 @@ std::map<std::string, std::string> sls_parse_streamid(const char *sid);
 // SLSListenerHandler so the callback and the handler agree on "valid".
 bool sls_validate_sid_format(const char *sid);
 
+// Canonical cache key for the auth-reject cache. Byte-level variants of the
+// same logical streamid (trailing whitespace, reordered k/v pairs, different
+// delimiter form) hash to different map slots and let a misbehaving client
+// bypass the negative cache. Reduce a streamid to "h/sls_app/r" when all
+// three are present; fall back to the raw streamid when it does not parse so
+// behavior is unchanged for unparseable input.
+std::string sls_canonical_sid_key(const std::string &streamid);
+
 // srt_listen_callback hook for the publisher listener. Runs on the listener
 // thread during the handshake, before srt_accept and before any webhook
 // lookup. Rejects malformed streamids (SRT_REJ_ROGUE) and streamids in the

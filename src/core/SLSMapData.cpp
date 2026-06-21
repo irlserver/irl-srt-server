@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <string_view>
 #include "spdlog/spdlog.h"
 
 #include "SLSMapData.hpp"
@@ -49,8 +50,7 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
 
     CSLSLock lock(&m_rwclock, true);
 
-    std::map<std::string, CSLSRecycleArray *>::iterator item;
-    item = m_map_array.find(strKey);
+    auto item = m_map_array.find(strKey);
     if (item != m_map_array.end())
     {
         CSLSRecycleArray *array_data = item->second;
@@ -124,7 +124,7 @@ int64_t CSLSMapData::get_overrun_count(const char *key)
     if (!key)
         return -1;
     CSLSLock lock(&m_rwclock, false);
-    auto it = m_map_array.find(std::string(key));
+    auto it = m_map_array.find(std::string_view{key});
     if (it == m_map_array.end() || it->second == NULL)
         return -1;
     return it->second->get_overrun_count();
@@ -137,8 +137,7 @@ int CSLSMapData::remove(char *key)
 
     CSLSLock lock(&m_rwclock, true);
 
-    std::map<std::string, ts_info *>::iterator item_ti;
-    item_ti = m_map_ts_info.find(strKey);
+    auto item_ti = m_map_ts_info.find(strKey);
     if (item_ti != m_map_ts_info.end())
     {
         ts_info *ti = item_ti->second;
@@ -149,8 +148,7 @@ int CSLSMapData::remove(char *key)
         m_map_ts_info.erase(item_ti);
     }
 
-    std::map<std::string, CSLSRecycleArray *>::iterator item;
-    item = m_map_array.find(strKey);
+    auto item = m_map_array.find(strKey);
     if (item != m_map_array.end())
     {
         CSLSRecycleArray *array_data = item->second;
@@ -169,11 +167,9 @@ int CSLSMapData::remove(char *key)
 bool CSLSMapData::is_exist(char *key)
 {
 
-    CSLSLock lock(&m_rwclock, true);
-    std::string strKey = std::string(key);
+    CSLSLock lock(&m_rwclock, false);
 
-    std::map<std::string, CSLSRecycleArray *>::iterator item;
-    item = m_map_array.find(key);
+    auto item = m_map_array.find(std::string_view{key});
     if (item != m_map_array.end())
     {
         CSLSRecycleArray *array_data = item->second;
@@ -211,10 +207,9 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     // different keys can therefore proceed in parallel, and /stats reads
     // (also read-lock) no longer serialise with the data path.
     CSLSLock lock(&m_rwclock, false);
-    std::string strKey = std::string(key);
+    std::string_view keyView{key};
 
-    std::map<std::string, CSLSRecycleArray *>::iterator item;
-    item = m_map_array.find(strKey);
+    auto item = m_map_array.find(keyView);
     if (item == m_map_array.end())
     {
         spdlog::error("[{}] CSLSMapData::put, key={}, not found data array.",
@@ -237,7 +232,7 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     // lock we cannot insert into m_map_ts_info. If the entry is missing
     // it means add() wasn't called for this key — bail rather than race.
     ts_info *ti = NULL;
-    std::map<std::string, ts_info *>::iterator item_ti = m_map_ts_info.find(strKey);
+    auto item_ti = m_map_ts_info.find(keyView);
     if (item_ti == m_map_ts_info.end() || item_ti->second == NULL)
     {
         spdlog::error("[{}] CSLSMapData::put, key={}, ts_info not pre-allocated.",
@@ -274,10 +269,8 @@ int CSLSMapData::get(char *key, char *data, int len, SLSRecycleArrayID *read_id,
     int ret = SLS_OK;
 
     CSLSLock lock(&m_rwclock, false);
-    std::string strKey = std::string(key);
 
-    std::map<std::string, CSLSRecycleArray *>::iterator item;
-    item = m_map_array.find(strKey);
+    auto item = m_map_array.find(std::string_view{key});
     if (item == m_map_array.end())
     {
         spdlog::trace("[{}] CSLSMapData::get, key={}, not found data array,",
@@ -308,9 +301,7 @@ int CSLSMapData::get_ts_info(char *key, char *data, int len)
 {
     int ret = 0;
     ts_info *ti = NULL;
-    std::string strKey = std::string(key);
-    std::map<std::string, ts_info *>::iterator item_ti;
-    item_ti = m_map_ts_info.find(strKey);
+    auto item_ti = m_map_ts_info.find(std::string_view{key});
     if (item_ti != m_map_ts_info.end())
     {
         ti = item_ti->second;
@@ -326,8 +317,7 @@ int CSLSMapData::get_ts_info(char *key, char *data, int len)
 void CSLSMapData::clear()
 {
     CSLSLock lock(&m_rwclock, true);
-    std::map<std::string, CSLSRecycleArray *>::iterator it;
-    for (it = m_map_array.begin(); it != m_map_array.end();)
+    for (auto it = m_map_array.begin(); it != m_map_array.end();)
     {
         CSLSRecycleArray *array_data = it->second;
         if (array_data)
@@ -337,8 +327,7 @@ void CSLSMapData::clear()
         it++;
     }
     m_map_array.clear();
-    std::map<std::string, ts_info *>::iterator item_ti;
-    for (item_ti = m_map_ts_info.begin(); item_ti != m_map_ts_info.end();)
+    for (auto item_ti = m_map_ts_info.begin(); item_ti != m_map_ts_info.end();)
     {
         ts_info *ti = item_ti->second;
         if (ti)
@@ -376,9 +365,8 @@ void CSLSMapData::set_audio_gap_fill(const char *key, bool enabled)
     // store under the per-publisher single-writer invariant. We don't
     // need a write lock just to flip a flag.
     CSLSLock lock(&m_rwclock, false);
-    std::string strKey = std::string(key);
 
-    std::map<std::string, ts_info *>::iterator item_ti = m_map_ts_info.find(strKey);
+    auto item_ti = m_map_ts_info.find(std::string_view{key});
     if (item_ti == m_map_ts_info.end() || item_ti->second == NULL)
     {
         spdlog::warn("[{}] CSLSMapData::set_audio_gap_fill, key={}, ts_info not"
@@ -398,8 +386,7 @@ bool CSLSMapData::get_audio_gap_stats(const char *key, AudioGapStreamStats &stat
         return false;
 
     CSLSLock lock(&m_rwclock, clear != 0);
-    std::string strKey = std::string(key);
-    std::map<std::string, ts_info *>::iterator item_ti = m_map_ts_info.find(strKey);
+    auto item_ti = m_map_ts_info.find(std::string_view{key});
     if (item_ti == m_map_ts_info.end() || item_ti->second == NULL)
         return false;
 

@@ -25,6 +25,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 
 #include "common.hpp"
 #include "SLSLock.hpp"
@@ -32,7 +33,7 @@
 struct SLSRecycleArrayID
 {
     int nReadPos;
-    int nDataCount;
+    int64_t nDataCount;
     bool bFirst;
 };
 
@@ -69,7 +70,13 @@ public:
 private:
     char *m_arrayData;
     int m_nDataSize;
-    int m_nDataCount;
+    // Total bytes written across the buffer's lifetime. Used by readers to
+    // detect overrun (writer lapped the reader by > m_nDataSize) and to
+    // detect "no new data" between successive get() calls. Touched from
+    // put() (writer) and the bFirst snapshot path in get() outside the
+    // write lock, so the access is atomic. int64_t so the counter does
+    // not realistically overflow during any uptime.
+    std::atomic<int64_t> m_nDataCount{0};
     int m_nWritePos;
     int64_t m_last_read_time;
     std::atomic<int64_t> m_overrun_count;

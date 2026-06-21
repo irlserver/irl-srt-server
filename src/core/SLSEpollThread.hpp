@@ -62,7 +62,11 @@ protected:
     int wake_fd() const { return m_wake_fd; }
 
     int m_eid;
-    int m_wake_fd; // Linux eventfd, signalled by wake() to interrupt epoll.
+    // Wake primitive: on Linux a single eventfd (read==write fd); elsewhere a
+    // self-pipe (m_wake_fd is the read end registered with the epoll, m_wake_fd_write
+    // is the write end). wake() writes the write end; drain_wake_fd() reads m_wake_fd.
+    int m_wake_fd;
+    int m_wake_fd_write;
     SRTSOCKET m_read_socks[MAX_SOCK_COUNT];
     SRTSOCKET m_write_socks[MAX_SOCK_COUNT];
 };

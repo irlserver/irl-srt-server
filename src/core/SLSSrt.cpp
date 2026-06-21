@@ -227,33 +227,43 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
     int lossmaxttlvalue = 200;
     int rcv_buf = 100 * 1024 * 1024;
 
+    // Single cleanup path for every sockopt-failure exit between socket
+    // creation and srt_bind. Pre-fix the function returned SLS_ERROR straight
+    // from each failing branch and leaked both the SRT socket and the
+    // addrinfo on every failed listener setup.
+    auto setup_fail = [&]() -> int {
+        if (fd >= 0) srt_close(fd);
+        if (ai) freeaddrinfo(ai);
+        return SLS_ERROR;
+    };
+
     int status = srt_setsockopt(fd, SOL_SOCKET, SRTO_IPV6ONLY, &ipv6Only, sizeof(ipv6Only));
     if (status < 0) {
         spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_IPV6ONLY failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+        return setup_fail();
     }
 
     status = srt_setsockopt(fd, SOL_SOCKET, SRTO_LOSSMAXTTL, &lossmaxttlvalue, sizeof(lossmaxttlvalue));
     if (status < 0) {
         spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_LOSSMAXTTL failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+        return setup_fail();
     }
 
     status = srt_setsockopt(fd, SOL_SOCKET, SRTO_FC, &fc, sizeof(fc));
     if (status < 0) {
         spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_FC failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+        return setup_fail();
     }
     status = srt_setsockopt(fd, SOL_SOCKET, SRTO_RCVBUF, &rcv_buf, sizeof(rcv_buf));
     if (status < 0) {
         spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_RCVBUF failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+        return setup_fail();
     }
 
     status = srt_setsockopt(fd, SOL_SOCKET, SRTO_SRTLAPATCHES, &srtlaPatchesValue, sizeof(srtlaPatchesValue));
     if (status < 0) {
         spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_SRTLAPATCHES failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+        return setup_fail();
     }
 
     spdlog::info("[{}] CSLSSrt::libsrt_setup, SRTLA patches {}.", fmt::ptr(this), srtla_patches ? "enabled" : "disabled");
@@ -271,7 +281,7 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
     status = srt_setsockopt(fd, SOL_SOCKET, SRTO_TLPKTDROP, &tlpktdrop, sizeof(tlpktdrop));
     if (status < 0) {
         spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_TLPKTDROP failure. err={}.", fmt::ptr(this), srt_getlasterror_str());
-        return SLS_ERROR;
+        return setup_fail();
     }
 
     /* Set the socket's send or receive buffer sizes, if specified.
@@ -345,9 +355,7 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
         {
             spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_PBKEYLEN={} failed: {}.",
                           fmt::ptr(this), m_pbkeylen, srt_getlasterror_str());
-            srt_close(fd);
-            freeaddrinfo(ai);
-            return SLS_ERROR;
+            return setup_fail();
         }
     }
     if (m_passphrase[0] != '\0')
@@ -356,18 +364,16 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
         {
             spdlog::error("[{}] CSLSSrt::libsrt_setup, srt_setsockopt SRTO_PASSPHRASE failed: {}.",
                           fmt::ptr(this), srt_getlasterror_str());
-            srt_close(fd);
-            freeaddrinfo(ai);
-            return SLS_ERROR;
+            return setup_fail();
         }
     }
 
     ret = srt_bind(fd, ai->ai_addr, ai->ai_addrlen);
     if (ret)
     {
-        srt_close(fd);
-        freeaddrinfo(ai);
-        return libsrt_neterrno();
+        int neterr = libsrt_neterrno();
+        setup_fail();
+        return neterr;
     }
 
     s->fd = fd;

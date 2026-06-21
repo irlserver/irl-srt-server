@@ -1,7 +1,6 @@
 [submodule "lib/spdlog"]
 	path = lib/spdlog
 	url = https://github.com/irlserver/spdlog
-	branch = 1.9.2
 [submodule "lib/json"]
 	path = lib/json
 	url = https://github.com/nlohmann/json

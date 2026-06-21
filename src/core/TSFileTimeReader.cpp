@@ -144,7 +144,7 @@ int CTSFileTimeReader::get(uint8_t *data, int size, int64_t &tm_ms, bool &jitter
             n = ::read(m_rts_fd, rts_data, RTS_BUF_SIZE);
             if (n > 0)
             {
-                m_array_data.put(data, n);
+                m_array_data.put(rts_data, n);
             }
             else
             {
@@ -166,7 +166,7 @@ int CTSFileTimeReader::get(uint8_t *data, int size, int64_t &tm_ms, bool &jitter
     int ret = m_array_data.get((uint8_t *)&rts, sizeof(rts));
     if (ret != sizeof(rts))
     {
-        spdlog::error("[{}] CTSFileTimeReader::get, failed, m_array_data.get rts, ret={:d}.",
+        spdlog::error("[{}] CTSFileTimeReader::get, failed, m_array_data.get rts, file='{}', ret={:d}.",
                       fmt::ptr(this), m_file_name, ret);
         return SLS_ERROR;
     }
@@ -179,8 +179,8 @@ int CTSFileTimeReader::get(uint8_t *data, int size, int64_t &tm_ms, bool &jitter
     }
     if (ret != size)
     {
-        spdlog::error("[{}] CTSFileTimeReader::get, failed, m_array_data. get data, ret={:d}, not {:d}.",
-                      fmt::ptr(this), ret, m_file_name, ret, size);
+        spdlog::error("[{}] CTSFileTimeReader::get, failed, m_array_data.get data, file='{}', ret={:d}, not {:d}.",
+                      fmt::ptr(this), m_file_name, ret, size);
         return SLS_ERROR;
     }
     return SLS_OK;
@@ -189,7 +189,7 @@ int CTSFileTimeReader::get(uint8_t *data, int size, int64_t &tm_ms, bool &jitter
 int64_t CTSFileTimeReader::generate_rts_file(const char *ts_file_name)
 {
     int ret = SLS_ERROR;
-    if (NULL == ts_file_name && strlen(ts_file_name) == 0)
+    if (NULL == ts_file_name || strlen(ts_file_name) == 0)
     {
         spdlog::info("[{}] CTSFileTimeReader::generate_rts_file, failed, ts_file_name='{}'.",
                      fmt::ptr(this), ts_file_name);
