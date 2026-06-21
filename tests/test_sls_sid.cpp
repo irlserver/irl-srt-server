@@ -80,3 +80,25 @@ TEST_CASE("sls_parse_streamid: null / empty input returns an empty map")
     CHECK(sls_parse_streamid(nullptr).empty());
     CHECK(sls_parse_streamid("").empty());
 }
+
+TEST_CASE("sls_canonical_sid_key: byte variants of the same streamid collide")
+{
+    // Trailing whitespace, k/v reordering, and the bare vs. standard form
+    // are all the same logical (h, sls_app, r) tuple. Negative-cache key
+    // collisions would let a misbehaving client bypass the reject cache,
+    // so all of these must reduce to the same canonical key.
+    const std::string canon = sls_canonical_sid_key("#!::h=example.com,sls_app=live,r=feed1");
+    CHECK(canon == sls_canonical_sid_key("#!::h=example.com , sls_app=live , r=feed1"));
+    CHECK(canon == sls_canonical_sid_key("#!::sls_app=live,r=feed1,h=example.com"));
+    CHECK(canon == sls_canonical_sid_key("example.com/live/feed1"));
+    CHECK(canon == "example.com/live/feed1");
+}
+
+TEST_CASE("sls_canonical_sid_key: unparseable input falls back to the raw streamid")
+{
+    // Unchanged behavior for inputs that don't carry h/sls_app/r — the
+    // caller still gets *some* key (the raw streamid), just no collapsing.
+    const std::string weird = "not-a-streamid";
+    CHECK(sls_canonical_sid_key(weird) == weird);
+    CHECK(sls_canonical_sid_key("").empty());
+}

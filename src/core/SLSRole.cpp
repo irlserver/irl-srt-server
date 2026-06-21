@@ -37,6 +37,7 @@
 #include "util.hpp"
 #include "SLSBitrateLimit.hpp"
 #include "auth_reject_cache.hpp"
+#include "sls_sid.hpp"
 
 /**
  * CSLSRole class implementation
@@ -753,8 +754,9 @@ int CSLSRole::check_http_passed()
                       fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.error);
         // Negative-cache the streamid so a rotating client hammering the same
         // bad key is rejected at the next handshake (no accept, no webhook).
-        // Only publisher roles carry a cache; key on the raw streamid the
-        // listener callback also sees so the lookup matches the insert.
+        // Only publisher roles carry a cache; key on the canonical streamid
+        // form (h/sls_app/r) so byte-level variants of the same logical
+        // streamid collide with the same cache entry.
         //
         // Only cache on an explicit auth-reject status (401/403): the key
         // itself is bad, so blocking its repeats is correct. A transport
@@ -763,7 +765,7 @@ int CSLSRole::check_http_passed()
         // publisher out for the whole TTL on a single backend hiccup.
         if (m_auth_reject_cache && response.success &&
             (response.status_code == 401 || response.status_code == 403))
-            m_auth_reject_cache->record_failure(get_streamid());
+            m_auth_reject_cache->record_failure(sls_canonical_sid_key(get_streamid()));
         invalid_srt();
         return SLS_ERROR;
     }
