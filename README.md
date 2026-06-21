@@ -2,24 +2,57 @@
 
 ## Introduction
 
-srt-live-server (SLS) is an open source live streaming server for low latency based on Secure Reliable Tranport (SRT).
-Normally, the latency of transport by SLS is less than 1 second in internet.
+srt-live-server (SLS) is an open source live streaming server for low latency based on Secure Reliable Transport (SRT).
+Normally, the latency of transport by SLS is less than 1 second on the internet.
+
+This repository is the IRL focused fork of SLS. It adds SRTLA (bonded cellular) support, player key authentication, per stream bitrate limiting, audio gap filling, webhook driven push destinations, an extended HTTP stats / control API, and a number of stability fixes documented in the feature docs and `CONFIGURATION.md`.
 
 ## Requirements
 
-Please install the SRT library first, refer to [SRT](https://github.com/Haivision/srt) for system enviroment setup.
-SLS can only run on Unix-based operating systems.
+SLS depends on the IRL maintained SRT fork at `https://github.com/irlserver/srt` (branch `belabox`). This fork carries the SRTLA patches the server requires. Building against upstream Haivision SRT will compile but produces the dropped packet / glitching behavior the SRTLA notes in this README warn about; only use upstream SRT as a reference for the base SRT API, not as the runtime dependency.
+
+System prerequisites:
+
+- A C++17 capable compiler (GCC or Clang).
+- CMake 3.10 or newer.
+- OpenSSL development headers (`openssl-dev` on Alpine, `libssl-dev` on Debian or Ubuntu).
+- zlib development headers (`zlib-dev` on Alpine, `zlib1g-dev` on Debian or Ubuntu).
+- The IRL SRT fork (`irlserver/srt`, branch `belabox`) built and installed on the host. See the Dockerfile in this repository for the exact build steps used in CI.
+- Git submodules in this repository (`git submodule update --init`).
+
+SLS builds and runs on Linux and on macOS. It is not supported on Windows.
 
 ## Compilation
 
 ```bash
 git submodule update --init
-mkdir build && cd build
-cmake ../ -DCMAKE_BUILD_TYPE=Release
-make -j
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ```
 
-Binaries are created in `build/bin/` directory.
+Binaries are created in `build/bin/`.
+
+## Running the tests
+
+The repository ships a doctest based unit test suite wired into CTest.
+
+```bash
+cmake -S . -B build -DSLS_BUILD_TESTS=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+Two sanitizer build flavors are available for catching memory and threading bugs on the manual ring buffer and the cross thread role / listener / manager state. These options are mutually exclusive.
+
+```bash
+# AddressSanitizer + UndefinedBehaviorSanitizer
+cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DSLS_BUILD_TESTS=ON -DSLS_SANITIZE=ON
+cmake --build build-asan -j && ctest --test-dir build-asan --output-on-failure
+
+# ThreadSanitizer
+cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DSLS_BUILD_TESTS=ON -DSLS_TSAN=ON
+cmake --build build-tsan -j && ctest --test-dir build-tsan --output-on-failure
+```
 
 ## Usage
 
@@ -28,18 +61,18 @@ Binaries are created in `build/bin/` directory.
 ### Help information
 
 ```bash
-./srt_server -h
+./bin/srt_server -h
 ```
 
 ### Run with default configuration file
 
 ```bash
-./srt_server -c ../sls.conf
+./bin/srt_server -c ../src/sls.conf
 ```
 
 ## Configuration
 
-Configuration directives are documented on the [wiki page](https://github.com/rstular/srt-live-server/wiki/Directives).
+The full list of IRL specific configuration directives lives in [`CONFIGURATION.md`](CONFIGURATION.md). The upstream `rstular/srt-live-server` [wiki](https://github.com/rstular/srt-live-server/wiki/Directives) remains a useful reference for the base SLS directives this fork inherited, but every directive added by this fork is documented in `CONFIGURATION.md`.
 
 ### SRTLA / Bonded Connection Support
 
@@ -70,9 +103,7 @@ server {
 ```
 
 **Why separate ports?**
-SRTLA bonded connections require special SRT patches that disable dynamic reorder tolerance and periodic NAK reports. Using the wrong setting causes glitching:
-- Direct SRT with SRTLA patches = dropped packets
-- SRTLA without patches = spurious retransmissions
+SRTLA bonded connections require special SRT patches that disable dynamic reorder tolerance and periodic NAK reports. Using the wrong setting causes glitching. Direct SRT served with SRTLA patches drops packets, while SRTLA served without the patches produces spurious retransmissions.
 
 ## Testing
 
@@ -80,9 +111,9 @@ srt-live-server only supports the MPEG-TS format streaming.
 
 ### Test with FFmpeg
 
-You can push camera live stream using FFmpeg. FFmpeg must be compiled with `--enable-libsrt` flag - to obtain appropriate binaries, download FFmpeg sourcecode from https://github.com/FFmpeg/FFmpeg, then compile FFmpeg with `--enable-libsrt`.
+You can push a camera live stream using FFmpeg. FFmpeg must be compiled with `--enable-libsrt`. To obtain appropriate binaries, download FFmpeg sourcecode from https://github.com/FFmpeg/FFmpeg, then compile FFmpeg with `--enable-libsrt`.
 
-`srt` library is installed in folder `/usr/local/lib64`.
+The `srt` library is installed in folder `/usr/local/lib64`.
 
 If `ERROR: srt >= 1.3.0 not found using pkg-config` occurs during the compilation of FFmpeg, please check the `ffbuild/config.log` file and follow its instruction to resolve this issue. In most cases it can be resolved by executing the following command:
 
@@ -90,7 +121,7 @@ If `ERROR: srt >= 1.3.0 not found using pkg-config` occurs during the compilatio
 export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig
 ```
 
-If `error while loading shared libraries: libsrt.so.1` occurs, please add `srt` library path to the runtime linker configuration file, `/etc/ld.so.conf`, then refresh the cache by running the comand `/sbin/ldconfig` as root.
+If `error while loading shared libraries: libsrt.so.1` occurs, please add the `srt` library path to the runtime linker configuration file, `/etc/ld.so.conf`, then refresh the cache by running the command `/sbin/ldconfig` as root.
 
 #### Push stream from webcam to SRT
 
@@ -106,13 +137,13 @@ If `error while loading shared libraries: libsrt.so.1` occurs, please add `srt` 
 
 ### Test with OBS
 
-OBS supports SRT protocol to publish streams from version `v25.0` onwards. To publish SRT stream from OBS to SRT Live Server you can use the following url:
+OBS supports the SRT protocol to publish streams from version `v25.0` onwards. To publish an SRT stream from OBS to SRT Live Server you can use the following url:
 
 ```
 srt://[your.sls.ip]:8080?streamid=uplive.sls/live/test
 ```
 
-You can also add a SRT stream as an input source. To do this, add a `Media source` to OBS, enter `mpegts` as input format and set the following input URL:
+You can also add an SRT stream as an input source. To do this, add a `Media source` to OBS, enter `mpegts` as input format and set the following input URL:
 
 ```
 srt://[your.sls.ip]:8080?streamid=live.sls/live/test
@@ -120,7 +151,7 @@ srt://[your.sls.ip]:8080?streamid=live.sls/live/test
 
 ### Test with SRT Live Client
 
-There is a test tool in SLS which can be used as a performance test - it has no codec overhead, only network overhead. The SRT Live Client can play a SRT stream to a TS file, or push a TS file to a SRT stream.
+There is a test tool in SLS which can be used as a performance test. It has no codec overhead, only network overhead. The SRT Live Client can play an SRT stream to a TS file, or push a TS file to an SRT stream.
 
 #### Push a TS file via SRT
 
@@ -136,7 +167,7 @@ There is a test tool in SLS which can be used as a performance test - it has no 
 
 ## Use SLS with docker
 
-Please refer to: https://hub.docker.com/r/ravenium/srt-live-server
+The repository's `Dockerfile` builds a minimal Alpine based image that pins the SRT fork to a known good commit on the `belabox` branch. To bump that pin, change the `ARG SRT_COMMIT=...` line in the `Dockerfile` to the new commit hash from `https://github.com/irlserver/srt/tree/belabox`. A community maintained image is also published at `https://hub.docker.com/r/ravenium/srt-live-server`.
 
 ## Development
 
@@ -144,15 +175,31 @@ To build a debug build of the SRT Live Server, run the following commands:
 
 ```bash
 git submodule update --init
-mkdir build && cd build
-cmake ../ -DCMAKE_BUILD_TYPE=Debug
-make -j
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DSLS_BUILD_TESTS=ON
+cmake --build build -j
 ```
 
-## Note:
+For sanitizer flavored debug builds see the "Running the tests" section above. For agent and contributor orientation (build layout, where the live SRT boundary is, commit conventions) see [`CLAUDE.md`](CLAUDE.md).
 
-- SLS refers to the RTMP url format (domain/app/stream_name), example: www.sls.com/live/test. The URL must be set in streamid parameter of SRT, which will be the unique identification a stream.
+### Bumping vendored submodules
 
-- How to distinguish the publisher and player of the same stream? In the configuration file file, you can set parameters of domain_player/domain_publisher and app_player/app_publisher to resolve it. Importantly, the two combination strings of domain_publisher/app_publisher and domain_player/app_player must not be equal in the same server block.
+Vendored libraries under `lib/` are pinned via git submodules. `lib/cpp-httplib` is pinned to release tag `v0.48.0`, `lib/json` to `v3.12.0`, and `lib/spdlog` tracks the `irlserver/spdlog` fork (which does not publish release tags, so it is pinned by commit). To bump one:
 
-- I supplied a simple android app for testing SLS, which can be downloaded from https://github.com/Edward-Wu/liteplayer-srt
+```bash
+cd lib/<name>
+git fetch --tags
+git checkout <new-tag-or-commit>
+cd ../..
+git add lib/<name>
+git commit -m "chore(deps): bump <name> to <new-tag-or-commit>"
+```
+
+The SRT belabox fork is not a submodule; it is pinned by commit hash via the `SRT_COMMIT` build argument in `Dockerfile`.
+
+## Notes
+
+- SLS refers to the RTMP url format (domain/app/stream_name), example: www.sls.com/live/test. The URL must be set in the streamid parameter of SRT, which will be the unique identification of a stream.
+
+- How to distinguish the publisher and player of the same stream? In the configuration file, you can set parameters of `domain_player` / `domain_publisher` and `app_player` / `app_publisher` to resolve it. Importantly, the two combination strings of `domain_publisher` / `app_publisher` and `domain_player` / `app_player` must not be equal in the same server block.
+
+- A simple Android app for testing SLS can be downloaded from https://github.com/Edward-Wu/liteplayer-srt.
