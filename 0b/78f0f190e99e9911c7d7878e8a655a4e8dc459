@@ -1,0 +1,26 @@
+src/core/sls_sid.hpp
+  s_a2ad363f024564::t_3336f8474c74c6 24-31
+src/core/sls_sid.cpp
+  s_a2ad363f024564::t_ea6796b7831dfe 44-56
+  s_a2ad363f024564::t_3811f416d70150 91
+src/core/SLSRole.cpp
+  s_a2ad363f024564::t_75e172c15288d6 40
+  s_a2ad363f024564::t_3e87e082118b7c 757-759
+  s_a2ad363f024564::t_3da6c020ea3879 768
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "0b78f0f190e99e9911c7d7878e8a655a4e8dc459",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
