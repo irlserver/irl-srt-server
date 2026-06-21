@@ -333,18 +333,28 @@ void CSLSListener::process_player_key_response(const std::string& key, const Asy
             stream_id = json_response["stream_id"];
         } else {
             spdlog::error("[{}] CSLSListener::process_player_key_response, JSON response missing 'stream_id' for key='{}'.", fmt::ptr(this), key);
+            cache_negative();
             return;
         }
         if (json_response.contains("max_players_per_stream")) {
             if (json_response["max_players_per_stream"].is_number_integer()) {
                 json_max_players_override = json_response["max_players_per_stream"].get<int>();
-                json_has_max_players_override = true;
+                // -1 is the documented "unlimited" sentinel; any value below
+                // that is meaningless and likely a misconfigured backend.
+                if (json_max_players_override < -1) {
+                    spdlog::warn("[{}] CSLSListener::process_player_key_response, max_players_per_stream={} invalid (< -1) for key='{}'; ignoring override.",
+                                 fmt::ptr(this), json_max_players_override, key);
+                    json_has_max_players_override = false;
+                } else {
+                    json_has_max_players_override = true;
+                }
             } else {
                 spdlog::warn("[{}] CSLSListener::process_player_key_response, 'max_players_per_stream' present but not an integer for key='{}'; ignoring.", fmt::ptr(this), key);
             }
         }
     } catch (const nlohmann::json::exception& e) {
         spdlog::error("[{}] CSLSListener::process_player_key_response, failed to parse JSON for key='{}': {}.", fmt::ptr(this), key, e.what());
+        cache_negative();
         return;
     }
 
@@ -353,6 +363,7 @@ void CSLSListener::process_player_key_response(const std::string& key, const Asy
     if (stream_id.empty() || stream_id.length() >= URL_MAX_LEN) {
         spdlog::error("[{}] CSLSListener::process_player_key_response, invalid or empty stream_id '{}' for key='{}'.",
                      fmt::ptr(this), stream_id.c_str(), key);
+        cache_negative();
         return;
     }
 
