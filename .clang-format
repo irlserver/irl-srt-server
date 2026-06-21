@@ -1,0 +1,20 @@
+---
+# Advisory config; not yet wired into CI. The existing tree predates any
+# formatter, so a full reformat is deferred to avoid burying future diffs.
+# Settings here match the dominant style already in src/: 4-space indent,
+# Allman braces, no tabs, 120-column soft limit.
+BasedOnStyle: LLVM
+IndentWidth: 4
+UseTab: Never
+ColumnLimit: 120
+BreakBeforeBraces: Allman
+AccessModifierOffset: -4
+AlignAfterOpenBracket: Align
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+DerivePointerAlignment: false
+PointerAlignment: Right
+SortIncludes: false
+SpaceAfterCStyleCast: false
+Standard: c++17

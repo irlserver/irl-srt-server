@@ -1,0 +1,7 @@
+---
+# Conservative, warn-only baseline. Tightened once the existing backlog is
+# triaged. Scoped to src/core/ so submodule/header-only deps under lib/ stay
+# silent.
+Checks: 'bugprone-*,performance-*,modernize-use-override,modernize-use-nullptr,-bugprone-easily-swappable-parameters'
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/core/.*'
