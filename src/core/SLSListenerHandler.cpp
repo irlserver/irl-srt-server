@@ -307,6 +307,13 @@ int CSLSListener::handler()
     char stream_part[URL_MAX_LEN] = {0};
 
     char* sid_copy = strdup(sid);
+    if (!sid_copy) {
+        spdlog::error("[{}] CSLSListener::handler, strdup(sid) failed (OOM); rejecting connection from {}:{}.",
+                     fmt::ptr(this), peer_name, peer_port);
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    }
     char* token = strtok(sid_copy, "/");
     int part_count = 0;
 
