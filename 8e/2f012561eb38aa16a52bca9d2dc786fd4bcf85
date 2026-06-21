@@ -1,0 +1,19 @@
+src/core/TCPRole.cpp
+  s_a2ad363f024564::t_933d130430a851 237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "8e2f012561eb38aa16a52bca9d2dc786fd4bcf85",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
