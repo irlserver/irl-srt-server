@@ -122,8 +122,8 @@ int CSLSRecycleArray::put(char *data, int len)
     // the rwlock; the int64 width also retires the old "no consider int
     // wrapround" caveat — the counter won't overflow in any realistic uptime.
     int64_t new_count = m_nDataCount.fetch_add(len, std::memory_order_relaxed) + len;
-    spdlog::trace("[{}] CSLSRecycleArray::put, len={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
-                  fmt::ptr(this), len, m_nWritePos, new_count, m_nDataSize);
+    SPDLOG_TRACE("[{}] CSLSRecycleArray::put, len={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
+                 fmt::ptr(this), len, m_nWritePos, new_count, m_nDataSize);
     return len;
 }
 
@@ -150,7 +150,7 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         read_id->nReadPos = m_nWritePos;
         read_id->nDataCount = m_nDataCount.load(std::memory_order_relaxed);
         read_id->bFirst = false;
-        spdlog::trace("[{}] CSLSRecycleArray::get, the first time.", fmt::ptr(this));
+        SPDLOG_TRACE("[{}] CSLSRecycleArray::get, the first time.", fmt::ptr(this));
         return SLS_OK;
     }
 
@@ -158,7 +158,7 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
     int64_t cur_data_count = m_nDataCount.load(std::memory_order_relaxed);
     if (read_id->nReadPos == m_nWritePos && cur_data_count == read_id->nDataCount)
     {
-        spdlog::trace("[{}] CSLSRecycleArray::get, no new data.", fmt::ptr(this));
+        SPDLOG_TRACE("[{}] CSLSRecycleArray::get, no new data.", fmt::ptr(this));
         return SLS_OK;
     }
 
@@ -185,8 +185,8 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         return SLS_OK;
     }
 
-    spdlog::trace("[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
-                  fmt::ptr(this), read_id->nReadPos, m_nWritePos, cur_data_count, m_nDataSize);
+    SPDLOG_TRACE("[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
+                 fmt::ptr(this), read_id->nReadPos, m_nWritePos, cur_data_count, m_nDataSize);
 
     //update the last read time
     m_last_read_time = sls_gettime_ms();
@@ -247,8 +247,8 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         read_id->nReadPos = 0;
     }
     read_id->nDataCount = cur_data_count;
-    spdlog::trace("[{}] CSLSRecycleArray::get, copy_data_lens={:d}.",
-                  fmt::ptr(this), copy_data_len);
+    SPDLOG_TRACE("[{}] CSLSRecycleArray::get, copy_data_lens={:d}.",
+                 fmt::ptr(this), copy_data_len);
     return copy_data_len;
 }
 

@@ -438,7 +438,7 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
 
     if (n != TS_UDP_LEN)
     {
-        spdlog::trace("[{}] CSLSRole::handler_read_data, libsrt_read n={:d}, expect {:d}.", fmt::ptr(this), n, TS_UDP_LEN);
+        SPDLOG_TRACE("[{}] CSLSRole::handler_read_data, libsrt_read n={:d}, expect {:d}.", fmt::ptr(this), n, TS_UDP_LEN);
     }
 
     if (NULL == m_map_data)
@@ -447,7 +447,7 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
         return SLS_ERROR;
     }
 
-    spdlog::trace("[{}] CSLSRole::handler_read_data, ok, libsrt_read n={:d}.", fmt::ptr(this), n);
+    SPDLOG_TRACE("[{}] CSLSRole::handler_read_data, ok, libsrt_read n={:d}.", fmt::ptr(this), n);
     int ret = m_map_data->put(m_map_data_key, szData, n, last_read_time);
 
     return ret;
@@ -609,8 +609,8 @@ int CSLSRole::handler_write_data()
                             return SLS_ERROR;
                         }
 
-                        spdlog::trace("[{}] CSLSRole::handler_write_data, backpressure, pos={:d}, remaining={:d}.",
-                                      fmt::ptr(this), m_data_pos, remainer);
+                        SPDLOG_TRACE("[{}] CSLSRole::handler_write_data, backpressure, pos={:d}, remaining={:d}.",
+                                     fmt::ptr(this), m_data_pos, remainer);
                         return write_size;
                     }
                     spdlog::error("[{}] CSLSRole::handler_write_data, write data failed, len={:d}, ret={:d}, errno={:d}, not {:d}.",
@@ -648,7 +648,7 @@ int CSLSRole::handler_write_data()
             // unexpected short-write path; EASYNCSND already returned
             // above). Preserve the offset and stop — the worker arms OUT
             // and we resume next cycle.
-            spdlog::trace("[{}] CSLSRole::handler_write_data, write data, len={:d}, remainder={:d}.", fmt::ptr(this), len, m_data_len - m_data_pos);
+            SPDLOG_TRACE("[{}] CSLSRole::handler_write_data, write data, len={:d}, remainder={:d}.", fmt::ptr(this), len, m_data_len - m_data_pos);
             return write_size;
         }
 

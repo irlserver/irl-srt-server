@@ -40,6 +40,13 @@ include(CPack)
 
 add_compile_definitions(SLS_VERSION="${PROJECT_VERSION}")
 
+# Compile out per-packet SPDLOG_TRACE/SPDLOG_DEBUG calls. Only the
+# SPDLOG_TRACE(...) / SPDLOG_DEBUG(...) macros respect this; plain
+# spdlog::trace(...) function calls still pay the format-arg evaluation
+# cost. The hot per-packet sites on the data path use the macro form so
+# their argument evaluation is fully stripped here.
+add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO)
+
 # --- External libraries ---
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
