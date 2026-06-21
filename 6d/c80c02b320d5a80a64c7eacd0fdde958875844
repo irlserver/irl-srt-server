@@ -1,0 +1,24 @@
+src/core/common.hpp
+  s_a2ad363f024564::t_ba823e1585678b 28-29,43-46
+src/core/SLSThread.cpp
+  s_a2ad363f024564::t_c323aad8264ff1 70
+  s_a2ad363f024564::t_3643bd56064645 59
+src/core/SLSEpollThread.cpp
+  s_a2ad363f024564::t_40ad8a0e43bc78 63,132,172,180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "6dc80c02b320d5a80a64c7eacd0fdde958875844",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
