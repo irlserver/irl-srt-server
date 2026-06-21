@@ -1,0 +1,39 @@
+tests/test_sls_sid.cpp
+  s_a2ad363f024564::t_18a3464f0a6fdf 1-82
+tests/test_audio_gap_filler.cpp
+  s_a2ad363f024564::t_e256d171e145c0 134-137,139
+  s_a2ad363f024564::t_77ef2400ac57b6 1-21,25-76,78-86,88-95,97-105,107-114,116-127,129-133,138,140-167
+  s_a2ad363f024564::t_32df41b70baee0 22-24
+tests/CMakeLists.txt
+  s_a2ad363f024564::t_80f7bdb679d8d0 12
+  s_a2ad363f024564::t_d176d968b65938 1-11,13
+tests/test_auth_reject_cache.cpp
+  s_a2ad363f024564::t_fd665628549f98 1-82
+tests/test_recycle_array.cpp
+  s_a2ad363f024564::t_988eec6be2bbab 1-125
+CMakeLists.txt
+  s_a2ad363f024564::t_57958403207572 18-30
+  s_a2ad363f024564::t_b7d3e8ad6723a3 70-73
+tests/test_bitrate_limit.cpp
+  s_a2ad363f024564::t_fa3a036520737d 4
+  s_a2ad363f024564::t_703972ff630720 110-115,123-124
+  s_a2ad363f024564::t_844672fa76b86c 1-3,5-109,116-122,125-140
+tests/test_main.cpp
+  s_a2ad363f024564::t_68b9e39a045085 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "8b930b4807046f69c44f73d8ad11765617cef017",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
