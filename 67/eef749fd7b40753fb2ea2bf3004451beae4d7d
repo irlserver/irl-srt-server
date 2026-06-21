@@ -1,0 +1,19 @@
+README.md
+  s_a2ad363f024564::t_8d0f7e4f46bc20 5-8,12-23,29-30,33-55,64,70,75,106,114,116,124,140,146,154,170,178-194,197-199,201,203,205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "67eef749fd7b40753fb2ea2bf3004451beae4d7d",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
