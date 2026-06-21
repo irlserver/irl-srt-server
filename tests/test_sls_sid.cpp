@@ -102,3 +102,27 @@ TEST_CASE("sls_canonical_sid_key: unparseable input falls back to the raw stream
     CHECK(sls_canonical_sid_key(weird) == weird);
     CHECK(sls_canonical_sid_key("").empty());
 }
+
+TEST_CASE("sls_validate_sid_format: url-significant characters in any component are rejected")
+{
+    // ?, #, &, =, %, and space all carry meaning in the outbound srt:// URL
+    // built by SLSPullerManager. A streamid component containing any of them
+    // could splice query parameters into the relay leg's upstream URL.
+    CHECK_FALSE(sls_validate_sid_format("#!::h=example.com,sls_app=live,r=feed1?evil=1"));
+    CHECK_FALSE(sls_validate_sid_format("example.com/live/feed1?evil=1"));
+    CHECK_FALSE(sls_validate_sid_format("example.com/live/feed&1"));
+    CHECK_FALSE(sls_validate_sid_format("example.com/live/feed#1"));
+    CHECK_FALSE(sls_validate_sid_format("example.com/live/feed%201"));
+    CHECK_FALSE(sls_validate_sid_format("example.com/live/feed 1"));
+}
+
+TEST_CASE("sls_validate_sid_format: ordinary alphanumeric and . _ - names still accepted")
+{
+    // Make sure the tightened character set did not accidentally lock out
+    // names operators already use. Letters, digits, dot, underscore, hyphen
+    // are the documented streamid alphabet and must keep validating.
+    CHECK(sls_validate_sid_format("example.com/live/feed-1"));
+    CHECK(sls_validate_sid_format("example.com/live/feed_1"));
+    CHECK(sls_validate_sid_format("example.com/live/Feed.01"));
+    CHECK(sls_validate_sid_format("#!::h=example.com,sls_app=live,r=A_b-c.1"));
+}

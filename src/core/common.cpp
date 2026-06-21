@@ -375,6 +375,17 @@ bool sls_is_safe_name(const char *s)
     {
         if (*p == '/' || *p == '\\')
             return false;
+        // URL-significant characters that have no place in a streamid
+        // component. When the pull relay is enabled the stream name is
+        // concatenated into an outbound srt:// URL; allowing these would
+        // let a player splice query parameters into the relay leg. ':' and
+        // '@' are left alone — they have legitimate uses in URL authority
+        // and could appear in opaque identifiers the operator already
+        // accepts; the injection vector is the query/fragment, not the
+        // authority.
+        if (*p == '?' || *p == '#' || *p == '&' || *p == '=' ||
+            *p == '%' || *p == ' ')
+            return false;
         if (*p < 0x20 || *p == 0x7f)
             return false;
     }
