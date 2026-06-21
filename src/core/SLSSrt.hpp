@@ -129,6 +129,9 @@ public:
     int libsrt_getsockstate();
     int libsrt_getpeeraddr(char *peer_name, int &port);
     int libsrt_getpeeraddr_raw(unsigned long &address, struct in6_addr &address6);
+    // True once libsrt_getpeeraddr_raw has resolved an IPv6 peer. ACL code
+    // uses this to know that peer_addr_raw is not meaningful for matching.
+    bool libsrt_is_ipv6_peer() const { return m_is_ipv6; }
     int libsrt_get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
 
     void libsrt_set_latency(int latency);
