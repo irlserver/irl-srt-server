@@ -1,0 +1,22 @@
+src/core/SLSListenerAuth.cpp
+  s_a2ad363f024564::t_0a02ea1f1ebcc2 366
+  s_a2ad363f024564::t_493fc52e9c7e19 357
+  s_a2ad363f024564::t_faeb3eba7030f4 336
+  s_a2ad363f024564::t_4bdb7cb5738090 342-350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "6de2c7cda9aadc9b0f306f2ebb2b91167517cc0b",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
