@@ -15,6 +15,19 @@ endif()
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -s")
 
+option(SLS_BUILD_TESTS "Build unit tests" OFF)
+option(SLS_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+option(SLS_TSAN "Build with ThreadSanitizer (mutually exclusive with SLS_SANITIZE)" OFF)
+
+if (SLS_SANITIZE)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -O1 -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+if (SLS_TSAN)
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -O1 -g)
+    add_link_options(-fsanitize=thread)
+endif()
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
@@ -54,3 +67,7 @@ add_subdirectory(lib/CxxUrl)
 
 # Use SLS Core
 add_subdirectory(${PROJECT_SOURCE_DIR}/src)
+
+if (SLS_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
