@@ -127,6 +127,15 @@ int CSLSClient::open_url(const char *url)
 		spdlog::warn("[{}}]CSLSClient::play, add_to_epoll failed.", fmt::ptr(this));
 		return CSLSSrt::libsrt_neterrno();
 	}
+	// The push loop (write_data_handler) sends only when srt_epoll_wait reports
+	// the socket writable. libsrt_add_to_epoll no longer arms writable roles for
+	// SRT_EPOLL_OUT by default (the server drives egress from its worker tick),
+	// so this standalone client must arm OUT itself or it would never see the
+	// socket become writable and would never send a packet.
+	if (m_is_write && NULL != m_srt)
+	{
+		m_srt->libsrt_arm_epoll_out(true);
+	}
 	return SLS_OK;
 }
 
