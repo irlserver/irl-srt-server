@@ -1,0 +1,30 @@
+src/core/SLSManager.hpp
+  s_2000c2c5385991::t_32d0d8054e402f 129-131
+  s_2000c2c5385991::t_52ac602d611a98 81-92
+src/core/SLSSrt.cpp
+  s_2000c2c5385991::t_1d1e60becf63b9 228-235
+src/sls.conf
+  s_2000c2c5385991::t_9d920b7525d44d 11-18
+src/core/SLSRelay.cpp
+  s_2000c2c5385991::t_0b742d865a694e 377-382
+src/core/common.cpp
+  s_2000c2c5385991::t_28d7f7ddf518ca 185-208
+src/core/common.hpp
+  s_2000c2c5385991::t_236de92b9e3d40 117-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "a2b3edc0ca4c62b21e5a8afa823be4e10daa10f7",
+  "prompts": {},
+  "sessions": {
+    "s_2000c2c5385991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecb5d922-d7c2-429a-ada3-a7fb80ec0ba6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
