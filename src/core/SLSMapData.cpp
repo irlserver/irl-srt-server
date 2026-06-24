@@ -353,6 +353,10 @@ int CSLSMapData::check_ts_info(char *data, int len, ts_info *ti)
         sls_parse_ts_info((const uint8_t *)data + i, TS_PACK_LEN, ti);
     }
 
+    if (ti->sps_len > 0 && ti->pps_len > 0 && ti->pat_len > 0 && ti->pmt_len > 0)
+    {
+        return SLS_OK;
+    }
     return SLS_ERROR;
 }
 
