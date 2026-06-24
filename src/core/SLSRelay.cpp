@@ -75,7 +75,7 @@ CSLSRelay::CSLSRelay()
 
     m_server_port = 0;
     m_map_publisher = NULL;
-    m_relay_manager = NULL;
+    m_relay_manager.store(NULL, std::memory_order_relaxed);
     m_need_reconnect = true;
 
     sprintf(m_role_name, "relay");
@@ -89,9 +89,15 @@ CSLSRelay::~CSLSRelay()
 int CSLSRelay::uninit()
 {
     // for reconnect
-    if (NULL != m_relay_manager)
+    //
+    // Load the manager once via acquire so we pair with the release store in
+    // set_relay_manager(). If the publisher detached us (set it to NULL) before
+    // freeing its dynamic CSLSPusherManager, we observe NULL here and skip the
+    // callback into a possibly-freed manager.
+    void *relay_manager = m_relay_manager.load(std::memory_order_acquire);
+    if (NULL != relay_manager)
     {
-        ((CSLSRelayManager *)m_relay_manager)->add_reconnect_stream(m_url);
+        ((CSLSRelayManager *)relay_manager)->add_reconnect_stream(m_url);
         spdlog::info("[{}] CSLSRelay::uninit, add_reconnect_stream, m_url={}.",
                      fmt::ptr(this), m_url);
     }
@@ -106,12 +112,16 @@ void CSLSRelay::set_map_publisher(CSLSMapPublisher *map_publisher)
 
 void CSLSRelay::set_relay_manager(void *relay_manager)
 {
-    m_relay_manager = relay_manager;
+    // Release store: when a publisher detaches this child (stores NULL) before
+    // freeing the manager, the NULL becomes visible to the owning worker's
+    // acquire load (in uninit()/get_relay_manager()) ahead of any teardown the
+    // worker does in response to the paired request_kick().
+    m_relay_manager.store(relay_manager, std::memory_order_release);
 }
 
 void *CSLSRelay::get_relay_manager()
 {
-    return m_relay_manager;
+    return m_relay_manager.load(std::memory_order_acquire);
 }
 
 // Helper to parse integer with bounds checking

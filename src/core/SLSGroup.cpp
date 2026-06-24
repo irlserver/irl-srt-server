@@ -24,6 +24,7 @@
 
 #include <errno.h>
 #include <string.h>
+#include <algorithm>
 #include "spdlog/spdlog.h"
 
 #include "SLSGroup.hpp"
@@ -426,9 +427,30 @@ void CSLSGroup::check_invalid_sock()
             {
                 CSLSRelay *relay = (CSLSRelay *)role.get();
                 CSLSRelayManager *relay_manager = (CSLSRelayManager *)relay->get_relay_manager();
-                m_list_reconnect_relay_manager.push_back(relay_manager);
-                spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, need reconnect.",
-                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
+                if (NULL == relay_manager)
+                {
+                    // Detached child: its publisher tore down the dynamic pusher
+                    // manager, so there is nothing to reconnect through. Skip so
+                    // we never enqueue (and later deref) a freed manager.
+                    spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, detached relay, skip reconnect.",
+                                 fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
+                }
+                else if (std::find(m_list_reconnect_relay_manager.begin(),
+                                   m_list_reconnect_relay_manager.end(),
+                                   relay_manager) != m_list_reconnect_relay_manager.end())
+                {
+                    // De-dup: already queued (e.g. several of this manager's
+                    // upstreams dropped at once). A duplicate would have one
+                    // check_reconnect_relay pass process the same manager twice.
+                    spdlog::debug("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, manager already queued, skip duplicate.",
+                                 fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
+                }
+                else
+                {
+                    m_list_reconnect_relay_manager.push_back(relay_manager);
+                    spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, need reconnect.",
+                                 fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
+                }
             }
 
             role->uninit();

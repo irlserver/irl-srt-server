@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "SLSRole.hpp"
 #include "SLSMapPublisher.hpp"
 
@@ -122,7 +124,14 @@ protected:
     int m_server_port;
 
     CSLSMapPublisher *m_map_publisher;
-    void *m_relay_manager;
+    // Back-pointer to the CSLSRelayManager that spawned this relay. Atomic
+    // because a publisher tearing down its dynamic CSLSPusherManager detaches
+    // its child pushers (set_relay_manager(NULL)) from a DIFFERENT thread than
+    // the worker that owns the pusher socket and reads this pointer in
+    // uninit()/check_invalid_sock. A plain pointer would be a data race; the
+    // atomic publishes the NULL store before the relay's owning worker tears
+    // it down, so the reconnect path never derefs a freed manager (UAF).
+    std::atomic<void *> m_relay_manager;
 
     int parse_url(char *url, char *host_name, size_t host_name_size, int &port, SRTUrlOptions &options);
 };

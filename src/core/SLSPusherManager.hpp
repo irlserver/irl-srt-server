@@ -24,10 +24,12 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 #include <string>
 
 #include "SLSRelayManager.hpp"
+#include "SLSLock.hpp"
 #include "conf.hpp"
 
 /**
@@ -43,6 +45,12 @@ public:
     virtual int add_reconnect_stream(char *relay_url);
     virtual int reconnect(int64_t cur_tm_ms);
 
+    // Detach + kick every live child pusher this manager spawned, so an
+    // orphaned pusher can never deref this manager after the publisher frees
+    // it (UAF). Must run BEFORE delete. Cross-thread safe: per-relay atomics
+    // under m_child_relays_mutex only (never m_rwclock) => no lock-order edge.
+    void detach_child_relays();
+
 private:
     int connect_all();
     virtual CSLSRelay *create_relay();
@@ -52,4 +60,12 @@ private:
 
     CSLSRWLock m_rwclock;
     std::map<std::string, int64_t> m_map_reconnect_relay; //relay:timeout
+
+    // Weak handles to the child pushers spawned via set_relay_param(). Weak so
+    // tracking never extends a pusher's lifetime; the owning worker's role map
+    // remains the sole owner. Guarded by its OWN mutex (NOT m_rwclock) so the
+    // detach path cannot deadlock/invert against reconnect_all(), which holds
+    // m_rwclock while it calls connect()->set_relay_param().
+    std::vector<std::weak_ptr<CSLSRelay>> m_child_relays;
+    CSLSMutex m_child_relays_mutex;
 };
