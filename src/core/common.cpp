@@ -137,7 +137,10 @@ int sls_gethostbyname(const char *hostname, char *ip)
     char *ptr;
     // char **pptr;
     struct hostent *hptr;
-    char str[32];
+    // Must hold an IPv6 literal (up to 45 chars + NUL): a 32-byte buffer made
+    // inet_ntop fail (NULL) for long IPv6 addresses, which then crashed the
+    // strcpy below. ip must be >= INET6_ADDRSTRLEN; all callers pass IP_MAX_LEN.
+    char str[INET6_ADDRSTRLEN];
     ptr = (char *)hostname;
     int ret = SLS_ERROR;
 
@@ -157,15 +160,20 @@ int sls_gethostbyname(const char *hostname, char *ip)
     {
     case AF_INET:
     case AF_INET6:
-        // pptr=hptr->h_addr_list;
-        // for(; *pptr!=NULL; pptr++)
-        //     printf(" address:%s\n",
-        //            inet_ntop(hptr->h_addrtype, *pptr, str, sizeof(str)));
-
-        // copy the 1st ip
-        strcpy(ip, inet_ntop(hptr->h_addrtype, hptr->h_addr, str, sizeof(str)));
+    {
+        // copy the 1st ip. inet_ntop returns NULL on failure (e.g. buffer too
+        // small) — copying that with strcpy crashed, so guard it and bound the
+        // copy to the destination contract (>= INET6_ADDRSTRLEN).
+        const char *res = inet_ntop(hptr->h_addrtype, hptr->h_addr, str, sizeof(str));
+        if (res == NULL)
+        {
+            spdlog::warn("sls_gethostbyname: inet_ntop failed for host: {0}", ptr);
+            break;
+        }
+        strlcpy(ip, res, INET6_ADDRSTRLEN);
         ret = SLS_OK;
         break;
+    }
     default:
         spdlog::warn("sls_gethostbyname: unknown address type");
         break;

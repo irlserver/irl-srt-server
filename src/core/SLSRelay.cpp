@@ -467,7 +467,12 @@ int CSLSRelay::open(const char *srt_url)
     sa.sin_family = AF_INET;
     sa.sin_port = htons(server_port);
 
-    sls_gethostbyname(host_name, server_ip);
+    if (SLS_OK != sls_gethostbyname(host_name, server_ip))
+    {
+        spdlog::error("[{}] CSLSRelay::open, sls_gethostbyname failure. host_name={}, server_port={:d}.", fmt::ptr(this), host_name, server_port);
+        srt_close(fd);
+        return SLS_ERROR;
+    }
     if (inet_pton(AF_INET, server_ip, &sa.sin_addr) != 1)
     {
         spdlog::error("[{}] CSLSRelay::open, inet_pton failure. server_ip={}, server_port={:d}.", fmt::ptr(this), server_ip, server_port);
