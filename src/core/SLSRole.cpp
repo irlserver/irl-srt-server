@@ -480,6 +480,32 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
         return SLS_ERROR;
     }
 
+    // Lazily allocate the publisher ring on the first authorized data packet.
+    // The ring is no longer created at accept (pre-auth): check_http_passed()
+    // above guarantees we only reach here once the publisher is authorized, so
+    // an unauthenticated or never-sending connection can never pin a ring
+    // (pre-auth OOM). On failure (global stream/memory cap reached) kick the
+    // role rather than spin retrying. Relays added their ring eagerly at
+    // connect, so their add() here hits the idempotent early-return.
+    if (!m_ring_added)
+    {
+        int bitrate_hint = 0;
+        if (m_conf != NULL)
+        {
+            bitrate_hint = ((sls_conf_app_t *)m_conf)->max_input_bitrate_kbps;
+        }
+        if (SLS_OK != m_map_data->add(m_map_data_key, bitrate_hint, m_latency))
+        {
+            spdlog::error("[{}] CSLSRole::handler_read_data, m_map_data->add failed for"
+                          " key='{}' (stream/memory cap?), kicking role.",
+                          fmt::ptr(this), m_map_data_key);
+            invalid_srt();
+            return SLS_ERROR;
+        }
+        m_ring_added = true;
+        on_map_data_set();
+    }
+
     SPDLOG_TRACE("[{}] CSLSRole::handler_read_data, ok, libsrt_read n={:d}.", fmt::ptr(this), n);
     int ret = m_map_data->put(m_map_data_key, szData, n, last_read_time);
 

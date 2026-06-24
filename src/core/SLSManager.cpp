@@ -154,6 +154,16 @@ int CSLSManager::start()
     m_map_puller = new CSLSMapRelay[m_server_count];
     m_map_pusher = new CSLSMapRelay[m_server_count];
 
+    int cap_max_streams = conf_srt->max_streams > 0 ? conf_srt->max_streams : 256;
+    int cap_max_total_ring_mb = conf_srt->max_total_ring_mb > 0 ? conf_srt->max_total_ring_mb : 2048;
+    int64_t cap_max_total_ring_bytes = (int64_t)cap_max_total_ring_mb * 1024 * 1024;
+    for (int s = 0; s < m_server_count; s++)
+    {
+        m_map_data[s].set_caps(cap_max_streams, cap_max_total_ring_bytes);
+    }
+    spdlog::info("[{}] CSLSManager::start, ring caps per server: max_streams={}, max_total_ring_mb={}.",
+                 fmt::ptr(this), cap_max_streams, cap_max_total_ring_mb);
+
     //role list
     m_list_role = new CSLSRoleList;
     spdlog::info("[{}] CSLSManager::start, new m_list_role={}.", fmt::ptr(this), fmt::ptr(m_list_role));

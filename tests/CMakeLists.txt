@@ -11,8 +11,8 @@ add_executable(sls_tests
     test_idle.cpp
     test_push_url.cpp
     test_ip_acl.cpp
-    # test_ts_parser.cpp depends on CSLSMapData::set_caps (ported with the
-    # global-caps commit); re-enable once that lands.
+    test_ts_parser.cpp
+    test_map_data.cpp
 )
 target_link_libraries(sls_tests PRIVATE sls_core doctest srt)
 add_test(NAME unit COMMAND sls_tests)

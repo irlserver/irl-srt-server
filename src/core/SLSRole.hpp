@@ -242,6 +242,13 @@ protected:
     CSLSMapData *m_map_data;
     char m_map_data_key[URL_MAX_LEN];
     SLSRecycleArrayID m_map_data_id;
+    // Set once when this role's publisher ring is allocated in m_map_data.
+    // Publishers allocate lazily on the first authorized data packet (see
+    // handler_read_data) rather than at accept, so an unauthenticated or
+    // never-sending connection cannot pin a multi-megabyte ring (pre-auth
+    // OOM). Relays add their ring eagerly at connect; for them the lazy add
+    // is an idempotent no-op that simply flips this flag.
+    bool m_ring_added{false};
 
     char m_data[DATA_BUFF_SIZE];
     int m_data_len;

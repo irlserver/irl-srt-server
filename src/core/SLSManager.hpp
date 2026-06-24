@@ -90,6 +90,10 @@ int rcv_buf_mb;
 // still bounding pre-auth memory. 0 => built-in defaults (20000 kbps / 8000 ms).
 int rcv_sizing_max_bitrate_kbps;
 int rcv_sizing_max_latency_ms;
+// Global ring-buffer guardrails (pre-auth OOM prevention). 0 means "use the
+// built-in default" (256 streams / 2048 MB) — see CSLSManager::start.
+int max_streams;
+int max_total_ring_mb;
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -129,6 +133,8 @@ SLS_SET_CONF(srt, string, log_file, "save log file name.", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, int, rcv_buf_mb, "per-socket SRT receive buffer in MB; also scales SRTO_FC (0=derive from bitrate/latency below)", 0, 1024),
     SLS_SET_CONF(srt, int, rcv_sizing_max_bitrate_kbps, "peak bitrate (kbps) used to size the receive buffer when rcv_buf_mb=0 (0=default 20000)", 0, 1000000),
     SLS_SET_CONF(srt, int, rcv_sizing_max_latency_ms, "max latency (ms) used to size the receive buffer when rcv_buf_mb=0 (0=default 8000)", 0, 60000),
+    SLS_SET_CONF(srt, int, max_streams, "max concurrent publisher/relay streams (rings) per server (0=default 256)", 0, 100000),
+    SLS_SET_CONF(srt, int, max_total_ring_mb, "max cumulative ring-buffer memory in MB per server (0=default 2048)", 0, 1048576),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**

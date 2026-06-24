@@ -198,6 +198,13 @@ void CSLSPublisher::try_spawn_dynamic_pusher()
 
 void CSLSPublisher::on_map_data_set()
 {
+    // The ring (and its ts_info) is allocated lazily on the first authorized
+    // packet, so at accept-time set_map_data() there is nothing to flip yet.
+    // handler_read_data re-invokes this hook right after the lazy add(), with
+    // m_ring_added set, so the gap-fill flag lands on the freshly-created
+    // ts_info instead of warning about a missing entry.
+    if (!m_ring_added)
+        return;
     if (m_map_data && strlen(m_map_data_key) > 0 && is_audio_gap_fill_enabled()) {
         m_map_data->set_audio_gap_fill(m_map_data_key, true);
         spdlog::info("[{}] CSLSPublisher::on_map_data_set, audio gap filling enabled for {}",

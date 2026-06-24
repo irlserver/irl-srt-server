@@ -720,23 +720,12 @@ int CSLSListener::handler()
     spdlog::info("[{}] CSLSListener::handler, new pub={}, key_stream_name={}.",
                  fmt::ptr(this), fmt::ptr(pub), key_stream_name);
 
-    // Size the publisher's ring buffer to the configured max input bitrate
-    // and the SRT latency window. Without this hint CSLSRecycleArray falls
-    // back to its compile-time default; the dynamic sizing here right-fits
-    // each publisher so a subscriber that falls a full latency window
-    // behind is still safe from buffer overrun (which would otherwise
-    // silently corrupt the delivered stream — visible to viewers as
-    // periodic skips that "reset" when they refresh the source).
-    int map_data_bitrate_hint = 0;
-    if (ca != NULL) {
-        map_data_bitrate_hint = ((sls_conf_app_t *)ca)->max_input_bitrate_kbps;
-    }
-    if (SLS_OK != m_map_data->add(key_stream_name, map_data_bitrate_hint, final_latency)) {
-        spdlog::warn("[{}] CSLSListener::handler, m_map_data->add failed, new pub[{}:{:d}], stream= {}.",
-                     fmt::ptr(this), peer_name, peer_port, key_stream_name);
-        pub->uninit();
-        return client_count;
-    }
+    // The publisher's ring buffer is allocated lazily on its first authorized
+    // data packet (CSLSRole::handler_read_data), NOT here at accept. Deferring
+    // it past authentication means an unauthenticated or never-sending
+    // connection can never pin a multi-megabyte ring (pre-auth OOM). The ring
+    // is still right-sized there from the same max_input_bitrate_kbps + latency
+    // hint, and the global stream/memory caps are enforced at that point.
 
     if (SLS_OK != m_map_publisher->set_push_2_publisher(key_stream_name, pub_sp)) {
         spdlog::warn("[{}] CSLSListener::handler, m_map_publisher->set_push_2_publisher failed, key_stream_name= {}.",
