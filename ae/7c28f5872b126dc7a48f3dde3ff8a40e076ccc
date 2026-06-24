@@ -1,0 +1,19 @@
+src/core/SLSMapData.cpp
+  s_2000c2c5385991::t_02c599df91de44 356-359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "ae7c28f5872b126dc7a48f3dde3ff8a40e076ccc",
+  "prompts": {},
+  "sessions": {
+    "s_2000c2c5385991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecb5d922-d7c2-429a-ada3-a7fb80ec0ba6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
