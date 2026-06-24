@@ -478,7 +478,14 @@ int main(int argc, char *argv[])
             sls_manager = NULL;
             spdlog::info("Pushing old sls_manager to list.");
 
-            sls_conf_close();
+            // Do NOT free the old config tree here. The manager just retired is
+            // still draining and its roles/listeners/relays still hold raw
+            // sls_conf_* pointers into the current generation. The tree is
+            // reference-counted and owned by each CSLSManager (see
+            // CSLSManager::start / m_conf_generation): sls_conf_open() below
+            // publishes a NEW generation while the old one stays alive until the
+            // retiring manager is destroyed by the check_invalid() sweep above.
+            // Calling sls_conf_close() here was the SIGHUP-reload use-after-free.
             ret = sls_conf_open(sls_opt.conf_file_name);
             if (ret != SLS_OK)
             {
@@ -486,6 +493,9 @@ int main(int argc, char *argv[])
                 break;
             }
             spdlog::info("Successfuly reloaded config file.");
+            // Re-point the cached root conf at the new generation; the old tree
+            // it referenced is now owned solely by the retiring manager.
+            conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf();
 
             spdlog::info("Reloading PID file location (if needed)");
             if (sls_reload_pid() != SLS_OK)

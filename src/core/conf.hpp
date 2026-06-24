@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <vector>
 #include <string>
+#include <memory>
 
 using namespace std;
 
@@ -228,6 +229,11 @@ struct sls_ip_acl_t
 int sls_conf_get_conf_count(sls_conf_base_t *c);
 int sls_conf_open(const char *conf_file);
 void sls_conf_close();
+
+// Reference-counted handle to the configuration generation published by the
+// most recent sls_conf_open(). A CSLSManager holds this for its lifetime so the
+// tree its roles/relays point into survives a SIGHUP reload (UAF fix).
+std::shared_ptr<sls_conf_base_t> sls_conf_get_root_shared();
 
 /**
  * parse the argv

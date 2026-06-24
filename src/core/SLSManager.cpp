@@ -77,6 +77,13 @@ int CSLSManager::start()
         spdlog::error("[{}] CSLSManager::start, no srt info, please check the conf file.", fmt::ptr(this));
         return SLS_ERROR;
     }
+
+    // Take ownership of the current configuration generation for this manager's
+    // whole lifetime. The reference-counted tree is freed only when the last
+    // owning manager is destroyed, so roles/relays draining after a SIGHUP
+    // reload never dereference a freed sls_conf_* node (UAF fix).
+    m_conf_generation = sls_conf_get_root_shared();
+
     //set log level
     if (strlen(conf_srt->log_level) > 0)
     {

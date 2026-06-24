@@ -146,4 +146,11 @@ private:
     // publisher listener and the roles they create. Held here so it outlives
     // any listener whose handshake callback still references it via .get().
     std::shared_ptr<AuthRejectCache> m_auth_reject_cache;
+
+    // Owns this manager's configuration generation. Listeners, roles and relays
+    // created in start() keep raw sls_conf_* pointers into this tree; holding
+    // the reference-counted handle here keeps the tree alive for the manager's
+    // whole lifetime, so a manager draining after a SIGHUP reload never derefs a
+    // freed conf node. Released automatically when the manager is destroyed.
+    std::shared_ptr<sls_conf_base_t> m_conf_generation;
 };

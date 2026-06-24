@@ -31,6 +31,7 @@
 #include <fstream>
 #include <vector>
 #include <algorithm>
+#include <memory>
 #include "spdlog/spdlog.h"
 
 #include "conf.hpp"
@@ -40,6 +41,15 @@
 
 sls_conf_base_t sls_first_conf = {"", NULL, NULL};
 sls_runtime_conf_t *sls_runtime_conf_t::first = NULL;
+
+// Reference-counted owner of the current configuration generation (tree rooted
+// at sls_first_conf.child). Each CSLSManager copies this handle for its whole
+// lifetime, so a generation outlives any manager whose roles/relays still hold
+// raw sls_conf_* pointers into it — the SIGHUP-reload use-after-free fix.
+// Main-thread only (process init / reload / shutdown).
+static std::shared_ptr<sls_conf_base_t> g_current_conf;
+
+void sls_conf_release(sls_conf_base_t *c);
 
 /*
  * runtime conf
@@ -594,7 +604,20 @@ int sls_conf_open(const char *conf_file)
         {
             spdlog::critical("parse conf file='{}' failed, please check count of '{{' and '}}'.", conf_file);
         }
+        // Free the partial tree this failed parse just built. The previous
+        // generation (if any) is untouched: it is still owned by g_current_conf
+        // and by any CSLSManager holding it.
+        sls_conf_base_t *partial = sls_first_conf.child;
+        sls_first_conf.child = NULL;
+        sls_conf_release(partial);
+        return ret;
     }
+
+    // Publish the freshly-parsed tree as the new current generation. Reassigning
+    // here drops g_current_conf's reference to the previous generation; that tree
+    // is freed now unless a retiring CSLSManager still holds it (SIGHUP reload),
+    // in which case it lives until that manager is destroyed.
+    g_current_conf = std::shared_ptr<sls_conf_base_t>(sls_first_conf.child, sls_conf_release);
     return ret;
 }
 
@@ -629,13 +652,22 @@ void sls_conf_release(sls_conf_base_t *c)
 
 void sls_conf_close()
 {
-    sls_conf_base_t *c = sls_first_conf.child;
-    sls_conf_release(c);
+    // Drop the process-wide reference to the current generation. The tree is
+    // freed here only if this is its last holder (full shutdown). During a
+    // SIGHUP reload this is NOT called for the old generation: it stays owned by
+    // the retiring CSLSManager until that manager is destroyed.
+    g_current_conf.reset();
+    sls_first_conf.child = NULL;
 }
 
 sls_conf_base_t *sls_conf_get_root_conf()
 {
     return sls_first_conf.child;
+}
+
+std::shared_ptr<sls_conf_base_t> sls_conf_get_root_shared()
+{
+    return g_current_conf;
 }
 
 int sls_parse_argv(int argc, char *argv[], sls_opt_t *sls_opt, sls_conf_cmd_t *conf_cmd_opt, int cmd_size)
