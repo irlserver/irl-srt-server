@@ -1,0 +1,59 @@
+src/core/SLSRole.hpp
+  s_f2016a34416041::t_4897f864c7463a 128-132,135-139
+  s_f2016a34416041::t_a6061845ef1019 141-146
+  s_f2016a34416041::t_c234f83bc60129 215-224
+src/core/SLSListenerCore.cpp
+  s_f2016a34416041::t_556f98e2754e7b 33
+src/core/SLSPublisher.hpp
+  s_f2016a34416041::t_803cf408441e51 100-102
+tests/CMakeLists.txt
+  s_f2016a34416041::t_dd78fa5d8c33b1 11
+src/core/SLSListenerHandler.cpp
+  s_f2016a34416041::t_53e5a1bd37095f 664-665,677-682
+  s_f2016a34416041::t_875a2cf0042bc5 32-42
+  s_f2016a34416041::t_ff8f365c542dc6 696-697
+  s_f2016a34416041::t_266093a23dd928 698-707
+  s_f2016a34416041::t_b179cf81b90c0a 666-676
+src/core/SLSRole.cpp
+  s_f2016a34416041::t_080b34404106c8 362-367,369-370,372,374-376,378
+  s_f2016a34416041::t_d58f7d4e629655 167-172
+  s_f2016a34416041::t_3cef989472f368 383-389
+  s_f2016a34416041::t_31e88bd86c7401 41
+  s_f2016a34416041::t_2b231690de7aaa 434-439
+src/core/SLSListenerConfig.cpp
+  s_f2016a34416041::t_0af8894f40bf65 79-80,88,90
+  s_f2016a34416041::t_1af225b564cec4 5
+  s_f2016a34416041::t_4914375b6e4486 78,81-87,89
+tests/test_idle.cpp
+  s_f2016a34416041::t_feab7ae21954df 1-99
+src/core/SLSListener.hpp
+  s_f2016a34416041::t_688c52d455cefe 64
+  s_f2016a34416041::t_515370c6125b6c 177-185
+  s_f2016a34416041::t_82feea725078c3 94
+src/core/sls_idle.hpp
+  s_f2016a34416041::t_a46692b28f4308 13-20
+  s_f2016a34416041::t_65df6d672a3aaf 1-12,21-49
+CONFIGURATION.md
+  s_f2016a34416041::t_9128987ecd65f8 81
+src/core/constants.hpp
+  s_f2016a34416041::t_80c77832cffac9 7-20
+  s_f2016a34416041::t_801baaddd31c05 21
+src/sls.conf
+  s_f2016a34416041::t_44bdb234a02773 119-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.11",
+  "base_commit_sha": "cd4e827539074df58a3f7d43dbb9e8c68fd104ed",
+  "prompts": {},
+  "sessions": {
+    "s_f2016a34416041": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "25bacddb-a63e-4259-878b-8862a469e476",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
