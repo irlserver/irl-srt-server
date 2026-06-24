@@ -38,6 +38,7 @@
 #include "SLSBitrateLimit.hpp"
 #include "auth_reject_cache.hpp"
 #include "sls_sid.hpp"
+#include "sls_idle.hpp"
 
 /**
  * CSLSRole class implementation
@@ -163,8 +164,12 @@ int CSLSRole::get_state(int64_t cur_time_ms)
 
     if (check_idle_streams_duration(cur_time_ms))
     {
-        spdlog::info("[{}] CSLSRole::get_state, check_idle_streams_duration is true, cur m_state={:d}, m_idle_streams_timeout={:d}s, call invalid_srt.",
-                     fmt::ptr(this), m_state, m_idle_streams_timeout);
+        const bool never_received =
+            (m_last_recv_data_tm.load(std::memory_order_relaxed) == 0);
+        spdlog::info("[{}] CSLSRole::get_state, idle reap for {}, fd={:d}, never_received_data={}, "
+                     "first_data_timeout={:d}ms, idle_timeout={:d}s, call invalid_srt.",
+                     fmt::ptr(this), m_role_name, get_fd(), never_received,
+                     m_first_data_timeout_ms, m_idle_streams_timeout);
         m_state = SLS_RS_INVALID;
         invalid_srt();
         return m_state;
@@ -354,22 +359,34 @@ void CSLSRole::set_idle_streams_timeout(int timeout)
     m_idle_streams_timeout = timeout;
 }
 
+void CSLSRole::set_first_data_timeout(int timeout_ms)
+{
+    m_first_data_timeout_ms = timeout_ms;
+}
+
+bool CSLSRole::has_recent_recv_data(int64_t now_ms, int64_t within_ms) const
+{
+    int64_t last = m_last_recv_data_tm.load(std::memory_order_relaxed);
+    if (last == 0)
+    {
+        return false; // never received any media
+    }
+    return (now_ms - last) <= within_ms;
+}
+
 bool CSLSRole::check_idle_streams_duration(int64_t cur_time_ms)
 {
-    if (-1 == m_idle_streams_timeout)
-    {
-        return false;
-    }
     if (0 == cur_time_ms)
     {
         cur_time_ms = sls_gettime_ms();
     }
-    int duration = cur_time_ms - m_invalid_begin_tm;
-    if (duration >= m_idle_streams_timeout * 1000)
-    {
-        return true;
-    }
-    return false;
+    // m_invalid_begin_tm is the connect time until the first read advances it,
+    // so before any media arrives it doubles as "time since connect" — exactly
+    // what first-data probation needs.
+    return sls_should_reap_role(cur_time_ms,
+                                m_last_recv_data_tm.load(std::memory_order_relaxed),
+                                m_invalid_begin_tm, m_first_data_timeout_ms,
+                                m_idle_streams_timeout);
 }
 
 int CSLSRole::check_http_client()
@@ -414,7 +431,12 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
 
     // Update invalid begin time
     m_invalid_begin_tm = sls_gettime_ms();
-    
+    // The first media packet (and every one after) advances the last-data
+    // marker the listener consults at takeover. A non-zero value here is what
+    // separates a real, delivering publisher from a player parked on the
+    // ingest port, and it ends first-data probation in check_idle_streams_duration.
+    m_last_recv_data_tm.store(m_invalid_begin_tm, std::memory_order_relaxed);
+
     // Check bitrate limiting if enabled
     if (m_bitrate_limiter) {
         CSLSBitrateLimit::BitrateCheckResult result = m_bitrate_limiter->check_data_bitrate(n, m_invalid_begin_tm);

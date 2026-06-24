@@ -97,6 +97,9 @@ public:
     virtual int handler();
     virtual void on_map_data_set() override;
     virtual bool is_audio_gap_fill_enabled() const override;
+    // A live external broadcaster is shielded from takeover by a not-yet-proven
+    // newcomer; see CSLSRole::is_takeover_protected and the listener handler.
+    bool is_takeover_protected() const override { return true; }
 
 private:
     // Spawns a CSLSPusherManager carrying the URLs in m_push_urls. Called

@@ -29,6 +29,17 @@ constexpr int MAX_HANDOFF_BACKLOG = 4096;
 // refused outright instead of held.
 constexpr size_t MAX_PENDING_PLAYER_CONNECTIONS = 1024;
 
+// At publisher takeover, an incumbent that delivered a media packet within this
+// window counts as actively streaming and is NOT evicted by a new connection
+// for the same key — the newcomer is refused instead. This stops a player or
+// preview pointed at the ingest port from grey-screening a live broadcaster.
+// Kept short: a genuine encoder reconnect (SRTLA/SRT session reset) only lands
+// after the old session stopped delivering for at least a detect + handshake
+// cycle, which exceeds this window, so flap recovery (kick the stale incumbent)
+// still works. A continuously delivering TS publisher refreshes its marker every
+// few ms, so it always reads as active here.
+constexpr int64_t ACTIVE_INCUMBENT_RECV_WINDOW_MS = 1000;
+
 // IP-ACL match outcome shared between the publisher and player ACL paths.
 enum class AclMatch { ACCEPT, DENY, NO_MATCH };
 
@@ -650,6 +661,25 @@ int CSLSListener::handler()
         // with the same stream key will evict each other on a loop. That
         // requires possession of the (secret) stream key and passing the IP
         // ACL, and is logged below so operators can spot it.
+        //
+        // Active-incumbent guard: only evict an incumbent that has gone quiet
+        // (flapped / zombie). If it is a real broadcaster currently delivering
+        // media, the newcomer is far more likely a misdirected player/preview
+        // or a duplicate than a real reconnect, so refuse the newcomer and
+        // leave the live stream alone. Without this, a player parked on the
+        // ingest port (valid key, sends nothing) would request_kick() the real
+        // broadcaster on every reconnect. Scoped to is_takeover_protected() so
+        // a puller/relay incumbent stays evictable (a local publisher must be
+        // able to take over a pulled stream). has_recent_recv_data reads an
+        // atomic; same cross-thread safety as the request_kick() call below.
+        if (publisher->is_takeover_protected() &&
+            publisher->has_recent_recv_data(sls_gettime_ms(), ACTIVE_INCUMBENT_RECV_WINDOW_MS)) {
+            spdlog::warn("[{}] CSLSListener::handler, refused new role[{}:{:d}] for stream='{}': incumbent publisher={} is actively receiving, not evicting.",
+                         fmt::ptr(this), peer_name, peer_port, key_stream_name, fmt::ptr(publisher));
+            srt->libsrt_close();
+            delete srt;
+            return client_count;
+        }
         publisher->request_kick();
         spdlog::warn("[{}] CSLSListener::handler, publisher takeover for stream='{}', evicting stale publisher={}, new role[{}:{:d}] will reconnect.",
                      fmt::ptr(this), key_stream_name, fmt::ptr(publisher), peer_name, peer_port);
@@ -663,6 +693,18 @@ int CSLSListener::handler()
     pub->set_conf((sls_conf_base_t *)ca);
     pub->init();
     pub->set_idle_streams_timeout(m_idle_streams_timeout_role);
+    // Probation: reap this publisher fast if it never delivers a media packet
+    // (a player/preview pointed at the ingest port), rather than letting it
+    // squat the stream key for the full idle timeout. The deadline is the
+    // negotiated receive latency plus the configured grace: SRT's TSBPD holds
+    // the first packet for the whole latency window before delivering it to the
+    // app, so a legitimate high-latency encoder (Moblin ~3000ms, Belabox
+    // 2000-3000ms) must not be reaped while it is still buffering. grace covers
+    // RTT, encoder warmup, and TSBPD jitter on top of that. 0 grace = disabled.
+    const int first_data_deadline = (m_publisher_first_data_grace_role > 0)
+                                        ? final_latency + m_publisher_first_data_grace_role
+                                        : 0;
+    pub->set_first_data_timeout(first_data_deadline);
     pub->set_latency(final_latency);
 
     stat_info_t stat_info_obj{};

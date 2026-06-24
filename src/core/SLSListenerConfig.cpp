@@ -2,6 +2,7 @@
 #include "SLSMapPublisher.hpp"
 #include "SLSMapRelay.hpp"
 #include "auth_reject_cache.hpp"
+#include "constants.hpp"
 #include "util.hpp"
 #include "spdlog/spdlog.h"
 #include <regex>
@@ -74,6 +75,19 @@ int CSLSListener::init_conf_app()
 
     m_back_log = conf_server->backlog;
     m_idle_streams_timeout_role = conf_server->idle_streams_timeout;
+    // publisher_first_data_grace: 0/unset -> built-in 3s default; -1 ->
+    // explicitly disabled; >0 -> use as-is. Kept as a sentinel rather than a
+    // plain field default because create_conf() memsets the whole conf struct
+    // to 0, so "unset" and "set to 0" are indistinguishable at the struct. The
+    // value is a grace period; the per-publisher reap deadline adds the
+    // negotiated latency on top (see CSLSListener::handler).
+    if (conf_server->publisher_first_data_grace == 0) {
+        m_publisher_first_data_grace_role = SLS_DEFAULT_PUBLISHER_FIRST_DATA_GRACE_MS;
+    } else if (conf_server->publisher_first_data_grace < 0) {
+        m_publisher_first_data_grace_role = 0; // disabled
+    } else {
+        m_publisher_first_data_grace_role = conf_server->publisher_first_data_grace;
+    }
     strlcpy(m_http_url_role, conf_server->on_event_url, sizeof(m_http_url_role));
     strlcpy(m_player_key_auth_url, conf_server->player_key_auth_url, sizeof(m_player_key_auth_url));
     m_player_key_auth_timeout = conf_server->player_key_auth_timeout;

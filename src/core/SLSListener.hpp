@@ -61,6 +61,7 @@ int backlog;
 int latency_min;
 int latency_max;
 int idle_streams_timeout; //unit s; -1: unlimited
+int publisher_first_data_grace; //ms added on top of negotiated latency before a silent new publisher is reaped; 0=default(3000), -1=disabled
 char on_event_url[URL_MAX_LEN];
 char player_key_auth_url[URL_MAX_LEN];
 int player_key_auth_timeout;
@@ -90,6 +91,7 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, latency_min, "minimum allowed latency (ms) - enforced on both publisher and player listeners via SRTO_LATENCY handshake floor", 0, 5000),
     SLS_SET_CONF(server, int, latency_max, "maximum allowed latency (ms) - enforced on all connections", 0, 10000),
     SLS_SET_CONF(server, int, idle_streams_timeout, "players idle timeout when no publisher", -1, 86400),
+    SLS_SET_CONF(server, int, publisher_first_data_grace, "ms added on top of a new publisher's negotiated SRT latency to form the deadline by which it must deliver its first media packet or be reaped (0 = default 3000ms, -1 = disabled)", -1, 60000),
     SLS_SET_CONF(server, string, on_event_url, "on connect/close http url", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, string, player_key_auth_url, "player key authentication API endpoint", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(server, int, player_key_auth_timeout, "player key authentication timeout (ms)", 1, 30000),
@@ -172,6 +174,15 @@ private:
     CSLSMutex m_mutex;
 
     int m_idle_streams_timeout_role;
+    // Probation grace (ms) handed to each accepted publisher: added on top of
+    // its negotiated SRT receive latency to form the deadline by which it must
+    // deliver a media packet or be reaped. The latency term matters because
+    // SRT's TSBPD holds the first packet for the full receive-latency window,
+    // so a legitimate high-latency encoder surfaces its first byte only after
+    // that window. Stops a player/preview pointed at the ingest port from
+    // squatting (or, with the takeover guard, repeatedly evicting) a real
+    // broadcaster's key. 0 = disabled.
+    int m_publisher_first_data_grace_role;
     stat_info_t m_stat_info;
     char m_default_sid[1024];
     char m_http_url_role[URL_MAX_LEN];

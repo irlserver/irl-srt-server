@@ -125,7 +125,24 @@ public:
     void set_map_data(const char *map_key, CSLSMapData *map_data);
 
     void set_idle_streams_timeout(int timeout);
+    // Probation deadline (ms) for a receiving role that has not yet delivered
+    // any media. 0 disables it. Set by the listener only on accept-path
+    // publishers; players/pullers never receive on the ingest socket, so they
+    // are left at 0.
+    void set_first_data_timeout(int timeout_ms);
     bool check_idle_streams_duration(int64_t cur_time_ms = 0);
+
+    // True if this role has read media within `within_ms` of `now_ms`. The
+    // listener calls this cross-thread at takeover to tell a live incumbent
+    // publisher (keep it) from a flapped/zombie one (evict it). Reads an
+    // atomic; never blocks and never touches the socket.
+    bool has_recent_recv_data(int64_t now_ms, int64_t within_ms) const;
+
+    // Whether an actively-delivering incumbent of this role type should be
+    // shielded from publisher takeover. Only a real external broadcaster
+    // (CSLSPublisher) is: a puller/relay incumbent must stay evictable so a
+    // local publisher can take over a pulled stream (origin/edge promotion).
+    virtual bool is_takeover_protected() const { return false; }
 
     char *get_streamid();
     // Override the cached streamid so that webhook / stats reporting can see
@@ -195,6 +212,16 @@ protected:
     int m_stat_bitrate_datacount;
     int m_kbitrate;             //kb
     int m_idle_streams_timeout; //unit: s, -1: unlimited
+    // Probation window (ms) before a publisher that has never delivered media
+    // is reaped. 0 = disabled. Only set on accept-path publishers.
+    int m_first_data_timeout_ms{0};
+    // Wall clock (sls_gettime_ms) of the most recent successful media read, or
+    // 0 if this role has never received data. Written on the owning worker in
+    // handler_read_data; read cross-thread by the listener at takeover, hence
+    // atomic. Relaxed ordering is sufficient: we only need a recent-enough
+    // snapshot to tell a delivering publisher from a silent one, not a
+    // happens-before against any other state.
+    std::atomic<int64_t> m_last_recv_data_tm{0};
     int m_latency;              //ms
 
     int m_state;
