@@ -27,6 +27,9 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <sched.h>
 
 /**
  * CSLSMutex
@@ -118,24 +121,26 @@ public:
         m_locked = false;
         if (NULL == clock)
             return;
-        int ret = 0;
-        if (write)
+        int ret = write ? clock->lock_write() : clock->lock_read();
+        // A blocking rwlock returns non-zero only on error. EAGAIN (the
+        // read-lock count is exhausted) is the one transient case the audit
+        // flagged; retry it briefly. Any other error (EINVAL/EDEADLK) is a
+        // programming bug. We must NEVER fall through and run the critical
+        // section unlocked: a reader's get() would then race a writer's
+        // remove()/setSize() realloc -> use-after-free. Fail fast instead.
+        for (int attempts = 0; EAGAIN == ret && attempts < 1000; ++attempts)
         {
-            ret = clock->lock_write();
-        }
-        else
-        {
-            ret = clock->lock_read();
+            sched_yield();
+            ret = write ? clock->lock_write() : clock->lock_read();
         }
         if (0 != ret)
         {
-            printf("SLS Error: clock failure, ret=%d.\n", ret);
+            fprintf(stderr, "SLS Fatal: rwlock %s acquisition failed (ret=%d); aborting rather than running an unlocked critical section.\n",
+                    write ? "write" : "read", ret);
+            abort();
         }
-        else
-        {
-            m_clock = clock;
-            m_locked = true;
-        }
+        m_clock = clock;
+        m_locked = true;
     }
 
     CSLSLock(CSLSMutex *m)
@@ -147,14 +152,15 @@ public:
         {
             m_mutex = m->get_mutex();
             int ret = pthread_mutex_lock(m_mutex);
-            if (0 == ret)
+            if (0 != ret)
             {
-                m_locked = true;
+                // Same rule as the rwlock path: never run the critical section
+                // unlocked. A mutex-lock failure (EINVAL/EDEADLK) is a bug, so
+                // abort rather than corrupt the shared structure it guards.
+                fprintf(stderr, "SLS Fatal: pthread_mutex_lock failed (ret=%d); aborting rather than running an unlocked critical section.\n", ret);
+                abort();
             }
-            else
-            {
-                printf("SLS Error: pthread_mutex_lock failure, ret=%d.\n", ret);
-            }
+            m_locked = true;
         }
     }
 

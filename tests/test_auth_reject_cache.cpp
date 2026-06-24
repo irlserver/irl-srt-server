@@ -74,6 +74,19 @@ TEST_CASE("AuthRejectCache: set_ttl ignores non-positive values")
     CHECK(c.is_blocked("p"));
 }
 
+TEST_CASE("AuthRejectCache: entry count is capped under a distinct-key flood")
+{
+    AuthRejectCache c(60); // long TTL so nothing expires mid-test
+    const size_t over = 50100;
+    for (size_t i = 0; i < over; ++i)
+        c.record_failure("sid-" + std::to_string(i));
+    // Cap is 50000 (mirrors MAX_PLAYER_KEY_CACHE_ENTRIES); eviction must keep
+    // the map bounded despite 50100 distinct keys, so a rotating-key flood
+    // cannot grow it without bound.
+    CHECK(c.size() <= 50000);
+    CHECK(c.size() < over);
+}
+
 TEST_CASE("AuthRejectCache: re-recording refreshes the expiry")
 {
     // Whole-second resolution means any positive is_blocked() check after a
