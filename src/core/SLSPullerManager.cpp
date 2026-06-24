@@ -95,8 +95,8 @@ int CSLSPullerManager::connect_loop()
 			}
 			break;
 		}
-		spdlog::info("[{}] CSLSPullerManager::connect_loop, failed, index={:d}, m_app_uplive={}, m_stream_name={}, szURL=‘{}’.",
-					 fmt::ptr(this), m_app_uplive, m_stream_name, szURL);
+		spdlog::info("[{}] CSLSPullerManager::connect_loop, failed, index={:d}, m_app_uplive={}, m_stream_name={}, szURL='{}'.",
+					 fmt::ptr(this), index, m_app_uplive, m_stream_name, szURL);
 		index++;
 	}
 	m_cur_loop_index = index;

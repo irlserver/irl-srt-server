@@ -23,9 +23,24 @@ enum class PushUrlReject {
     DnsFailure,
     DenyInternal,
     DenySelf,
+    BadPlaceholder,
 };
 
 const char *push_url_reject_reason(PushUrlReject reason);
+
+// The only brace sequence a push URL may carry; substituted with the stream name.
+extern const char *const kPushUrlStreamNameToken;
+
+/**
+ * Replace every literal "{stream_name}" token in `url_template` with
+ * `stream_name` and return the result. This is a plain textual substitution:
+ * the template is NEVER interpreted as a fmt/printf format string, so an
+ * attacker-supplied spec such as "{stream_name:>1500000000}" is copied
+ * verbatim (and rejected upstream by validate_push_url) rather than expanded
+ * into a multi-gigabyte string (CWE-134 format-string DoS).
+ */
+std::string sls_substitute_stream_name(const std::string &url_template,
+                                       const std::string &stream_name);
 
 /**
  * Validate one push destination URL against the per-app conf knobs.

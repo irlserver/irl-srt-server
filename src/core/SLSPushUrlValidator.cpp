@@ -159,9 +159,43 @@ const char *push_url_reject_reason(PushUrlReject reason) {
     case PushUrlReject::DnsFailure: return "dns_failure";
     case PushUrlReject::DenyInternal: return "deny_internal";
     case PushUrlReject::DenySelf: return "deny_self";
+    case PushUrlReject::BadPlaceholder: return "bad_placeholder";
     }
     return "unknown";
 }
+
+const char *const kPushUrlStreamNameToken = "{stream_name}";
+
+std::string sls_substitute_stream_name(const std::string &url_template,
+                                       const std::string &stream_name) {
+    const std::string token(kPushUrlStreamNameToken);
+    std::string out;
+    out.reserve(url_template.size());
+    size_t pos = 0;
+    for (;;) {
+        size_t hit = url_template.find(token, pos);
+        if (hit == std::string::npos) {
+            out.append(url_template, pos, std::string::npos);
+            break;
+        }
+        out.append(url_template, pos, hit - pos);
+        out.append(stream_name);
+        pos = hit + token.size();
+    }
+    return out;
+}
+
+namespace {
+
+// After removing every {stream_name} token, a residual '{' or '}' is an
+// attacker fmt spec ({stream_name:>1500000000}) or unknown placeholder ({foo}).
+bool has_stray_brace(const std::string &url) {
+    const std::string stripped = sls_substitute_stream_name(url, std::string());
+    return stripped.find('{') != std::string::npos ||
+           stripped.find('}') != std::string::npos;
+}
+
+} // namespace
 
 const std::vector<std::string> &push_url_self_addresses() {
     static std::once_flag once;
@@ -178,13 +212,19 @@ PushUrlReject validate_push_url(const std::string &url,
                       : kDefaultMaxUrlLen;
     if (url.empty()) return PushUrlReject::InvalidUrl;
     if (static_cast<int>(url.size()) > max_len) return PushUrlReject::TooLong;
+    if (has_stray_brace(url)) return PushUrlReject::BadPlaceholder;
+
+    // Resolve the one legitimate template token to a benign value so the URL
+    // parser (which rejects '{') sees a brace-free string and the structural /
+    // DNS checks below run against what will actually be dialed.
+    const std::string resolved = sls_substitute_stream_name(url, "streamname");
 
     std::string scheme;
     std::string host;
     std::string port_str;
     bool has_streamid = false;
     try {
-        Url parsed(url);
+        Url parsed(resolved);
         scheme = parsed.scheme();
         host = parsed.host();
         port_str = parsed.port();

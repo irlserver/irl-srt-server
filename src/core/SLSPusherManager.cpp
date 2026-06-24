@@ -24,6 +24,8 @@
 
 #include <errno.h>
 #include <string.h>
+#include <algorithm>
+#include <string>
 #include "spdlog/spdlog.h"
 
 #include "common.hpp"
@@ -33,6 +35,7 @@
 #include "SLSLogCategory.hpp"
 #include "SLSLogRateLimiter.hpp"
 #include "SLSSummaryLogger.hpp"
+#include "SLSPushUrlValidator.hpp"
 
 /**
  * CSLSPusherManager class implementation
@@ -64,25 +67,28 @@ int CSLSPusherManager::connect_all()
 	{
 		char szURL[1024] = {0};
 		const char *szTmp = m_sri->m_upstreams[i].c_str();
+		// Plain {stream_name} substitution — never fmt::format(szTmp, ...).
+		// szTmp can originate from the publish-auth webhook, so feeding it as a
+		// format string would let a spec like {stream_name:>1500000000} blow up
+		// into a 1.5 GB allocation (CWE-134). Webhook URLs are also brace-checked
+		// in validate_push_url; this sink is safe regardless of the source.
+		std::string substituted = sls_substitute_stream_name(szTmp, m_stream_name);
+		int written;
 		// Check if the srt:// prefix is already specified
-		bool endpoint_load_success = false;
-		try
+		if (strncmp(szTmp, "srt://", 6) == 0)
 		{
-			if (strncmp(szTmp, "srt://", 6) == 0)
-			{
-				snprintf(szURL, sizeof(szURL), "%s", fmt::format(szTmp, fmt::arg("stream_name", m_stream_name)).c_str());
-			}
-			else
-			{
-				snprintf(szURL, sizeof(szURL), "srt://%s", fmt::format(szTmp, fmt::arg("stream_name", m_stream_name)).c_str());
-			}
-			endpoint_load_success = true;
+			written = snprintf(szURL, sizeof(szURL), "%s", substituted.c_str());
 		}
-		catch (const std::exception &)
+		else
 		{
-			spdlog::error("[relay] Pusher connect_all key '{{stream_name}}' not found in upstream entry | entry='{}' stream={}",
+			written = snprintf(szURL, sizeof(szURL), "srt://%s", substituted.c_str());
+		}
+		bool endpoint_load_success = (written >= 0 && (unsigned)written < sizeof(szURL));
+		if (!endpoint_load_success)
+		{
+			spdlog::error("[relay] Pusher connect_all upstream URL too long, dropping | entry='{}' stream={}",
 						  szTmp, m_stream_name);
-			// If argument is not found, notify of failure and don't try to reconnect
+			// Can't format the URL into the buffer; don't queue it for reconnect.
 			ret = SLS_ERROR;
 		}
 

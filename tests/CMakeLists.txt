@@ -9,6 +9,7 @@ add_executable(sls_tests
     test_bitrate_limit.cpp
     test_audio_gap_filler.cpp
     test_idle.cpp
+    test_push_url.cpp
 )
 target_link_libraries(sls_tests PRIVATE sls_core doctest srt)
 add_test(NAME unit COMMAND sls_tests)
