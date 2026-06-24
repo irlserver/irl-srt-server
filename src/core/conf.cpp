@@ -210,7 +210,7 @@ const char *sls_conf_set_ipset(const char *conf_line, sls_conf_cmd_t *cmd, void 
     // Get ACL object from the memory offset
     ip_acl = (sls_ip_acl_t *)(p + cmd->offset);
     // Store action, IP address
-    sls_ip_access_t ip_access_obj;
+    sls_ip_access_t ip_access_obj{};
 
     // Check if we got valid ACL target
     if (strcmp(conf_line_split[0].c_str(), "play") == 0)
@@ -230,20 +230,32 @@ const char *sls_conf_set_ipset(const char *conf_line, sls_conf_cmd_t *cmd, void 
     // Check if provided IP is a well-known IP address/term
     if (strcmp(conf_line_split[1].c_str(), "all") == 0)
     {
+        ip_access_obj.family = sls_ip_family::WILDCARD;
         ip_access_obj.ip_address = 0;
     }
     else
     {
-        // Otherwise, parse the address
+        // Try IPv4 first (unchanged: host byte order via ntohl), then IPv6 so
+        // a literal such as 2001:db8::1 or ::1 yields a family-V6 entry that
+        // the matcher enforces against IPv6 peers. Anything that is neither is
+        // rejected at parse time.
         struct in_addr parsed_addr_struct;
-        // TODO: IPv6 support (https://linux.die.net/man/3/inet_pton)
-        if (inet_pton(AF_INET, conf_line_split[1].c_str(), &parsed_addr_struct) != 1)
+        struct in6_addr parsed_addr6_struct;
+        if (inet_pton(AF_INET, conf_line_split[1].c_str(), &parsed_addr_struct) == 1)
         {
-            spdlog::warn("Invalid IPv4 address provided [ip='{}' list='{}']", conf_line_split[1], cmd->name);
+            ip_access_obj.family = sls_ip_family::V4;
+            ip_access_obj.ip_address = ntohl(parsed_addr_struct.s_addr);
+        }
+        else if (inet_pton(AF_INET6, conf_line_split[1].c_str(), &parsed_addr6_struct) == 1)
+        {
+            ip_access_obj.family = sls_ip_family::V6;
+            ip_access_obj.ip_address6 = parsed_addr6_struct;
+        }
+        else
+        {
+            spdlog::warn("Invalid IP address provided [ip='{}' list='{}']", conf_line_split[1], cmd->name);
             return SLS_CONF_WRONG_TYPE;
         }
-        // Use ntohl, in case this is used for anything else in the future
-        ip_access_obj.ip_address = ntohl(parsed_addr_struct.s_addr);
     }
 
     // Get correct action

@@ -59,6 +59,7 @@ CSLSSrt::CSLSSrt()
     m_peer_port = 0;
     m_peer_addr_raw = 0;
     m_peer_addr6_raw = in6addr_any;
+    m_is_ipv6 = false;
 }
 CSLSSrt::~CSLSSrt()
 {
@@ -651,11 +652,23 @@ int CSLSSrt::libsrt_getpeeraddr_raw(unsigned long &address, struct in6_addr &add
                 m_is_ipv6 = false;
                 ret = SLS_OK;
             } else if (peer_addr.ss_family == AF_INET6) {
-                // IPv6
                 struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *)&peer_addr;
-                m_peer_addr6_raw = addr_in6->sin6_addr;
-                address6 = m_peer_addr6_raw;
-                m_is_ipv6 = true;
+                if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+                    // The dual-stack (IPV6ONLY=0) listener delivers IPv4 peers
+                    // as ::ffff:a.b.c.d. Unwrap to the embedded IPv4 so the
+                    // IPv4 ACL applies and an IPv4 deny cannot be bypassed via
+                    // the mapped form. Keeps IPv4 matching on the same
+                    // host-order path.
+                    uint32_t v4_net;
+                    memcpy(&v4_net, &addr_in6->sin6_addr.s6_addr[12], sizeof(v4_net));
+                    m_peer_addr_raw = ntohl(v4_net);
+                    address = m_peer_addr_raw;
+                    m_is_ipv6 = false;
+                } else {
+                    m_peer_addr6_raw = addr_in6->sin6_addr;
+                    address6 = m_peer_addr6_raw;
+                    m_is_ipv6 = true;
+                }
                 ret = SLS_OK;
             } else {
                 spdlog::error("[{}] SLSSrt::libsrt_getpeeraddr_raw failed: unsupported address family", fmt::ptr(this));

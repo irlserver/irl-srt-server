@@ -25,6 +25,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <netinet/in.h>
 #include <vector>
 #include <string>
 #include <memory>
@@ -166,12 +167,29 @@ enum class sls_access_action : int
 };
 
 /**
+ * @brief Address family of an ACL entry. WILDCARD is the "all" keyword and
+ * matches any peer regardless of family.
+ */
+enum class sls_ip_family : int
+{
+    WILDCARD = 0,
+    V4 = 1,
+    V6 = 2,
+};
+
+/**
  * @brief Structure maps an IP address to a specific action
- * 
+ *
+ * ip_address keeps its original meaning (IPv4 in HOST byte order, as produced
+ * by ntohl) and is only consulted when family == V4 — IPv4 matching is
+ * therefore byte-for-byte unchanged. ip_address6 holds an IPv6 address in
+ * network byte order and is only consulted when family == V6.
  */
 struct sls_ip_access_t
 {
     unsigned long ip_address;
+    struct in6_addr ip_address6;
+    sls_ip_family family;
     sls_access_action action;
 };
 

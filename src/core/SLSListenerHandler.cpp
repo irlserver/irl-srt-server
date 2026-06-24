@@ -43,46 +43,38 @@ constexpr int64_t ACTIVE_INCUMBENT_RECV_WINDOW_MS = 1000;
 // IP-ACL match outcome shared between the publisher and player ACL paths.
 enum class AclMatch { ACCEPT, DENY, NO_MATCH };
 
-// Evaluate the configured IPv4 ACL entries against a peer.
+// Evaluate the configured ACL entries against a peer (IPv4 or IPv6).
 //
-// The ACL config (sls_ip_access_t) only carries an IPv4 ip_address — see
-// conf.cpp / "TODO: IPv6 support". For IPv6 peers we cannot match a
-// specific allow/deny entry, but we MUST NOT silently treat the peer as if
-// the ACL passed when the operator has configured non-wildcard rules:
-// that would let an IPv6 client bypass an explicit deny. The policy here:
-//
-//   - IPv4 peer: match against entries as before (specific IP or wildcard 0).
-//   - IPv6 peer: only the wildcard entry (ip_address == 0) can match. If a
-//     wildcard matches we honour it; otherwise we return NO_MATCH and log
-//     a one-time-per-call warning so operators see that IPv6 ACL matching
-//     is unimplemented. The caller then applies its documented default
-//     (currently "accept by default") — the same default IPv4 peers get
-//     when no ACL entry matches. This is a known limitation; configuring
-//     a deny rule for a specific IPv6 address is not yet supported.
+// Entries are family-tagged (sls_ip_family). A WILDCARD entry ("all") matches
+// any peer; a V4 entry matches only an IPv4 peer with the same host-order
+// address (unchanged from the original IPv4-only path); a V6 entry matches
+// only an IPv6 peer with the same 128-bit address. IPv4 clients arriving on
+// the dual-stack listener as ::ffff:a.b.c.d are normalised to IPv4 upstream
+// (libsrt_getpeeraddr_raw), so they are matched by V4 entries here. On no
+// match the caller applies its documented default (accept by default).
 AclMatch sls_check_ip_acl(const std::vector<sls_ip_access_t> &entries,
                           unsigned long peer_addr_v4,
+                          const struct in6_addr &peer_addr_v6,
                           bool peer_is_ipv6,
                           const void *log_tag,
                           const char *peer_name,
                           int peer_port,
                           const char *app_name)
 {
-    bool warned_ipv6_unimplemented = false;
     for (const sls_ip_access_t &acl_entry : entries) {
         bool matched = false;
-        if (peer_is_ipv6) {
-            // Only the wildcard matches an IPv6 peer; specific IPv4 entries
-            // are inapplicable. Surface that the explicit entries are being
-            // ignored so an operator who set a deny rule isn't surprised.
-            if (acl_entry.ip_address == 0) {
-                matched = true;
-            } else if (!warned_ipv6_unimplemented) {
-                warned_ipv6_unimplemented = true;
-                spdlog::warn("[{}] CSLSListener::handler IPv6 peer {}:{:d} cannot be matched against IPv4 ACL entries for app '{}'; IPv6 ACL matching is unimplemented.",
-                             log_tag, peer_name, peer_port, app_name);
-            }
-        } else {
-            matched = (acl_entry.ip_address == peer_addr_v4 || acl_entry.ip_address == 0);
+        switch (acl_entry.family) {
+        case sls_ip_family::WILDCARD:
+            matched = true;
+            break;
+        case sls_ip_family::V4:
+            matched = (!peer_is_ipv6 && acl_entry.ip_address == peer_addr_v4);
+            break;
+        case sls_ip_family::V6:
+            matched = (peer_is_ipv6 &&
+                       memcmp(&acl_entry.ip_address6, &peer_addr_v6,
+                              sizeof(struct in6_addr)) == 0);
+            break;
         }
         if (!matched) continue;
         switch (acl_entry.action) {
@@ -122,7 +114,7 @@ int CSLSListener::handler()
     char peer_name[IP_MAX_LEN] = {0};
     int peer_port = 0;
     unsigned long peer_addr_raw = 0;
-    struct in6_addr peer_addr6_raw;
+    struct in6_addr peer_addr6_raw = in6addr_any;
     int client_count = 0;
     
     // Generate session ID for this connection
@@ -614,6 +606,7 @@ int CSLSListener::handler()
 
     if (srt->libsrt_getpeeraddr_raw(peer_addr_raw, peer_addr6_raw) == SLS_OK) {
         AclMatch acl_result = sls_check_ip_acl(ca->ip_actions.publish, peer_addr_raw,
+                                               peer_addr6_raw,
                                                srt->libsrt_is_ipv6_peer(),
                                                fmt::ptr(this), peer_name, peer_port,
                                                ca->app_publisher);
@@ -623,9 +616,8 @@ int CSLSListener::handler()
             return client_count;
         }
         if (acl_result == AclMatch::NO_MATCH) {
-            // Documented default: accept when no entry matched. For IPv6
-            // peers with non-wildcard rules configured this is the
-            // fallback path noted in sls_check_ip_acl.
+            // Documented default: accept when no ACL entry (v4, v6, or
+            // wildcard) matched this peer.
             spdlog::info("[{}] CSLSListener::handler Accepted connection from {}:{:d} for app '{}' by default",
                          fmt::ptr(this), peer_name, peer_port, ca->app_publisher);
         }
@@ -812,7 +804,7 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
     int client_count = 1;
     char key_stream_name[URL_MAX_LEN] = {0};
     unsigned long peer_addr_raw = 0;
-    struct in6_addr peer_addr6_raw;
+    struct in6_addr peer_addr6_raw = in6addr_any;
     sls_conf_app_t *ca = NULL;
 
     snprintf(key_stream_name, sizeof(key_stream_name), "%s/%s", app_uplive.c_str(), stream_name.c_str());
@@ -909,6 +901,7 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
     } else {
         if (srt->libsrt_getpeeraddr_raw(peer_addr_raw, peer_addr6_raw) == SLS_OK) {
             AclMatch acl_result = sls_check_ip_acl(ca->ip_actions.play, peer_addr_raw,
+                                                   peer_addr6_raw,
                                                    srt->libsrt_is_ipv6_peer(),
                                                    fmt::ptr(this), peer_name, peer_port,
                                                    ca->app_publisher);
