@@ -129,6 +129,28 @@ std::string sls_trim(const std::string &str);
 void sls_split_string(std::string str, std::string separator, std::vector<std::string> &result, int count = -1);
 std::string sls_find_string(std::vector<std::string> &src, std::string &dst, bool caseSensitive = true);
 
+// Redact a secret (player auth key / resolved stream id) for info/warn/error
+// logs: keep only an 8-char prefix + ellipsis; empty/null renders as "<none>".
+inline std::string sls_redact_secret(const char *s)
+{
+    if (s == nullptr || s[0] == '\0')
+    {
+        return std::string("<none>");
+    }
+    std::string str(s);
+    constexpr size_t kPrefix = 8;
+    if (str.size() > kPrefix)
+    {
+        str.resize(kPrefix);
+    }
+    str += "...";
+    return str;
+}
+inline std::string sls_redact_secret(const std::string &s)
+{
+    return sls_redact_secret(s.c_str());
+}
+
 struct stat_info_t
 {
     int port;

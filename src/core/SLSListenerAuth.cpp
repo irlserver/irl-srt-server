@@ -95,7 +95,7 @@ bool CSLSListener::validate_player_key_format(const char* player_key)
     try {
         if (!std::regex_match(player_key, m_player_key_regex)) {
             spdlog::warn("[{}] CSLSListener::validate_player_key_format, key '{}' doesn't match required format.",
-                         fmt::ptr(this), player_key);
+                         fmt::ptr(this), sls_redact_secret(player_key));
             return false;
         }
     } catch (const std::regex_error& e) {
@@ -213,7 +213,7 @@ int CSLSListener::validate_player_key(const char* player_key, char* resolved_str
     }
 
     if (!validate_player_key_format(player_key)) {
-        spdlog::warn("[{}] CSLSListener::validate_player_key, invalid player key format for key='{}'.", fmt::ptr(this), player_key);
+        spdlog::warn("[{}] CSLSListener::validate_player_key, invalid player key format for key='{}'.", fmt::ptr(this), sls_redact_secret(player_key));
         return SLS_ERROR;
     }
 
@@ -268,7 +268,7 @@ void CSLSListener::start_player_key_validation(const std::string& key, const cha
     // keys cannot grow the pending map or the webhook backlog without limit.
     if (m_pending_player_key_validations.size() >= MAX_PENDING_PLAYER_KEY_VALIDATIONS) {
         spdlog::warn("[{}] CSLSListener::start_player_key_validation, pending validation cap reached ({}), deferring key='{}'.",
-                     fmt::ptr(this), m_pending_player_key_validations.size(), key);
+                     fmt::ptr(this), m_pending_player_key_validations.size(), sls_redact_secret(key));
         return;
     }
 
@@ -312,14 +312,14 @@ void CSLSListener::process_player_key_response(const std::string& key, const Asy
 
     if (!response.success) {
         spdlog::error("[{}] CSLSListener::process_player_key_response, HTTP request failed for key='{}': {}",
-                     fmt::ptr(this), key, response.error);
+                     fmt::ptr(this), sls_redact_secret(key), response.error);
         cache_negative();
         return;
     }
 
     if (response.status_code != 200) {
         spdlog::error("[{}] CSLSListener::process_player_key_response, API returned error code {} for key='{}', response: '{}'.",
-                     fmt::ptr(this), response.status_code, key, response.body.c_str());
+                     fmt::ptr(this), response.status_code, sls_redact_secret(key), response.body.c_str());
         cache_negative();
         return;
     }
@@ -332,7 +332,7 @@ void CSLSListener::process_player_key_response(const std::string& key, const Asy
         if (json_response.contains("stream_id") && json_response["stream_id"].is_string()) {
             stream_id = json_response["stream_id"];
         } else {
-            spdlog::error("[{}] CSLSListener::process_player_key_response, JSON response missing 'stream_id' for key='{}'.", fmt::ptr(this), key);
+            spdlog::error("[{}] CSLSListener::process_player_key_response, JSON response missing 'stream_id' for key='{}'.", fmt::ptr(this), sls_redact_secret(key));
             cache_negative();
             return;
         }
@@ -343,17 +343,17 @@ void CSLSListener::process_player_key_response(const std::string& key, const Asy
                 // that is meaningless and likely a misconfigured backend.
                 if (json_max_players_override < -1) {
                     spdlog::warn("[{}] CSLSListener::process_player_key_response, max_players_per_stream={} invalid (< -1) for key='{}'; ignoring override.",
-                                 fmt::ptr(this), json_max_players_override, key);
+                                 fmt::ptr(this), json_max_players_override, sls_redact_secret(key));
                     json_has_max_players_override = false;
                 } else {
                     json_has_max_players_override = true;
                 }
             } else {
-                spdlog::warn("[{}] CSLSListener::process_player_key_response, 'max_players_per_stream' present but not an integer for key='{}'; ignoring.", fmt::ptr(this), key);
+                spdlog::warn("[{}] CSLSListener::process_player_key_response, 'max_players_per_stream' present but not an integer for key='{}'; ignoring.", fmt::ptr(this), sls_redact_secret(key));
             }
         }
     } catch (const nlohmann::json::exception& e) {
-        spdlog::error("[{}] CSLSListener::process_player_key_response, failed to parse JSON for key='{}': {}.", fmt::ptr(this), key, e.what());
+        spdlog::error("[{}] CSLSListener::process_player_key_response, failed to parse JSON for key='{}': {}.", fmt::ptr(this), sls_redact_secret(key), e.what());
         cache_negative();
         return;
     }
@@ -362,7 +362,7 @@ void CSLSListener::process_player_key_response(const std::string& key, const Asy
     // rather than silently truncating it into a different stream key.
     if (stream_id.empty() || stream_id.length() >= URL_MAX_LEN) {
         spdlog::error("[{}] CSLSListener::process_player_key_response, invalid or empty stream_id '{}' for key='{}'.",
-                     fmt::ptr(this), stream_id.c_str(), key);
+                     fmt::ptr(this), sls_redact_secret(stream_id), sls_redact_secret(key));
         cache_negative();
         return;
     }

@@ -490,7 +490,7 @@ int CSLSListener::handler()
             }
             // First in window or rate limiting disabled - log at info but note it's offline
             spdlog::info("[connection:{}] Player key '{}' from {}:{} - stream currently offline",
-                        session_id, player_key, peer_name, peer_port);
+                        session_id, sls_redact_secret(player_key), peer_name, peer_port);
             srt->libsrt_close();
             delete srt;
             return client_count;
@@ -499,7 +499,7 @@ int CSLSListener::handler()
         // Not cached or stream is online - proceed with normal validation
         if (!key_is_cached) {
             spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], detected player connection with configured format '{}/{}', player_key='{}', validating...",
-                         fmt::ptr(this), peer_name, peer_port, domain, app, player_key);
+                         fmt::ptr(this), peer_name, peer_port, domain, app, sls_redact_secret(player_key));
         }
 
         int validation_result = validate_player_key(player_key, validated_stream_id, sizeof(validated_stream_id), peer_name);
@@ -512,7 +512,7 @@ int CSLSListener::handler()
             // transfers to the pending list on success below.
             if (m_pending_player_connections.size() >= MAX_PENDING_PLAYER_CONNECTIONS) {
                 spdlog::warn("[connection:{}] deferred player accept: pending cap reached ({}), refusing key='{}'.",
-                             session_id, m_pending_player_connections.size(), player_key);
+                             session_id, m_pending_player_connections.size(), sls_redact_secret(player_key));
                 srt->libsrt_close();
                 delete srt;
                 return client_count;
@@ -535,7 +535,7 @@ int CSLSListener::handler()
         }
         if (validation_result != SLS_OK) {
             spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], player key validation FAILED for key='{}'",
-                         fmt::ptr(this), peer_name, peer_port, player_key);
+                         fmt::ptr(this), peer_name, peer_port, sls_redact_secret(player_key));
             srt->libsrt_close();
             delete srt;
             return client_count;
@@ -543,13 +543,13 @@ int CSLSListener::handler()
 
         if (!key_is_cached) {
             spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], player key validation SUCCESS, resolved to stream_id='{}'",
-                         fmt::ptr(this), peer_name, peer_port, validated_stream_id);
+                         fmt::ptr(this), peer_name, peer_port, sls_redact_secret(validated_stream_id));
         }
 
         strlcpy(sid, validated_stream_id, sizeof(sid));
         if (!key_is_cached) {
             spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], updated stream_id to: '{}'",
-                         fmt::ptr(this), peer_name, peer_port, sid);
+                         fmt::ptr(this), peer_name, peer_port, sls_redact_secret(sid));
         }
 
         sid_kv = srt->libsrt_parse_sid(sid);
@@ -1079,7 +1079,7 @@ void CSLSListener::drive_pending_player_connections()
                                      it->final_latency, it->session_id, it->cur_time);
             } else {
                 spdlog::error("[connection:{}] deferred player accept: resolved stream_id '{}' invalid for key='{}', closing.",
-                             it->session_id, resolved, it->player_key);
+                             it->session_id, sls_redact_secret(resolved), sls_redact_secret(it->player_key));
                 it->srt->libsrt_close();
                 delete it->srt;
             }
@@ -1092,7 +1092,7 @@ void CSLSListener::drive_pending_player_connections()
             it = m_pending_player_connections.erase(it);
         } else if (now >= it->deadline) {
             spdlog::warn("[connection:{}] deferred player accept: key='{}' not resolved before deadline, closing.",
-                         it->session_id, it->player_key);
+                         it->session_id, sls_redact_secret(it->player_key));
             it->srt->libsrt_close();
             delete it->srt;
             it = m_pending_player_connections.erase(it);
