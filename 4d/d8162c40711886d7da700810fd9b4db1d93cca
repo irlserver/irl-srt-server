@@ -1,0 +1,26 @@
+src/srt-live-server.cpp
+  s_2000c2c5385991::t_6ec65aef2d87ad 397-401
+  s_2000c2c5385991::t_0e29eb59827910 106-108,110
+  s_2000c2c5385991::t_ffb0b7029a66cc 135
+src/core/SLSManager.hpp
+  s_2000c2c5385991::t_322bb010b7509c 53-56
+  s_2000c2c5385991::t_b6a82c2e00fef9 97
+src/sls.conf
+  s_2000c2c5385991::t_7ca5f2f4979da1 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "4dd8162c40711886d7da700810fd9b4db1d93cca",
+  "prompts": {},
+  "sessions": {
+    "s_2000c2c5385991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecb5d922-d7c2-429a-ada3-a7fb80ec0ba6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
