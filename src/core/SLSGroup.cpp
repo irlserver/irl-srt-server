@@ -388,7 +388,10 @@ void CSLSGroup::check_invalid_sock()
     if (d >= m_stat_post_interval * 1000)
     {
         update_stat_info = true;
-        m_stat_info.clear();
+        {
+            CSLSLock lock(&m_mutex_stat);
+            m_stat_info.clear();
+        }
         m_stat_post_last_tm_ms = cur_time_ms;
     }
 

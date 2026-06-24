@@ -45,7 +45,7 @@ CSLSRecycleArray::CSLSRecycleArray()
     m_nDataCount.store(0, std::memory_order_relaxed);
     m_overrun_count.store(0, std::memory_order_relaxed);
 
-    m_last_read_time = sls_gettime_ms();
+    m_last_read_time.store(sls_gettime_ms(), std::memory_order_relaxed);
 
     m_arrayData = new char[m_nDataSize];
 }
@@ -189,7 +189,7 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
                  fmt::ptr(this), read_id->nReadPos, m_nWritePos, cur_data_count, m_nDataSize);
 
     //update the last read time
-    m_last_read_time = sls_gettime_ms();
+    m_last_read_time.store(sls_gettime_ms(), std::memory_order_relaxed);
 
     int ready_data_len = 0;
     int copy_data_len = 0;
@@ -254,5 +254,5 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
 
 int64_t CSLSRecycleArray::get_last_read_time()
 {
-    return m_last_read_time;
+    return m_last_read_time.load(std::memory_order_relaxed);
 }

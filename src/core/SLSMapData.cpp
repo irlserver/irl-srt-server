@@ -385,7 +385,12 @@ bool CSLSMapData::get_audio_gap_stats(const char *key, AudioGapStreamStats &stat
     if (key == NULL)
         return false;
 
-    CSLSLock lock(&m_rwclock, clear != 0);
+    // Always exclusive: the publisher data path (put -> check_audio_gap)
+    // mutates ti's non-atomic fields (audio_track_count, last_gap_pts_delta,
+    // last_gap_frames, format) under the SHARED lock, so a shared lock here
+    // would race that writer. An exclusive lock serialises this snapshot (and
+    // the optional clear) against it.
+    CSLSLock lock(&m_rwclock, true);
     auto item_ti = m_map_ts_info.find(std::string_view{key});
     if (item_ti == m_map_ts_info.end() || item_ti->second == NULL)
         return false;

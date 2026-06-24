@@ -78,7 +78,11 @@ private:
     // not realistically overflow during any uptime.
     std::atomic<int64_t> m_nDataCount{0};
     int m_nWritePos;
-    int64_t m_last_read_time;
+    // Written by every concurrent get() reader (under the rwlock's shared/read
+    // side, so the writes still race each other) and read with no lock by
+    // get_last_read_time() on the group idle-check thread. Atomic so that
+    // cross-thread read and the racing reader writes are well-defined.
+    std::atomic<int64_t> m_last_read_time{0};
     std::atomic<int64_t> m_overrun_count;
 
     CSLSRWLock m_rwclock;
