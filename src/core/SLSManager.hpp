@@ -78,6 +78,18 @@ char log_level_system[32];
 // push URL is rejected so a slow/hostile resolver can never stall unrelated
 // streams sharing the worker. 0 => built-in default of 5000 ms.
 int push_url_dns_timeout_ms;
+// Per-socket SRT receive buffer in MB (caps SRTO_RCVBUF and scales SRTO_FC on
+// every listener and outbound relay socket). 0 => derive from the bitrate
+// ceiling and max latency below instead of a flat constant. The old hardcoded
+// 100 MB / 128000-packet window was a pre-auth memory flood amplifier.
+int rcv_buf_mb;
+// Inputs for the derived receive-buffer default (used only when rcv_buf_mb==0).
+// The buffer must hold ~latency-worth of data at peak bitrate plus
+// retransmission headroom; sizing it from our own ceilings keeps high-latency
+// bonding streams (belabox/moblin, multi-second latency) from starving while
+// still bounding pre-auth memory. 0 => built-in defaults (20000 kbps / 8000 ms).
+int rcv_sizing_max_bitrate_kbps;
+int rcv_sizing_max_latency_ms;
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -114,6 +126,9 @@ SLS_SET_CONF(srt, string, log_file, "save log file name.", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, string, log_level_auth, "auth category log level", 1, 31),
     SLS_SET_CONF(srt, string, log_level_system, "system category log level", 1, 31),
     SLS_SET_CONF(srt, int, push_url_dns_timeout_ms, "hard deadline in ms for off-worker push-URL DNS resolution (0=default 5000)", 0, 60000),
+    SLS_SET_CONF(srt, int, rcv_buf_mb, "per-socket SRT receive buffer in MB; also scales SRTO_FC (0=derive from bitrate/latency below)", 0, 1024),
+    SLS_SET_CONF(srt, int, rcv_sizing_max_bitrate_kbps, "peak bitrate (kbps) used to size the receive buffer when rcv_buf_mb=0 (0=default 20000)", 0, 1000000),
+    SLS_SET_CONF(srt, int, rcv_sizing_max_latency_ms, "max latency (ms) used to size the receive buffer when rcv_buf_mb=0 (0=default 8000)", 0, 60000),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**

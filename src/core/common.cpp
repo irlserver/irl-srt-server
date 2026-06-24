@@ -182,6 +182,30 @@ int sls_gethostbyname(const char *hostname, char *ip)
     return ret;
 }
 
+int sls_derive_rcv_buf_mb()
+{
+    const sls_conf_srt_t *root = (const sls_conf_srt_t *)sls_conf_get_root_conf();
+    // Explicit override always wins.
+    if (root && root->rcv_buf_mb > 0)
+        return root->rcv_buf_mb;
+
+    int max_kbps = (root && root->rcv_sizing_max_bitrate_kbps > 0) ? root->rcv_sizing_max_bitrate_kbps : 20000;
+    int max_lat_ms = (root && root->rcv_sizing_max_latency_ms > 0) ? root->rcv_sizing_max_latency_ms : 8000;
+
+    // required bytes = (kbps * 1000 / 8) bytes/s * (ms / 1000) s * 2.5 headroom
+    //               = kbps * 125 * ms * 25 / 10000   (integer, no precision loss)
+    // The 2.5x headroom covers the SRT retransmission window on top of the raw
+    // latency buffer. Mirrors how the application ring is sized from bitrate x
+    // latency, applied here to the SRT transport buffer.
+    int64_t bytes = (int64_t)max_kbps * 125 * max_lat_ms * 25 / 10000;
+    int mb = (int)((bytes + (1 << 20) - 1) >> 20); // ceil to whole MB
+    if (mb < 8)
+        mb = 8; // floor: keep low-latency streams from under-buffering
+    if (mb > 100)
+        mb = 100; // ceiling: bound pre-auth memory (global cap + rate limit bound the rest)
+    return mb;
+}
+
 int sls_mkdir_p(const char *path)
 {
     if (!path || !*path)

@@ -224,9 +224,15 @@ int CSLSSrt::libsrt_setup(int port, bool srtla_patches)
 */
     int ipv6Only = 0;
     int srtlaPatchesValue = srtla_patches ? 1 : 0;
-    int fc = 128 * 1000;
     int lossmaxttlvalue = 200;
-    int rcv_buf = 100 * 1024 * 1024;
+    // SRTO_RCVBUF is bytes; SRTO_FC is the in-flight window in PACKETS. The old
+    // hardcoded 100 MB / 128000-packet sizing let any (even pre-auth) connection
+    // reserve ~100 MB of receive buffer, a flood amplifier. Size both from the
+    // configured bitrate/latency instead (see sls_derive_rcv_buf_mb), scaling FC
+    // at 1024 packets/MB so the byte buffer, not FC, stays the binding cap.
+    int rcv_buf_mb = sls_derive_rcv_buf_mb();
+    int fc = rcv_buf_mb * 1024;
+    int rcv_buf = rcv_buf_mb * 1024 * 1024;
 
     // Single cleanup path for every sockopt-failure exit between socket
     // creation and srt_bind. Pre-fix the function returned SLS_ERROR straight

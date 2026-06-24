@@ -373,9 +373,13 @@ int CSLSRelay::open(const char *srt_url)
 
     // === Default socket options ===
     int ipv6Only = 0;
-    int default_fc = 128 * 1000;
     int default_lossmaxttl = 200;
-    int default_rcv_buf = 100 * 1024 * 1024;
+    // Match the listener's per-socket buffer sizing (see sls_derive_rcv_buf_mb):
+    // size SRTO_RCVBUF/SRTO_FC from the configured bitrate/latency rather than a
+    // flat 100 MB. A URL ?rcvbuf=/?fc= still overrides these below.
+    int rcv_buf_mb = sls_derive_rcv_buf_mb();
+    int default_fc = rcv_buf_mb * 1024;
+    int default_rcv_buf = rcv_buf_mb * 1024 * 1024;
 
     SET_SOCKOPT(fd, SRTO_IPV6ONLY, ipv6Only, "SRTO_IPV6ONLY");
 

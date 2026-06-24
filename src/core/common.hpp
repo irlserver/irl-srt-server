@@ -114,6 +114,10 @@ bool sls_is_safe_name(const char *s);
 
 uint32_t sls_hash_key(const char *data, size_t len);
 int sls_gethostbyname(const char *hostname, char *ip);
+// Per-socket SRT receive-buffer size in MB for SRTO_RCVBUF/SRTO_FC sizing.
+// Honors an explicit rcv_buf_mb config; otherwise derives from the configured
+// bitrate ceiling and max latency. Clamped to [8, 100] MB.
+int sls_derive_rcv_buf_mb();
 int sls_mkdir_p(const char *path);
 
 static char pid_file_name[STR_MAX_LEN] = DEFAULT_PIDFILE;
