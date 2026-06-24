@@ -268,7 +268,7 @@ int sls_read_pid()
     }
 
     int fd = open(pid_file_name, O_RDONLY);
-    if (0 == fd)
+    if (fd < 0)
     {
         spdlog::error("open file='{0}' failed.", pid_file_name);
         return 0;
@@ -371,8 +371,12 @@ int sls_write_pid(int pid)
         return SLS_ERROR;
     }
 
-    int fd = open(pid_file_name, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
-    if (0 == fd)
+    // O_EXCL closes the check-then-open race against the is_regular_file probe
+    // above and refuses to follow a symlink pre-planted at this path (the PID
+    // dir lives in shared /tmp). Mode 0644 drops the group-write bit so a peer
+    // process cannot rewrite our PID. fd 0 is a valid descriptor, so test fd<0.
+    int fd = open(pid_file_name, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    if (fd < 0)
     {
         spdlog::error("open file='{0}' failed, '{1}'.", pid_file_name, strerror(errno));
         return SLS_ERROR;

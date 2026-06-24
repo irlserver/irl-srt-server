@@ -44,7 +44,7 @@
 CSLSClient::CSLSClient()
 {
 	m_eid = 0;
-	m_out_file = 0;
+	m_out_file = -1;
 	m_data_count = 0;
 	m_bit_rate = 0;
 
@@ -165,10 +165,10 @@ int CSLSClient::push(const char *url, const char *ts_file_name, bool loop)
 
 int CSLSClient::close()
 {
-	if (0 != m_out_file)
+	if (m_out_file >= 0)
 	{
 		::close(m_out_file);
-		m_out_file = 0;
+		m_out_file = -1;
 	}
 	if (0 != m_eid)
 	{
@@ -304,19 +304,19 @@ int CSLSClient::read_data_handler()
 		// update invalid begin time
 		// m_invalid_begin_tm = sls_gettime();
 
-		if (0 == m_out_file)
+		if (m_out_file < 0)
 		{
 			if (strlen(m_out_file_name) > 0)
 			{
 				m_out_file = ::open(m_out_file_name, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IXOTH);
-				if (0 == m_out_file)
+				if (m_out_file < 0)
 				{
 					spdlog::error("[{}] CSLSClient::read_data_handler, open file='{}' failed, '{}'.", fmt::ptr(this), m_out_file_name, strerror(errno));
 					return SLS_ERROR;
 				}
 			}
 		}
-		if (0 != m_out_file)
+		if (m_out_file >= 0)
 		{
 			::write(m_out_file, szData, TS_UDP_LEN);
 		}
