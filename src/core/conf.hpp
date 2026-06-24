@@ -114,6 +114,7 @@ const char *sls_conf_set_bool(const char *v, sls_conf_cmd_t *cmd, void *conf);
 const char *sls_conf_set_ipset(const char *v, sls_conf_cmd_t *cmd, void *conf);
 const char *sls_conf_set_string_list(const char *v, sls_conf_cmd_t *cmd, void *conf);
 const char *sls_conf_set_portlist(const char *v, sls_conf_cmd_t *cmd, void *conf);
+const char *sls_conf_set_upstreams(const char *v, sls_conf_cmd_t *cmd, void *conf);
 
 /**
  * Expand a port-list spec into concrete ports. Accepts a comma-separated list

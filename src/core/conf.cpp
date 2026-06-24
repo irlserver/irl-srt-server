@@ -307,6 +307,22 @@ const char *sls_conf_set_string(const char *v, sls_conf_cmd_t *cmd, void *conf)
     return SLS_CONF_OK;
 }
 
+// Store an upstreams list like a plain string, then reject a value that
+// tokenises to zero upstreams (empty or whitespace-only). An empty list later
+// hits a modulo-by-zero in CSLSRelayManager::get_hash_url, so it must fail here
+// at parse time with a line-numbered error rather than crash at relay time.
+const char *sls_conf_set_upstreams(const char *v, sls_conf_cmd_t *cmd, void *conf)
+{
+    const char *r = sls_conf_set_string(v, cmd, conf);
+    if (r != SLS_CONF_OK)
+        return r;
+
+    const char *stored = (const char *)((char *)conf + cmd->offset);
+    if (sls_conf_string_split(stored, " ").empty())
+        return SLS_CONF_WRONG_TYPE;
+    return SLS_CONF_OK;
+}
+
 const char *sls_conf_set_double(const char *v, sls_conf_cmd_t *cmd, void *conf)
 {
     char *p = (char *)conf;

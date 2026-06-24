@@ -145,6 +145,12 @@ int CSLSRelayManager::connect_hash()
 	char szURL[URL_MAX_LEN] = {0};
 	//make hash to hostnames by stream_name
 	std::string url = get_hash_url();
+	if (url.empty())
+	{
+		spdlog::error("[{}] CSLSRelayManager::connect_hash, failed, no upstreams configured, m_stream_name={}.",
+					  fmt::ptr(this), m_stream_name);
+		return SLS_ERROR;
+	}
 	const char *szTmp = url.c_str();
 
 	ret = snprintf(szURL, sizeof(szURL), "srt://%s/%s", szTmp, m_stream_name);
@@ -169,7 +175,9 @@ int CSLSRelayManager::connect_hash()
 
 std::string CSLSRelayManager::get_hash_url()
 {
-	if (NULL == m_sri)
+	// Empty m_upstreams would make `key % size()` a modulo-by-zero (UB/crash)
+	// and m_upstreams[index] an out-of-bounds read. Refuse instead.
+	if (NULL == m_sri || m_sri->m_upstreams.empty())
 	{
 		return "";
 	}
