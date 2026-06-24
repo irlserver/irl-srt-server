@@ -300,7 +300,8 @@ const std::vector<std::string> &push_url_self_addresses() {
 
 PushUrlReject validate_push_url(const std::string &url,
                                 const sls_conf_app_t &app_conf,
-                                const std::vector<std::string> &bind_addresses) {
+                                const std::vector<std::string> &bind_addresses,
+                                sockaddr_storage *vetted_addr) {
     int max_len = app_conf.push_destination_max_url_len > 0
                       ? app_conf.push_destination_max_url_len
                       : kDefaultMaxUrlLen;
@@ -377,6 +378,15 @@ PushUrlReject validate_push_url(const std::string &url,
             verdict = PushUrlReject::DenySelf;
             break;
         }
+    }
+
+    // Hand the caller the exact address that just passed every category check so
+    // it can srt_connect to it directly. Re-resolving the host at connect time
+    // is the DNS-rebinding TOCTOU this whole function exists to close: the loop
+    // above only reaches Ok when no resolved address was internal/self, so the
+    // first one is safe to dial.
+    if (verdict == PushUrlReject::Ok && vetted_addr != nullptr && !addrs.empty()) {
+        *vetted_addr = addrs.front();
     }
     return verdict;
 }

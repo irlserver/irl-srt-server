@@ -1,6 +1,10 @@
 #include "doctest.h"
 
+#include <arpa/inet.h>
+#include <cstring>
+#include <netinet/in.h>
 #include <string>
+#include <sys/socket.h>
 #include <vector>
 
 #include "SLSPushUrlValidator.hpp"
@@ -74,4 +78,31 @@ TEST_CASE("validate_push_url: the legitimate {stream_name} token is accepted")
     // the token is resolved for parsing (127.0.0.1 is numeric, so no network).
     CHECK(validate_push_url("srt://127.0.0.1:9000?streamid={stream_name}", app, {}) ==
           PushUrlReject::Ok);
+}
+
+// T12 (CWE-367/CWE-918): the validator hands back the exact address it vetted so
+// the relay dials that IP instead of re-resolving the host (DNS-rebinding TOCTOU).
+TEST_CASE("validate_push_url: an accepted URL fills the vetted address")
+{
+    sls_conf_app_t app = default_app_conf();
+    app.push_destination_allow_internal = true;
+    sockaddr_storage vetted{};
+    CHECK(validate_push_url("srt://127.0.0.1:9000?streamid=live/feed", app, {}, &vetted) ==
+          PushUrlReject::Ok);
+    REQUIRE(vetted.ss_family == AF_INET);
+    const sockaddr_in *v4 = reinterpret_cast<const sockaddr_in *>(&vetted);
+    in_addr expected{};
+    REQUIRE(inet_pton(AF_INET, "127.0.0.1", &expected) == 1);
+    CHECK(v4->sin_addr.s_addr == expected.s_addr);
+    CHECK(ntohs(v4->sin_port) == 9000);
+}
+
+TEST_CASE("validate_push_url: a rejected URL leaves the vetted address untouched")
+{
+    sls_conf_app_t app = default_app_conf(); // allow_internal stays false
+    sockaddr_storage vetted{};
+    std::memset(&vetted, 0, sizeof(vetted));
+    CHECK(validate_push_url("srt://127.0.0.1:9000?streamid=live/feed", app, {}, &vetted) ==
+          PushUrlReject::DenyInternal);
+    CHECK(vetted.ss_family == 0);
 }

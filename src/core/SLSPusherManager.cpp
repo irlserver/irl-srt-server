@@ -94,7 +94,12 @@ int CSLSPusherManager::connect_all()
 
 		if (endpoint_load_success)
 		{
-			ret = connect(szURL);
+			// Index-aligned with m_upstreams (see SLS_RELAY_INFO): hand open()
+			// the address validate_push_url vetted so it never re-resolves the
+			// host (DNS-rebinding SSRF). Absent for static-config pushers.
+			const sockaddr_storage *vetted =
+				(i < m_sri->m_vetted_addrs.size()) ? &m_sri->m_vetted_addrs[i] : nullptr;
+			ret = connect(szURL, vetted);
 			if (SLS_OK != ret)
 			{
 				CSLSLock lock(&m_rwclock, true);

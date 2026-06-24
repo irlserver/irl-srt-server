@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <sys/socket.h>
 
 #include "SLSPublisher.hpp"
 
@@ -68,10 +69,19 @@ constexpr int kPushUrlDnsTimeoutDefaultMs = 5000;
  * `bind_addresses` is the set of local-listener addresses to compare
  * against when push_destination_allow_self is false. Pass an empty vector
  * to skip that check.
+ *
+ * When `vetted_addr` is non-null and the verdict is Ok, the first resolved
+ * address that passed the category checks is written into it. The caller MUST
+ * dial THAT address (srt_connect) rather than resolving the host a second time:
+ * a fresh lookup at connect time could return a different, private IP if an
+ * attacker controls the authoritative DNS (rebinding TOCTOU, CWE-367/CWE-918).
+ * The port carried in `vetted_addr` mirrors the URL's port; callers that parse
+ * the port independently may overwrite it. Untouched on any non-Ok verdict.
  */
 PushUrlReject validate_push_url(const std::string &url,
                                 const sls_conf_app_t &app_conf,
-                                const std::vector<std::string> &bind_addresses);
+                                const std::vector<std::string> &bind_addresses,
+                                sockaddr_storage *vetted_addr = nullptr);
 
 /**
  * Returns the cached list of bind addresses from getifaddrs(). Cached on

@@ -25,6 +25,7 @@
 #pragma once
 
 #include <atomic>
+#include <sys/socket.h>
 
 #include "SLSRole.hpp"
 #include "SLSMapPublisher.hpp"
@@ -112,6 +113,12 @@ public:
     void *get_relay_manager();
     char *get_url();
 
+    // Pin the destination address that validate_push_url already vetted so
+    // open() dials it directly instead of resolving the host a second time
+    // (DNS-rebinding SSRF TOCTOU). Ignored for AF_UNSPEC; pullers never call it
+    // and keep the legacy sls_gethostbyname path.
+    void set_vetted_addr(const sockaddr_storage &addr);
+
     int open(const char *url);
     virtual int close();
     virtual int get_peer_info(char *peer_name, int &peer_port);
@@ -122,6 +129,9 @@ protected:
     char m_upstream[URL_MAX_LEN];
     char m_server_ip[IP_MAX_LEN];
     int m_server_port;
+
+    bool m_has_vetted_addr;
+    sockaddr_storage m_vetted_addr;
 
     CSLSMapPublisher *m_map_publisher;
     // Back-pointer to the CSLSRelayManager that spawned this relay. Atomic

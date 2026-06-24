@@ -23,6 +23,9 @@
  */
 
 #include <errno.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include "spdlog/spdlog.h"
 
 #include "url.hpp"
@@ -78,6 +81,9 @@ CSLSRelay::CSLSRelay()
     m_relay_manager.store(NULL, std::memory_order_relaxed);
     m_need_reconnect = true;
 
+    m_has_vetted_addr = false;
+    memset(&m_vetted_addr, 0, sizeof(m_vetted_addr));
+
     sprintf(m_role_name, "relay");
 }
 
@@ -122,6 +128,16 @@ void CSLSRelay::set_relay_manager(void *relay_manager)
 void *CSLSRelay::get_relay_manager()
 {
     return m_relay_manager.load(std::memory_order_acquire);
+}
+
+void CSLSRelay::set_vetted_addr(const sockaddr_storage &addr)
+{
+    if (addr.ss_family != AF_INET && addr.ss_family != AF_INET6)
+    {
+        return;
+    }
+    m_vetted_addr = addr;
+    m_has_vetted_addr = true;
 }
 
 // Helper to parse integer with bounds checking
@@ -476,26 +492,57 @@ int CSLSRelay::open(const char *srt_url)
     // Stream ID (required)
     SET_SOCKOPT_STR(fd, SRTO_STREAMID, options.streamid, strlen(options.streamid), "SRTO_STREAMID");
 
-    struct sockaddr_in sa;
-    memset(&sa, 0, sizeof sa);
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(server_port);
+    sockaddr_storage ss;
+    memset(&ss, 0, sizeof ss);
+    socklen_t sa_len = 0;
 
-    if (SLS_OK != sls_gethostbyname(host_name, server_ip))
+    if (m_has_vetted_addr)
     {
-        spdlog::error("[{}] CSLSRelay::open, sls_gethostbyname failure. host_name={}, server_port={:d}.", fmt::ptr(this), host_name, server_port);
-        srt_close(fd);
-        return SLS_ERROR;
+        // DNS-rebinding SSRF fix (T12): dial the address validate_push_url
+        // already vetted. Re-resolving host_name here is the TOCTOU window an
+        // attacker controlling DNS uses to swap in a loopback/private IP after
+        // the category check passed. The port comes from this URL's parse, not
+        // from the resolver, so it always matches what was requested.
+        ss = m_vetted_addr;
+        if (ss.ss_family == AF_INET)
+        {
+            sockaddr_in *sa4 = reinterpret_cast<sockaddr_in *>(&ss);
+            sa4->sin_port = htons(server_port);
+            sa_len = sizeof(sockaddr_in);
+            inet_ntop(AF_INET, &sa4->sin_addr, server_ip, sizeof(server_ip));
+        }
+        else
+        {
+            sockaddr_in6 *sa6 = reinterpret_cast<sockaddr_in6 *>(&ss);
+            sa6->sin6_port = htons(server_port);
+            sa_len = sizeof(sockaddr_in6);
+            inet_ntop(AF_INET6, &sa6->sin6_addr, server_ip, sizeof(server_ip));
+        }
+        spdlog::info("[{}] CSLSRelay::open, dialing vetted push address {}:{:d} (no re-resolve).",
+                     fmt::ptr(this), server_ip, server_port);
     }
-    if (inet_pton(AF_INET, server_ip, &sa.sin_addr) != 1)
+    else
     {
-        spdlog::error("[{}] CSLSRelay::open, inet_pton failure. server_ip={}, server_port={:d}.", fmt::ptr(this), server_ip, server_port);
-        srt_close(fd);
-        return SLS_ERROR;
+        // Puller / static-config relay: no pre-vetted address, resolve the host.
+        sockaddr_in *sa4 = reinterpret_cast<sockaddr_in *>(&ss);
+        sa4->sin_family = AF_INET;
+        sa4->sin_port = htons(server_port);
+        if (SLS_OK != sls_gethostbyname(host_name, server_ip))
+        {
+            spdlog::error("[{}] CSLSRelay::open, sls_gethostbyname failure. host_name={}, server_port={:d}.", fmt::ptr(this), host_name, server_port);
+            srt_close(fd);
+            return SLS_ERROR;
+        }
+        if (inet_pton(AF_INET, server_ip, &sa4->sin_addr) != 1)
+        {
+            spdlog::error("[{}] CSLSRelay::open, inet_pton failure. server_ip={}, server_port={:d}.", fmt::ptr(this), server_ip, server_port);
+            srt_close(fd);
+            return SLS_ERROR;
+        }
+        sa_len = sizeof(sockaddr_in);
     }
 
-    struct sockaddr *psa = (struct sockaddr *)&sa;
-    status = srt_connect(fd, psa, sizeof sa);
+    status = srt_connect(fd, reinterpret_cast<sockaddr *>(&ss), sa_len);
     if (status == SRT_ERROR)
     {
         spdlog::error("[{}] CSLSRelay::open, srt_connect failure. server_ip={}, server_port={:d}, err={}.",

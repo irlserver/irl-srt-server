@@ -868,13 +868,15 @@ int CSLSRole::check_http_passed()
                     continue;
                 }
                 std::string url = entry["url"].get<std::string>();
-                PushUrlReject verdict = validate_push_url(url, *app_conf, self_addrs);
+                sockaddr_storage vetted_addr{};
+                PushUrlReject verdict = validate_push_url(url, *app_conf, self_addrs, &vetted_addr);
                 if (verdict != PushUrlReject::Ok) {
                     spdlog::warn("[relay] push destination rejected | reason={} url={}",
                                  push_url_reject_reason(verdict), url);
                     continue;
                 }
                 m_push_urls.push_back(std::move(url));
+                m_push_vetted_addrs.push_back(vetted_addr);
                 ++kept;
             }
             if (kept > 0) {

@@ -158,6 +158,7 @@ void CSLSPublisher::try_spawn_dynamic_pusher()
                      m_map_data_key);
         // Avoid retrying every handler tick on a misconfigured deploy.
         m_push_urls.clear();
+        m_push_vetted_addrs.clear();
         return;
     }
 
@@ -166,6 +167,7 @@ void CSLSPublisher::try_spawn_dynamic_pusher()
     if (slash == NULL || slash == m_map_data_key) {
         spdlog::warn("[relay] cannot spawn dynamic pusher: malformed key='{}'", m_map_data_key);
         m_push_urls.clear();
+        m_push_vetted_addrs.clear();
         return;
     }
     std::string app_uplive(m_map_data_key, slash - m_map_data_key);
@@ -177,6 +179,7 @@ void CSLSPublisher::try_spawn_dynamic_pusher()
     m_dynamic_pusher_sri->m_reconnect_interval = 10;
     m_dynamic_pusher_sri->m_idle_streams_timeout = 10;
     m_dynamic_pusher_sri->m_upstreams = m_push_urls;
+    m_dynamic_pusher_sri->m_vetted_addrs = m_push_vetted_addrs;
 
     m_dynamic_pusher_manager = new CSLSPusherManager();
     m_dynamic_pusher_manager->set_relay_conf(m_dynamic_pusher_sri);

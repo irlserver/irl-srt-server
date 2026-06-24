@@ -82,7 +82,7 @@ void CSLSRelayManager::set_listen_port(int port)
 	m_listen_port = port;
 }
 
-int CSLSRelayManager::connect(const char *url)
+int CSLSRelayManager::connect(const char *url, const sockaddr_storage *vetted_addr)
 {
 	int ret = SLS_ERROR;
 	if (url == NULL || strlen(url) == 0)
@@ -93,6 +93,12 @@ int CSLSRelayManager::connect(const char *url)
 
     std::shared_ptr<CSLSRelay> cur_relay(create_relay()); //new relay;
     cur_relay->init();
+    // Pass the pre-vetted destination so open() dials it directly instead of
+    // re-resolving (DNS-rebinding SSRF). Null for pullers/static relays.
+    if (vetted_addr != nullptr)
+    {
+        cur_relay->set_vetted_addr(*vetted_addr);
+    }
     ret = cur_relay->open(url);
     if (SLS_OK == ret)
     {

@@ -27,6 +27,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <sys/socket.h>
 
 #include "SLSRole.hpp"
 #include "SLSSrt.hpp"
@@ -316,6 +317,9 @@ protected:
 
     // Push destinations from publish-auth webhook (publisher roles only).
     std::vector<std::string> m_push_urls;
+    // Vetted destination address per m_push_urls entry, index-aligned. The
+    // pusher dials this checked IP rather than re-resolving (DNS-rebinding SSRF).
+    std::vector<sockaddr_storage> m_push_vetted_addrs;
 
     // Shared negative-auth cache (publisher roles only; null otherwise).
     std::shared_ptr<AuthRejectCache> m_auth_reject_cache;
