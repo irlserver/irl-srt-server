@@ -87,16 +87,12 @@ int CSLSGroup::stop()
     wake();
     ret = CSLSEpollThread::stop();
 
-    std::list<CSLSRole *>::iterator it_erase;
-    for (std::list<CSLSRole *>::iterator it = m_list_wait_http_role.begin(); it != m_list_wait_http_role.end();)
+    for (auto &role : m_list_wait_http_role)
     {
-        CSLSRole *role = *it;
         if (role)
         {
             role->uninit();
-            delete role;
         }
-        it++;
     }
     m_list_wait_http_role.clear();
     spdlog::info("[{}] CSLSGroup::stop, m_list_wait_http_role.clear, worker_number={:d}.", fmt::ptr(this), m_worker_number);
@@ -120,15 +116,19 @@ void CSLSGroup::check_new_role()
     if (m_map_role.size() >= m_worker_connections)
         return;
 
-    CSLSRole *role = m_list_role->pop();
+    std::shared_ptr<CSLSRole> role = m_list_role->pop();
     if (NULL == role)
         return;
 
     int fd = role->get_fd();
     if (fd == 0)
     {
-        // invalid role
-        delete role;
+        // invalid role. uninit() before dropping the reference so a role that
+        // is also held in m_map_publisher (publisher / relay) removes itself
+        // from that map; otherwise the stale map entry would keep the role
+        // alive and reachable. The original raw delete relied on ~CSLSRole ->
+        // uninit() for the same self-removal.
+        role->uninit();
         return;
     }
 
@@ -138,13 +138,13 @@ void CSLSGroup::check_new_role()
         m_map_role[fd] = role;
         // Log at DEBUG level (worker operations are verbose)
         spdlog::debug("[{}] CSLSGroup::check_new_role, worker={:d}, {}={}, fd={:d}, role_map.size={:d}.",
-                     fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role), fd, m_map_role.size());
+                     fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()), fd, m_map_role.size());
     }
     else
     {
         spdlog::error("[{}] CSLSGroup::check_new_role, worker={:d}, {}={}, add_to_epoll failed, fd={:d}.",
-                      fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role), fd);
-        delete role;
+                      fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()), fd);
+        role->uninit();
     }
 }
 
@@ -210,7 +210,7 @@ int CSLSGroup::handler()
         // pass then handles.)
         for (i = 0; i < read_len; i++)
         {
-            std::map<int, CSLSRole *>::iterator it = m_map_role.find(m_read_socks[i]);
+            std::map<int, std::shared_ptr<CSLSRole>>::iterator it = m_map_role.find(m_read_socks[i]);
             if (it == m_map_role.end())
             {
                 spdlog::warn("[{}] CSLSGroup::handle, worker_number={:d}, no role map readable sock={:d}, why?",
@@ -218,7 +218,7 @@ int CSLSGroup::handler()
                 continue;
             }
 
-            CSLSRole *role = it->second;
+            CSLSRole *role = it->second.get();
             if (!role)
             {
                 spdlog::warn("[{}] CSLSGroup::handle, worker_number={:d}, role is null, readable sock={:d}, why?",
@@ -249,9 +249,9 @@ int CSLSGroup::handler()
     // on whether it is backpressured. invalid_srt() here does not erase
     // from m_map_role (check_invalid_sock does, later), so iterating is
     // safe.
-    for (std::map<int, CSLSRole *>::iterator it = m_map_role.begin(); it != m_map_role.end(); ++it)
+    for (std::map<int, std::shared_ptr<CSLSRole>>::iterator it = m_map_role.begin(); it != m_map_role.end(); ++it)
     {
-        CSLSRole *role = it->second;
+        CSLSRole *role = it->second.get();
         if (!role)
             continue;
 
@@ -322,11 +322,11 @@ void CSLSGroup::maybe_idle_check()
 
 void CSLSGroup::check_wait_http_role()
 {
-    std::list<CSLSRole *>::iterator it;
-    std::list<CSLSRole *>::iterator it_erase;
+    std::list<std::shared_ptr<CSLSRole>>::iterator it;
+    std::list<std::shared_ptr<CSLSRole>>::iterator it_erase;
     for (it = m_list_wait_http_role.begin(); it != m_list_wait_http_role.end();)
     {
-        CSLSRole *role = *it;
+        CSLSRole *role = it->get();
         it_erase = it;
         it++;
         if (!role)
@@ -339,7 +339,6 @@ void CSLSGroup::check_wait_http_role()
             spdlog::info("[{}] CSLSGroup::check_wait_http_role, worker_number={d}, delete {}={}.",
                          fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role));
             role->uninit();
-            delete role;
             m_list_wait_http_role.erase(it_erase);
         }
         else
@@ -395,11 +394,11 @@ void CSLSGroup::check_invalid_sock()
         m_stat_post_last_tm_ms = cur_time_ms;
     }
 
-    std::map<int, CSLSRole *>::iterator it;
-    std::map<int, CSLSRole *>::iterator it_erase;
+    std::map<int, std::shared_ptr<CSLSRole>>::iterator it;
+    std::map<int, std::shared_ptr<CSLSRole>>::iterator it_erase;
     for (it = m_map_role.begin(); it != m_map_role.end();)
     {
-        CSLSRole *role = it->second;
+        std::shared_ptr<CSLSRole> role = it->second;
         it_erase = it;
         it++;
         if (!role)
@@ -421,15 +420,15 @@ void CSLSGroup::check_invalid_sock()
         if (SLS_RS_INVALID == state || SLS_RS_UNINIT == state)
         {
             spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, invalid sock={:d}, state={:d}, role_map.size={:d}.",
-                         fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role), role->get_fd(), state, m_map_role.size());
+                         fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()), role->get_fd(), state, m_map_role.size());
             // check relay
             if (role->is_reconnect())
             {
-                CSLSRelay *relay = (CSLSRelay *)role;
+                CSLSRelay *relay = (CSLSRelay *)role.get();
                 CSLSRelayManager *relay_manager = (CSLSRelayManager *)relay->get_relay_manager();
                 m_list_reconnect_relay_manager.push_back(relay_manager);
                 spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, need reconnect.",
-                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role));
+                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
             }
 
             role->uninit();
@@ -437,13 +436,12 @@ void CSLSGroup::check_invalid_sock()
             {
                 m_list_wait_http_role.push_back(role);
                 spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, put into m_list_wait_http_role.",
-                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role));
+                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
             }
             else
             {
                 spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, delete.",
-                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role));
-                delete role;
+                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
             }
             m_map_role.erase(it_erase);
             continue;
@@ -455,16 +453,14 @@ void CSLSGroup::clear()
 {
     spdlog::info("[{}] CSLSGroup::clear, worker_number={:d}, role_map.size={:d}.",
                  fmt::ptr(this), m_worker_number, m_map_role.size());
-    std::map<int, CSLSRole *>::iterator it;
-    for (it = m_map_role.begin(); it != m_map_role.end(); it++)
+    for (auto &entry : m_map_role)
     {
-        CSLSRole *role = it->second;
+        CSLSRole *role = entry.second.get();
         if (role)
         {
             spdlog::info("[{}] CSLSGroup::clear, worker_number={:d}, delete {}={}.",
                          fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role));
             role->uninit();
-            delete role;
         }
     }
     m_map_role.clear();

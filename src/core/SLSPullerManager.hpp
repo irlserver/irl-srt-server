@@ -46,7 +46,7 @@ public:
 protected:
     int connect_loop();
     virtual CSLSRelay *create_relay();
-    virtual int set_relay_param(CSLSRelay *relay);
+    virtual int set_relay_param(std::shared_ptr<CSLSRelay> relay);
     int check_relay_param();
 
     int m_cur_loop_index;

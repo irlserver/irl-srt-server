@@ -25,6 +25,7 @@
 #pragma once
 
 #include <list>
+#include <memory>
 
 #include "SLSRole.hpp"
 #include "SLSLock.hpp"
@@ -38,15 +39,15 @@ public:
     CSLSRoleList();
     ~CSLSRoleList();
 
-    int push(CSLSRole *role);
-    CSLSRole *pop();
+    int push(std::shared_ptr<CSLSRole> role);
+    std::shared_ptr<CSLSRole> pop();
     void erase();
     int size();
     int count_players_for_stream(const char *stream_key);
 
 protected:
 private:
-    std::list<CSLSRole *> m_list_role;
+    std::list<std::shared_ptr<CSLSRole>> m_list_role;
 
     CSLSMutex m_mutex;
 };

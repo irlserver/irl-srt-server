@@ -129,7 +129,7 @@ int CSLSPusherManager::start()
 	}
 	if (NULL != m_map_publisher)
 	{
-		CSLSRole *publisher = m_map_publisher->get_publisher(key_stream_name);
+		std::shared_ptr<CSLSRole> publisher = m_map_publisher->get_publisher(key_stream_name);
 		if (NULL == publisher)
 		{
 			if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
@@ -162,7 +162,7 @@ CSLSRelay *CSLSPusherManager::create_relay()
 	return relay;
 }
 
-int CSLSPusherManager::set_relay_param(CSLSRelay *relay)
+int CSLSPusherManager::set_relay_param(std::shared_ptr<CSLSRelay> relay)
 {
 	int ret;
 	char key_stream_name[1024] = {0};
@@ -247,7 +247,7 @@ int CSLSPusherManager::reconnect(int64_t cur_tm_ms)
 	}
 	if (NULL != m_map_publisher)
 	{
-		CSLSRole *publisher = m_map_publisher->get_publisher(key_stream_name);
+		std::shared_ptr<CSLSRole> publisher = m_map_publisher->get_publisher(key_stream_name);
 		if (NULL == publisher)
 		{
 			no_publisher = true;

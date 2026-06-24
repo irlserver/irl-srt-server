@@ -359,11 +359,13 @@ json CSLSManager::generate_json_for_publisher(std::string publisherName, int cle
 
     for (int i = 0; i < m_server_count; i++) {
         CSLSMapPublisher *publisher_map = &m_map_publisher[i];
-        CSLSRole *role = publisher_map->get_publisher(publisherName);
+        // Hold the shared_ptr for the whole stats read: it keeps the publisher
+        // alive even if the worker thread tears it down concurrently.
+        std::shared_ptr<CSLSRole> role = publisher_map->get_publisher(publisherName);
 
         if (role == NULL) continue;
 
-        ret["publishers"][publisherName] = create_json_stats_for_publisher(role, clear);
+        ret["publishers"][publisherName] = create_json_stats_for_publisher(role.get(), clear);
         break;
     }
 
@@ -377,13 +379,13 @@ json CSLSManager::generate_json_for_all_publishers(int clear) {
 
     for (int i = 0; i < m_server_count; i++) {
         CSLSMapPublisher *publisher_map = &m_map_publisher[i];
-        // Get all publishers for this server instance
-        std::map<std::string, CSLSRole *> all_pubs = publisher_map->get_publishers();
+        // Snapshot holds a reference to every publisher for the whole loop, so
+        // none can be freed by the worker thread mid-iteration.
+        std::map<std::string, std::shared_ptr<CSLSRole>> all_pubs = publisher_map->get_publishers();
 
         for (auto const& [pub_name, role] : all_pubs) {
             if (role != nullptr) {
-                // Add stats for this publisher to the JSON object
-                ret["publishers"][pub_name] = create_json_stats_for_publisher(role, clear);
+                ret["publishers"][pub_name] = create_json_stats_for_publisher(role.get(), clear);
             }
         }
     }
@@ -464,7 +466,7 @@ json CSLSManager::disconnect_stream(std::string streamName) {
     // Iterate through all servers to find and disconnect the stream
     for (int i = 0; i < m_server_count; i++) {
         CSLSMapPublisher *publisher_map = &m_map_publisher[i];
-        CSLSRole *publisher_role = publisher_map->get_publisher(streamName);
+        std::shared_ptr<CSLSRole> publisher_role = publisher_map->get_publisher(streamName);
         
         if (publisher_role != NULL) {
             found = true;

@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 #include <string>
 
@@ -80,5 +81,5 @@ protected:
     virtual CSLSRelay *create_relay() = 0;
     std::string get_hash_url();
 
-    virtual int set_relay_param(CSLSRelay *relay) = 0;
+    virtual int set_relay_param(std::shared_ptr<CSLSRelay> relay) = 0;
 };

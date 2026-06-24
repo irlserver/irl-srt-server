@@ -46,7 +46,7 @@ public:
 private:
     int connect_all();
     virtual CSLSRelay *create_relay();
-    virtual int set_relay_param(CSLSRelay *relay);
+    virtual int set_relay_param(std::shared_ptr<CSLSRelay> relay);
     int check_relay_param();
     int reconnect_all(int64_t cur_tm_ms, bool no_publisher);
 

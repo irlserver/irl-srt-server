@@ -41,23 +41,23 @@ CSLSRoleList::~CSLSRoleList()
 {
 }
 
-int CSLSRoleList::push(CSLSRole *role)
+int CSLSRoleList::push(std::shared_ptr<CSLSRole> role)
 {
     if (role)
     {
         CSLSLock lock(&m_mutex);
-        m_list_role.push_back(role);
+        m_list_role.push_back(std::move(role));
     }
     return 0;
 }
 
-CSLSRole *CSLSRoleList::pop()
+std::shared_ptr<CSLSRole> CSLSRoleList::pop()
 {
     CSLSLock lock(&m_mutex);
-    CSLSRole *role = NULL;
+    std::shared_ptr<CSLSRole> role;
     if (!m_list_role.empty())
     {
-        role = m_list_role.front();
+        role = std::move(m_list_role.front());
         m_list_role.pop_front();
     }
     return role;
@@ -67,16 +67,17 @@ void CSLSRoleList::erase()
 {
     CSLSLock lock(&m_mutex);
     spdlog::trace("[{}] CSLSRoleList::erase, list.count={:d}", fmt::ptr(this), m_list_role.size());
-    std::list<CSLSRole *>::iterator it_erase;
-    for (std::list<CSLSRole *>::iterator it = m_list_role.begin(); it != m_list_role.end();)
+    for (auto &role : m_list_role)
     {
-        CSLSRole *role = *it;
         if (role)
         {
+            // Drop the raw delete: the shared_ptr destructor frees the role
+            // once the last owner releases it. uninit() stays so teardown
+            // (epoll removal, SRT close, map removal) runs deterministically
+            // here rather than being deferred to whichever thread happens to
+            // hold the final reference.
             role->uninit();
-            delete role;
         }
-        it++;
     }
     m_list_role.clear();
 }
@@ -96,9 +97,8 @@ int CSLSRoleList::count_players_for_stream(const char *stream_key)
     CSLSLock lock(&m_mutex);
     int player_count = 0;
 
-    for (std::list<CSLSRole *>::iterator it = m_list_role.begin(); it != m_list_role.end(); ++it)
+    for (auto &role : m_list_role)
     {
-        CSLSRole *role = *it;
         const char *role_name = role ? role->get_role_name() : nullptr;
         if (role && role_name && strcmp(role_name, "player") == 0)
         {

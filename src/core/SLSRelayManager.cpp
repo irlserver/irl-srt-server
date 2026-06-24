@@ -91,11 +91,11 @@ int CSLSRelayManager::connect(const char *url)
 		return ret;
 	}
 
-	CSLSRelay *cur_relay = create_relay(); //new relay;
-	cur_relay->init();
-	ret = cur_relay->open(url);
-	if (SLS_OK == ret)
-	{
+    std::shared_ptr<CSLSRelay> cur_relay(create_relay()); //new relay;
+    cur_relay->init();
+    ret = cur_relay->open(url);
+    if (SLS_OK == ret)
+    {
 		cur_relay->set_idle_streams_timeout(m_sri->m_idle_streams_timeout);
 
 		//set stat info
@@ -125,16 +125,12 @@ int CSLSRelayManager::connect(const char *url)
 		if (SLS_OK != ret)
 		{
 			cur_relay->uninit();
-			delete cur_relay;
-			cur_relay = NULL;
 		}
 		return ret;
 	}
 	else
 	{
 		cur_relay->uninit();
-		delete cur_relay;
-		cur_relay = NULL;
 	}
 	return ret;
 }

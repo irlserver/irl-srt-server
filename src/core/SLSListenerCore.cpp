@@ -300,7 +300,12 @@ int CSLSListener::start()
     if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
 			spdlog::debug("[listener] Added to role list");
 			}
-    m_list_role->push(this);
+    // Hand the role list the sole owning reference to this listener. start()
+    // runs exactly once and only reaches here on success, so this is the only
+    // control block ever created for `this`; m_servers keeps a non-owning raw
+    // pointer (it never deletes), and the worker deletes the listener by
+    // dropping this reference — the same teardown path the raw delete used.
+    m_list_role->push(std::shared_ptr<CSLSRole>(this));
 
     return ret;
 }

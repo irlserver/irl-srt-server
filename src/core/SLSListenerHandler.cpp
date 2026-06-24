@@ -459,7 +459,7 @@ int CSLSListener::handler()
                     char temp_key_stream[URL_MAX_LEN] = {0};
                     snprintf(temp_key_stream, sizeof(temp_key_stream), "%s/%s",
                              temp_uplive.c_str(), cached_sid_kv.at("r").c_str());
-                    CSLSRole *temp_pub = m_map_publisher->get_publisher(temp_key_stream);
+                    std::shared_ptr<CSLSRole> temp_pub = m_map_publisher->get_publisher(temp_key_stream);
                     if (NULL == temp_pub && NULL == m_map_puller) {
                         stream_offline_cached = true;
                     }
@@ -629,7 +629,7 @@ int CSLSListener::handler()
         return client_count;
     }
 
-    CSLSRole *publisher = m_map_publisher->get_publisher(key_stream_name);
+    std::shared_ptr<CSLSRole> publisher = m_map_publisher->get_publisher(key_stream_name);
     if (NULL != publisher) {
         // Publisher takeover. A publisher is already registered for this
         // stream, but a fresh connection for the same key is almost always
@@ -667,20 +667,21 @@ int CSLSListener::handler()
         if (publisher->is_takeover_protected() &&
             publisher->has_recent_recv_data(sls_gettime_ms(), ACTIVE_INCUMBENT_RECV_WINDOW_MS)) {
             spdlog::warn("[{}] CSLSListener::handler, refused new role[{}:{:d}] for stream='{}': incumbent publisher={} is actively receiving, not evicting.",
-                         fmt::ptr(this), peer_name, peer_port, key_stream_name, fmt::ptr(publisher));
+                         fmt::ptr(this), peer_name, peer_port, key_stream_name, fmt::ptr(publisher.get()));
             srt->libsrt_close();
             delete srt;
             return client_count;
         }
         publisher->request_kick();
         spdlog::warn("[{}] CSLSListener::handler, publisher takeover for stream='{}', evicting stale publisher={}, new role[{}:{:d}] will reconnect.",
-                     fmt::ptr(this), key_stream_name, fmt::ptr(publisher), peer_name, peer_port);
+                     fmt::ptr(this), key_stream_name, fmt::ptr(publisher.get()), peer_name, peer_port);
         srt->libsrt_close();
         delete srt;
         return client_count;
     }
 
-    CSLSPublisher *pub = new CSLSPublisher;
+    std::shared_ptr<CSLSPublisher> pub_sp = std::make_shared<CSLSPublisher>();
+    CSLSPublisher *pub = pub_sp.get();
     pub->set_srt(srt);
     pub->set_conf((sls_conf_base_t *)ca);
     pub->init();
@@ -734,17 +735,13 @@ int CSLSListener::handler()
         spdlog::warn("[{}] CSLSListener::handler, m_map_data->add failed, new pub[{}:{:d}], stream= {}.",
                      fmt::ptr(this), peer_name, peer_port, key_stream_name);
         pub->uninit();
-        delete pub;
-        pub = NULL;
         return client_count;
     }
 
-    if (SLS_OK != m_map_publisher->set_push_2_publisher(key_stream_name, pub)) {
+    if (SLS_OK != m_map_publisher->set_push_2_publisher(key_stream_name, pub_sp)) {
         spdlog::warn("[{}] CSLSListener::handler, m_map_publisher->set_push_2_publisher failed, key_stream_name= {}.",
                      fmt::ptr(this), key_stream_name);
         pub->uninit();
-        delete pub;
-        pub = NULL;
         return client_count;
     }
     pub->set_map_publisher(m_map_publisher);
@@ -752,7 +749,7 @@ int CSLSListener::handler()
     pub->set_role_list(m_list_role);
     pub->set_listen_port(m_port);
     pub->on_connect();
-    m_list_role->push(pub);
+    m_list_role->push(pub_sp);
     spdlog::info("[{}] CSLSListener::handler, new publisher[{}:{:d}], key_stream_name= {}.",
                  fmt::ptr(this), peer_name, peer_port, key_stream_name);
 
@@ -830,7 +827,7 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
             }
         }
     }
-    CSLSRole *pub = m_map_publisher->get_publisher(key_stream_name);
+    std::shared_ptr<CSLSRole> pub = m_map_publisher->get_publisher(key_stream_name);
     if (NULL == pub) {
         if (NULL == m_map_puller) {
             // Rate-limit "stream offline" logs to reduce noise from repeated reconnection attempts
@@ -888,7 +885,7 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
             return client_count;
         }
         spdlog::info("[{}] CSLSListener::handler, m_map_publisher->get_publisher ok, pub={}, new client[{}:{:d}], stream='{}'.",
-                     fmt::ptr(this), fmt::ptr(pub), peer_name, peer_port, key_stream_name);
+                     fmt::ptr(this), fmt::ptr(pub.get()), peer_name, peer_port, key_stream_name);
     }
 
     ca = (sls_conf_app_t *)m_map_publisher->get_ca(app_uplive);
@@ -923,7 +920,7 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
         }
     }
 
-    CSLSRole *pub_check = m_map_publisher->get_publisher(key_stream_name);
+    std::shared_ptr<CSLSRole> pub_check = m_map_publisher->get_publisher(key_stream_name);
     if (NULL == pub_check) {
         spdlog::error("[{}] CSLSListener::handler, refused, new role[{}:{:d}], stream={}, publisher no longer exists.",
                       fmt::ptr(this), peer_name, peer_port, key_stream_name);
@@ -987,14 +984,8 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
         spdlog::warn("[{}] CSLSListener::handler, new player[{}:{:d}], libsrt_socket_nonblock failed.",
                      fmt::ptr(this), peer_name, peer_port);
 
-    CSLSPlayer *player = new CSLSPlayer;
-    if (NULL == player) {
-        spdlog::error("[{}] CSLSListener::handler, failed to allocate player for [{}:{:d}]",
-                     fmt::ptr(this), peer_name, peer_port);
-        srt->libsrt_close();
-        delete srt;
-        return client_count;
-    }
+    std::shared_ptr<CSLSPlayer> player_sp = std::make_shared<CSLSPlayer>();
+    CSLSPlayer *player = player_sp.get();
 
     player->init();
     player->set_idle_streams_timeout(m_idle_streams_timeout_role);
@@ -1020,7 +1011,7 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt,
     player->set_http_url(m_http_url_role);
     player->on_connect();
 
-    m_list_role->push(player);
+    m_list_role->push(player_sp);
     spdlog::info("[{}] CSLSListener::handler, new player[{}] =[{}:{:d}], key_stream_name={}, {}={}, m_list_role->size={:d}.",
                  fmt::ptr(this), fmt::ptr(player), peer_name, peer_port, key_stream_name, player->get_role_name(), fmt::ptr(player), m_list_role->size());
     return client_count;

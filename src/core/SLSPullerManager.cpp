@@ -126,11 +126,11 @@ int CSLSPullerManager::start()
 	}
 	if (NULL != m_map_publisher)
 	{
-		CSLSRole *publisher = m_map_publisher->get_publisher(key_stream_name);
+		std::shared_ptr<CSLSRole> publisher = m_map_publisher->get_publisher(key_stream_name);
 		if (NULL != publisher)
 		{
 			spdlog::error("[relay] Puller start failed, publisher already exists | stream={} publisher={}",
-					  key_stream_name, fmt::ptr(publisher));
+					  key_stream_name, fmt::ptr(publisher.get()));
 			return SLS_ERROR;
 		}
 	}
@@ -187,7 +187,7 @@ int CSLSPullerManager::check_relay_param()
 	return SLS_OK;
 }
 
-int CSLSPullerManager::set_relay_param(CSLSRelay *relay)
+int CSLSPullerManager::set_relay_param(std::shared_ptr<CSLSRelay> relay)
 {
 	int ret;
 	char key_stream_name[URL_MAX_LEN] = {0};
@@ -219,9 +219,9 @@ int CSLSPullerManager::set_relay_param(CSLSRelay *relay)
 	{
 		if (sls_should_log_category(SLSLogCategory::RELAY, spdlog::level::debug)) {
 			spdlog::debug("[relay] Puller set_relay_param failed, m_map_data->add failed | stream={} relay={}",
-						 key_stream_name, fmt::ptr(relay));
+						 key_stream_name, fmt::ptr(relay.get()));
 			}
-		m_map_publisher->remove(relay);
+		m_map_publisher->remove(relay.get());
 		return SLS_ERROR;
 	}
 
