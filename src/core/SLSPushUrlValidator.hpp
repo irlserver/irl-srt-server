@@ -43,12 +43,27 @@ std::string sls_substitute_stream_name(const std::string &url_template,
                                        const std::string &stream_name);
 
 /**
+ * Default hard deadline (milliseconds) for resolving a push-destination host
+ * name. A literal IPv4/IPv6 host resolves inline with no network and no thread;
+ * a real host name is resolved on a SEPARATE thread and the caller waits at
+ * most this long. If the lookup does not finish in time the URL is rejected
+ * (DnsFailure) so a slow or hostile DNS server can never stall the unrelated
+ * streams that share the SRT epoll worker. Operators tune the effective value
+ * with the `push_url_dns_timeout_ms` srt directive (0 => this default).
+ */
+constexpr int kPushUrlDnsTimeoutDefaultMs = 5000;
+
+/**
  * Validate one push destination URL against the per-app conf knobs.
  * Returns PushUrlReject::Ok if the URL is acceptable. Otherwise returns a
  * reject reason; caller should log it and drop the URL.
  *
- * Performs DNS resolution synchronously via getaddrinfo, so it is safe to
- * call from the publisher handler thread but not from the SRT epoll loop.
+ * DNS resolution NEVER blocks the calling thread indefinitely: a numeric host
+ * is resolved inline, while a host name is resolved on a dedicated thread and
+ * abandoned past kPushUrlDnsTimeoutDefaultMs (or the operator-configured
+ * push_url_dns_timeout_ms). This makes the function safe to reach from the SRT
+ * epoll worker — a stuck resolver bounds out instead of wedging every stream on
+ * that worker.
  *
  * `bind_addresses` is the set of local-listener addresses to compare
  * against when push_destination_allow_self is false. Pass an empty vector

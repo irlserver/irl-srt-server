@@ -1,17 +1,24 @@
 #include "SLSPushUrlValidator.hpp"
 
 #include <arpa/inet.h>
+#include <chrono>
+#include <condition_variable>
+#include <cstring>
 #include <ifaddrs.h>
+#include <memory>
 #include <mutex>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
+#include <thread>
 #include <vector>
 
 #include <spdlog/spdlog.h>
 
 #include "SLSLogCategory.hpp"
+#include "SLSManager.hpp"
+#include "conf.hpp"
 #include "url.hpp"
 
 namespace {
@@ -195,6 +202,93 @@ bool has_stray_brace(const std::string &url) {
            stripped.find('}') != std::string::npos;
 }
 
+void collect_addrinfo(const addrinfo *results,
+                      std::vector<sockaddr_storage> &out) {
+    for (const addrinfo *it = results; it != nullptr; it = it->ai_next) {
+        if (it->ai_addr == nullptr || it->ai_addrlen == 0) continue;
+        sockaddr_storage ss{};
+        size_t n = it->ai_addrlen <= sizeof(ss) ? it->ai_addrlen : sizeof(ss);
+        memcpy(&ss, it->ai_addr, n);
+        out.push_back(ss);
+    }
+}
+
+// AI_NUMERICHOST resolves an IPv4/IPv6 literal with no network and no thread,
+// and returns EAI_NONAME for a real host name (which then takes the off-thread
+// path). Returns the gai code; addrs is filled on success.
+int resolve_numeric(const char *host, const char *service,
+                    std::vector<sockaddr_storage> &addrs) {
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_NUMERICHOST;
+    addrinfo *results = nullptr;
+    int gai = getaddrinfo(host, service, &hints, &results);
+    if (gai == 0 && results) collect_addrinfo(results, addrs);
+    if (results) freeaddrinfo(results);
+    return gai;
+}
+
+// Rendezvous between the SRT worker (waiter) and a detached resolver thread.
+// On timeout the worker abandons it, but the resolver still holds a shared_ptr
+// copy, so the state outlives the worker's wait and the late getaddrinfo result
+// is freed by the resolver itself — no dangling pointer, no blocked worker.
+struct ResolveRendezvous {
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool done = false;
+    int gai = EAI_AGAIN;
+    std::vector<sockaddr_storage> addrs;
+};
+
+// Resolve `host` on a dedicated thread and wait at most `timeout_ms`. Returns
+// false on timeout (the detached thread frees its own addrinfo in the
+// background); on success returns true and moves the addresses into `addrs`.
+bool resolve_with_timeout(const std::string &host, const std::string &service,
+                          int timeout_ms, int &gai_out,
+                          std::vector<sockaddr_storage> &addrs) {
+    auto rv = std::make_shared<ResolveRendezvous>();
+    std::thread([rv, host, service]() {
+        addrinfo hints{};
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_DGRAM;
+        addrinfo *results = nullptr;
+        int gai = getaddrinfo(host.c_str(),
+                              service.empty() ? nullptr : service.c_str(),
+                              &hints, &results);
+        std::vector<sockaddr_storage> local;
+        if (gai == 0 && results) collect_addrinfo(results, local);
+        if (results) freeaddrinfo(results);
+        {
+            std::lock_guard<std::mutex> lk(rv->mtx);
+            rv->gai = gai;
+            rv->addrs = std::move(local);
+            rv->done = true;
+        }
+        rv->cv.notify_one();
+    }).detach();
+
+    std::unique_lock<std::mutex> lk(rv->mtx);
+    if (!rv->cv.wait_for(lk, std::chrono::milliseconds(timeout_ms),
+                         [&] { return rv->done; })) {
+        return false;
+    }
+    gai_out = rv->gai;
+    addrs = std::move(rv->addrs);
+    return true;
+}
+
+// Operator-tuned deadline (srt push_url_dns_timeout_ms), else the built-in
+// default. The root conf is NULL in unit tests with no loaded config.
+int push_url_dns_timeout_ms() {
+    const sls_conf_srt_t *root =
+        reinterpret_cast<const sls_conf_srt_t *>(sls_conf_get_root_conf());
+    if (root && root->push_url_dns_timeout_ms > 0) {
+        return root->push_url_dns_timeout_ms;
+    }
+    return kPushUrlDnsTimeoutDefaultMs;
+}
+
 } // namespace
 
 const std::vector<std::string> &push_url_self_addresses() {
@@ -245,31 +339,44 @@ PushUrlReject validate_push_url(const std::string &url,
     if (host.empty()) return PushUrlReject::MissingHost;
     if (!has_streamid) return PushUrlReject::MissingStreamid;
 
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_DGRAM;
-    addrinfo *results = nullptr;
-    int gai = getaddrinfo(host.c_str(),
-                          port_str.empty() ? nullptr : port_str.c_str(),
-                          &hints, &results);
-    if (gai != 0 || !results) {
+    std::vector<sockaddr_storage> addrs;
+    const char *service = port_str.empty() ? nullptr : port_str.c_str();
+
+    int gai = resolve_numeric(host.c_str(), service, addrs);
+    if (gai != 0 || addrs.empty()) {
+        // A real host name. getaddrinfo() has no native timeout, so resolve it
+        // OFF this thread (this is reachable from the SRT epoll worker) and wait
+        // only up to the deadline; a slow or hostile resolver is abandoned
+        // instead of stalling every other stream sharing the worker.
+        addrs.clear();
+        const int timeout_ms = push_url_dns_timeout_ms();
+        int async_gai = EAI_AGAIN;
+        if (!resolve_with_timeout(host, port_str, timeout_ms, async_gai, addrs)) {
+            spdlog::warn("[relay] push validator: DNS resolution exceeded {}ms "
+                         "deadline, rejecting host='{}'",
+                         timeout_ms, host);
+            return PushUrlReject::DnsFailure;
+        }
+        gai = async_gai;
+    }
+    if (gai != 0 || addrs.empty()) {
         return PushUrlReject::DnsFailure;
     }
 
     PushUrlReject verdict = PushUrlReject::Ok;
-    for (addrinfo *it = results; it != nullptr; it = it->ai_next) {
-        AddrCategory c = categorize_addr(it->ai_addr);
+    for (const sockaddr_storage &ss : addrs) {
+        const sockaddr *sa = reinterpret_cast<const sockaddr *>(&ss);
+        AddrCategory c = categorize_addr(sa);
         if (!app_conf.push_destination_allow_internal &&
             (c.loopback || c.link_local || c.privnet)) {
             verdict = PushUrlReject::DenyInternal;
             break;
         }
         if (!app_conf.push_destination_allow_self &&
-            addr_matches_any(it->ai_addr, bind_addresses)) {
+            addr_matches_any(sa, bind_addresses)) {
             verdict = PushUrlReject::DenySelf;
             break;
         }
     }
-    freeaddrinfo(results);
     return verdict;
 }

@@ -69,6 +69,11 @@ char log_level_relay[32];
 char log_level_http[32];
 char log_level_auth[32];
 char log_level_system[32];
+// Hard deadline (ms) for resolving a webhook push-destination host name. The
+// lookup runs OFF the SRT epoll worker thread; if it overruns this deadline the
+// push URL is rejected so a slow/hostile resolver can never stall unrelated
+// streams sharing the worker. 0 => built-in default of 5000 ms.
+int push_url_dns_timeout_ms;
 SLS_CONF_DYNAMIC_DECLARE_END
 
 /**
@@ -103,6 +108,7 @@ SLS_SET_CONF(srt, string, log_file, "save log file name.", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, string, log_level_http, "http category log level", 1, 31),
     SLS_SET_CONF(srt, string, log_level_auth, "auth category log level", 1, 31),
     SLS_SET_CONF(srt, string, log_level_system, "system category log level", 1, 31),
+    SLS_SET_CONF(srt, int, push_url_dns_timeout_ms, "hard deadline in ms for off-worker push-URL DNS resolution (0=default 5000)", 0, 60000),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**
