@@ -822,7 +822,7 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
     if (ti->need_spspps)
     {
         ret = sls_parse_spspps(pes, pes_end - pes, ti);
-        if (ti->sps_len > 0 && ti->pps_len > 0 && ti->pat_len > 0 && ti->pat_len > 0)
+        if (ti->sps_len > 0 && ti->pps_len > 0 && ti->pat_len > 0 && ti->pmt_len > 0)
         {
             uint8_t *p = ti->ts_data;
             int pos = 0;
