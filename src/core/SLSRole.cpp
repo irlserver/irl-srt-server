@@ -429,6 +429,17 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
         return SLS_ERROR;
     }
 
+    // MPEG-TS over SRT always arrives as whole 188-byte packets. A non-188
+    // multiple means a corrupt or hostile sender; reject it so misaligned
+    // bytes never reach the length-driven parser.
+    if (n % TS_PACK_LEN != 0)
+    {
+        spdlog::error("[{}] CSLSRole::handler_read_data, dropping non-188-aligned read n={:d}.",
+                      fmt::ptr(this), n);
+        invalid_srt();
+        return SLS_ERROR;
+    }
+
     // Update invalid begin time
     m_invalid_begin_tm = sls_gettime_ms();
     // The first media packet (and every one after) advances the last-data

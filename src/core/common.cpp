@@ -610,8 +610,11 @@ enum
     H264_NAL_AUD = 9,
 };
 
-static int64_t ff_parse_pes_pts(const uint8_t *buf)
+static int64_t ff_parse_pes_pts(const uint8_t *buf, int len)
 {
+    // Length-driven: the 5-byte PTS/DTS field must fit in the buffer.
+    if (len < 5)
+        return INVALID_DTS_PTS;
 
     int64_t pts = 0;
     int64_t tmp = (int64_t)((buf[0] & 0x0e) << 29);
@@ -630,7 +633,9 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
     uint8_t *p = NULL;
     uint8_t *p_end = NULL;
     uint8_t nal_type = 0;
-    while (pos < es_len - 4)
+    // pos + 4 < es_len keeps es[pos+3]/es[pos+4] in bounds without the signed
+    // underflow the (pos < es_len - 4) form has when es_len is small.
+    while (pos + 4 < es_len)
     {
         // avc nal
         // bool b_nal = false;
@@ -683,6 +688,8 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
                 }
             }
             int nal_pos = pos + (es[pos + 3] ? 4 : 5);
+            if (nal_pos >= es_len)
+                break;
             nal_type = es[nal_pos] & 0x1f;
             if (H264_NAL_SPS == nal_type || H264_NAL_PPS == nal_type)
             {
@@ -751,17 +758,20 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
     uint8_t *pes = (uint8_t *)pes_frame;
     uint8_t *pes_end = (uint8_t *)pes_frame + pes_len;
 
-    if (pes[0] != 0x00 ||
+    // Length-driven: each advance below is guarded against pes_end so a
+    // truncated PES payload can never drive a read past the packet buffer.
+    if (pes_len < 3 ||
+        pes[0] != 0x00 ||
         pes[1] != 0x00 ||
         pes[2] != 0x01)
     {
-        // printf("pes2es: pid=%d, wrong pes header, pes=0x%x-0x%x-0x%x.\n",
-        //         ti->es_pid, pes[0], pes[1], pes[2]);
         return SLS_ERROR;
     }
     pes += 3;
 
     /* it must be an MPEG-2 PES stream */
+    if (pes >= pes_end)
+        return SLS_ERROR;
     int stream_id = (pes[0] & 0xFF);
     if (stream_id != 0xE0 && stream_id != 0xC0)
     {
@@ -770,12 +780,18 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
     }
     pes++;
 
+    if (pes + 2 > pes_end)
+        return SLS_ERROR;
     int total_size = ((int)(pes[0] << 8)) | pes[1];
     pes += 2;
     /* NOTE: a zero total size means the PES size is
      * unbounded */
     if (0 == total_size)
         total_size = MAX_PES_PAYLOAD;
+
+    // two PES header flag bytes + PES_header_data_length
+    if (pes + 3 > pes_end)
+        return SLS_ERROR;
     int flags = 0;
     /*
     '10'                        :2,
@@ -806,22 +822,26 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
     ti->pts = INVALID_DTS_PTS;
     if ((flags & 0xc0) == 0x80)
     {
-        ti->dts = ti->pts = ff_parse_pes_pts(pes);
+        if (pes + 5 > pes_end)
+            return SLS_ERROR;
+        ti->dts = ti->pts = ff_parse_pes_pts(pes, (int)(pes_end - pes));
         pes += 5;
     }
     else if ((flags & 0xc0) == 0xc0)
     {
-        ti->pts = ff_parse_pes_pts(pes);
+        if (pes + 10 > pes_end)
+            return SLS_ERROR;
+        ti->pts = ff_parse_pes_pts(pes, (int)(pes_end - pes));
         pes += 5;
-        ti->dts = ff_parse_pes_pts(pes);
+        ti->dts = ff_parse_pes_pts(pes, (int)(pes_end - pes));
         pes += 5;
     }
 
     int ret = SLS_OK;
     // parse sps and pps
-    if (ti->need_spspps)
+    if (ti->need_spspps && pes < pes_end)
     {
-        ret = sls_parse_spspps(pes, pes_end - pes, ti);
+        ret = sls_parse_spspps(pes, (int)(pes_end - pes), ti);
         if (ti->sps_len > 0 && ti->pps_len > 0 && ti->pat_len > 0 && ti->pmt_len > 0)
         {
             uint8_t *p = ti->ts_data;
@@ -890,6 +910,11 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
 
 static int sls_parse_pat(const uint8_t *pat_data, int len, ts_info *ti)
 {
+    // Need the 8-byte section header; this also guarantees the buffer[len-4..]
+    // CRC read below stays in bounds (len >= 8 > 4).
+    if (len < 8)
+        return SLS_ERROR;
+
     uint8_t *buffer = (uint8_t *)pat_data;
     int table_id = buffer[0];
     int section_syntax_indicator = buffer[1] >> 7;
@@ -905,8 +930,14 @@ static int sls_parse_pat(const uint8_t *pat_data, int len, ts_info *ti)
 
     int CRC_32 = (buffer[len - 4] & 0x000000FF) << 24 | (buffer[len - 3] & 0x000000FF) << 16 | (buffer[len - 2] & 0x000000FF) << 8 | (buffer[len - 1] & 0x000000FF);
 
+    // Each program entry is the 4 bytes buffer[8+n .. 11+n]. Clamp the loop to
+    // the smaller of the declared section length and the actual buffer so a
+    // crafted section_length (e.g. 0xFFF) can never read past len.
+    int prog_end = section_length - 12;
+    if (prog_end > len - 11)
+        prog_end = len - 11; // last read buffer[11+n] needs 11+n <= len-1
     int n = 0;
-    for (n = 0; n < section_length - 12; n += 4)
+    for (n = 0; n < prog_end; n += 4)
     {
         unsigned program_num = buffer[8 + n] << 8 | buffer[9 + n];
         int reserved_3 = buffer[10 + n] >> 5;
@@ -1007,8 +1038,12 @@ int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
     return SLS_ERROR;
 }
 
-int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
+int sls_parse_ts_info(const uint8_t *packet, int len, ts_info *ti)
 {
+    // Every read below indexes within a single 188-byte TS packet, so require a
+    // full packet up front; partial tails are rejected rather than parsed OOB.
+    if (NULL == packet || len < TS_PACK_LEN)
+        return SLS_ERROR;
 
     if (packet[0] != TS_SYNC_BYTE)
     {

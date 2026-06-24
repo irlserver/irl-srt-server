@@ -236,7 +236,7 @@ int64_t CTSFileTimeReader::generate_rts_file(const char *ts_file_name)
         int n = read(ts_fd, ts_pack, TS_PACK_LEN);
         if (n < TS_PACK_LEN)
             break;
-        sls_parse_ts_info((const uint8_t *)ts_pack, &ti);
+        sls_parse_ts_info((const uint8_t *)ts_pack, TS_PACK_LEN, &ti);
         if (INVALID_DTS_PTS == ti.dts)
         {
             m_array_data.put(ts_pack, TS_PACK_LEN);

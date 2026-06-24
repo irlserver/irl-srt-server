@@ -239,5 +239,5 @@ struct ts_info
 };
 void sls_init_ts_info(ts_info *ti);
 void sls_init_audio_track(audio_track_info *at);
-int sls_parse_ts_info(const uint8_t *packet, ts_info *ti);
+int sls_parse_ts_info(const uint8_t *packet, int len, ts_info *ti);
 int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti);

@@ -342,14 +342,15 @@ void CSLSMapData::clear()
 int CSLSMapData::check_ts_info(char *data, int len, ts_info *ti)
 {
     // only get the first, suppose the sps and pps are not changed always.
-    for (int i = 0; i < len;)
+    // Iterate complete 188-byte packets only so a non-188-aligned tail never
+    // drives an out-of-bounds parse.
+    for (int i = 0; i + TS_PACK_LEN <= len; i += TS_PACK_LEN)
     {
-        if (ti->sps_len > 0 && ti->pps_len > 0 && ti->pat_len > 0 && ti->pat_len > 0)
+        if (ti->sps_len > 0 && ti->pps_len > 0 && ti->pat_len > 0 && ti->pmt_len > 0)
         {
             break;
         }
-        sls_parse_ts_info((const uint8_t *)data + i, ti);
-        i += TS_PACK_LEN;
+        sls_parse_ts_info((const uint8_t *)data + i, TS_PACK_LEN, ti);
     }
 
     return SLS_ERROR;
@@ -451,10 +452,12 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
     if (!ti->pmt_parsed || ti->audio_track_count == 0)
         return;
 
-    // Single pass over all TS packets: detect gaps, insert silence, rewrite CCs,
-    // and drop partial PES continuation packets after gaps.
-    for (int i = 0; i < len; i += TS_PACK_LEN)
+    // Single pass over complete TS packets: detect gaps, insert silence, rewrite
+    // CCs, and drop partial PES continuation packets after gaps. The
+    // i + TS_PACK_LEN <= len bound skips any non-188-aligned tail.
+    for (int i = 0; i + TS_PACK_LEN <= len; i += TS_PACK_LEN)
     {
+        const int pkt_len = TS_PACK_LEN;
         uint8_t *pkt = (uint8_t *)data + i;
         if (pkt[0] != TS_SYNC_BYTE)
             continue;
@@ -518,7 +521,9 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
         int pos = 4;
         if (afc & 2)
             pos += 1 + (pkt[pos] & 0xFF);
-        if (pos + 9 >= TS_PACK_LEN)
+        // MEM-1: the PES/PTS reads below touch pkt[pos+9 .. pos+13]; a large
+        // adaptation field can push pos so the 5-byte PTS overruns the packet.
+        if (pos + 13 >= pkt_len)
             continue;
 
         // Check PES start code and audio stream_id (0xC0-0xDF)
