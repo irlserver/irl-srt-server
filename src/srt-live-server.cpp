@@ -103,9 +103,11 @@ static sls_conf_cmd_t conf_cmd_opt[] = {
     //  SLS_SET_OPT(int, x, xxx,          "", 1, 100),//example
 };
 
-void httpWorker(int bindPort)
+// bindAddr is taken by value: this worker thread is detached, so it must own a
+// copy rather than reference the launcher's local string.
+void httpWorker(std::string bindAddr, int bindPort)
 {
-    svr.listen("::", bindPort);
+    svr.listen(bindAddr.c_str(), bindPort);
 }
 
 bool file_exists(const char *path) {
@@ -130,6 +132,7 @@ int main(int argc, char *argv[])
 
     int ret = SLS_OK;
     int httpPort = 8181;
+    std::string httpBindAddr = "::"; // all interfaces by default (historical behavior)
     char cors_header[URL_MAX_LEN] = "*";
     sls_conf_srt_t *conf_srt = NULL;
 
@@ -391,7 +394,11 @@ int main(int argc, char *argv[])
     if (conf_srt->http_port) {
         httpPort = conf_srt->http_port;
     }
-    std::thread(httpWorker, std::ref(httpPort)).detach();
+    if (strlen(conf_srt->http_bind_addr) > 0) {
+        httpBindAddr = conf_srt->http_bind_addr;
+    }
+    spdlog::info("HTTP control plane listening on {}:{}", httpBindAddr, httpPort);
+    std::thread(httpWorker, httpBindAddr, httpPort).detach();
 
     while (!b_exit)
     {
