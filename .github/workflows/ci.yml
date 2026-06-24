@@ -34,14 +34,20 @@ jobs:
             libssl-dev zlib1g-dev
 
       # Mirror the Dockerfile: SRT must be the irlserver belabox fork, not
-      # the stock libsrt package. Cached by branch SHA so most CI runs skip
-      # the build.
+      # the stock libsrt package. Cached by the exact HEAD commit of the
+      # belabox branch so the cache invalidates whenever upstream advances.
+      - name: Resolve SRT belabox HEAD commit
+        id: srt-head
+        run: |
+          SHA=$(git ls-remote https://github.com/irlserver/srt.git refs/heads/belabox | cut -f1)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
       - name: Cache SRT belabox build
         id: cache-srt
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: /usr/local/srt-belabox
-          key: srt-belabox-${{ runner.os }}-v1
+          key: srt-belabox-${{ runner.os }}-${{ steps.srt-head.outputs.sha }}
 
       - name: Build SRT belabox fork
         if: steps.cache-srt.outputs.cache-hit != 'true'
