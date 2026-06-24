@@ -1,0 +1,19 @@
+src/core/SLSListenerHandler.cpp
+  s_2000c2c5385991::t_97a35fbf995d2d 670
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "647a87d661323a3668078ccf3e22f05639037199",
+  "prompts": {},
+  "sessions": {
+    "s_2000c2c5385991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecb5d922-d7c2-429a-ada3-a7fb80ec0ba6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
