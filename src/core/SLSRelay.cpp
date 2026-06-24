@@ -580,7 +580,7 @@ char *CSLSRelay::get_url()
 
 int CSLSRelay::get_peer_info(char *peer_name, int &peer_port)
 {
-    strcpy(peer_name, m_server_ip);
+    strlcpy(peer_name, m_server_ip, IP_MAX_LEN);
     peer_port = m_server_port;
     return SLS_OK;
 }

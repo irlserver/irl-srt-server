@@ -36,11 +36,11 @@ using namespace std;
 /*
  * ctrl + c controller
  */
-static bool b_exit = 0;
+static volatile sig_atomic_t b_exit = 0;
 static void ctrl_c_handler(int s)
 {
 	printf("\ncaught signal %d, exit.\n", s);
-	b_exit = true;
+	b_exit = 1;
 }
 
 /**
@@ -86,38 +86,51 @@ int main(int argc, char *argv[])
 	//parset argv
 	memset(&sls_opt, 0, sizeof(sls_opt));
 	int i = 1;
+	// Consume the argument that follows a flag. A trailing flag with no value
+	// (e.g. `srt_client -r`) would otherwise deref argv[argc], which the C
+	// standard fixes at NULL -> a crash in sls_remove_marks/strlcpy.
+	auto take_value = [&](const char *flag) -> const char * {
+		if (i + 1 >= argc)
+		{
+			spdlog::critical("Missing value for parameter '{}', exiting!", flag);
+			return nullptr;
+		}
+		++i;
+		sls_remove_marks(argv[i]);
+		return argv[i++];
+	};
 	while (i < argc)
 	{
 		sls_remove_marks(argv[i]);
 		if (strcmp("-r", argv[i]) == 0)
 		{
-			i++;
-			sls_remove_marks(argv[i]);
-			strlcpy(sls_opt.srt_url, argv[i++], sizeof(sls_opt.srt_url));
+			const char *v = take_value("-r");
+			if (!v) return SLS_OK;
+			strlcpy(sls_opt.srt_url, v, sizeof(sls_opt.srt_url));
 		}
 		else if (strcmp("-i", argv[i]) == 0)
 		{
-			i++;
-			sls_remove_marks(argv[i]);
-			strlcpy(sls_opt.ts_file_name, argv[i++], sizeof(sls_opt.ts_file_name));
+			const char *v = take_value("-i");
+			if (!v) return SLS_OK;
+			strlcpy(sls_opt.ts_file_name, v, sizeof(sls_opt.ts_file_name));
 		}
 		else if (strcmp("-o", argv[i]) == 0)
 		{
-			i++;
-			sls_remove_marks(argv[i]);
-			strlcpy(sls_opt.out_file_name, argv[i++], sizeof(sls_opt.out_file_name));
+			const char *v = take_value("-o");
+			if (!v) return SLS_OK;
+			strlcpy(sls_opt.out_file_name, v, sizeof(sls_opt.out_file_name));
 		}
 		else if (strcmp("-c", argv[i]) == 0)
 		{
-			i++;
-			sls_remove_marks(argv[i]);
-			sls_opt.worker_count = atoi(argv[i++]);
+			const char *v = take_value("-c");
+			if (!v) return SLS_OK;
+			sls_opt.worker_count = atoi(v);
 		}
 		else if (strcmp("-l", argv[i]) == 0)
 		{
-			i++;
-			sls_remove_marks(argv[i]);
-			sls_opt.loop = atoi(argv[i++]);
+			const char *v = take_value("-l");
+			if (!v) return SLS_OK;
+			sls_opt.loop = atoi(v);
 		}
 		else
 		{

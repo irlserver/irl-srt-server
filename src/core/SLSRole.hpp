@@ -213,7 +213,7 @@ protected:
     int64_t m_invalid_begin_tm;     //
     int64_t m_stat_bitrate_last_tm; //
     int m_stat_bitrate_interval;    //ms
-    int m_stat_bitrate_datacount;
+    int64_t m_stat_bitrate_datacount;
     int m_kbitrate;             //kb
     int m_idle_streams_timeout; //unit: s, -1: unlimited
     // Probation window (ms) before a publisher that has never delivered media

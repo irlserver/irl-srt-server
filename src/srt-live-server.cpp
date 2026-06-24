@@ -25,6 +25,8 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <errno.h>
+#include <sys/resource.h>
 #include <httplib.h>
 #include "spdlog/spdlog.h"
 
@@ -211,6 +213,45 @@ int main(int argc, char *argv[])
     {
         spdlog::critical("Could not read configuration file, exiting.");
         goto EXIT_PROC;
+    }
+
+    // Raise the open-file-descriptor ceiling before binding listeners. A busy
+    // server holds an fd per SRT socket, relay and epoll instance, so the
+    // distro default soft limit can be exhausted under load. Best-effort and
+    // never fatal; bounded by the hard limit when unprivileged.
+    {
+        sls_conf_srt_t *nofile_conf = (sls_conf_srt_t *)sls_conf_get_root_conf();
+        rlim_t desired = (nofile_conf && nofile_conf->nofile_limit > 0)
+                             ? (rlim_t)nofile_conf->nofile_limit
+                             : 65536;
+        struct rlimit rl;
+        if (getrlimit(RLIMIT_NOFILE, &rl) != 0)
+        {
+            spdlog::warn("getrlimit(RLIMIT_NOFILE) failed (errno={}); leaving fd limit unchanged.", errno);
+        }
+        else
+        {
+            rlim_t target = desired;
+            if (rl.rlim_max != RLIM_INFINITY && target > rl.rlim_max)
+                target = rl.rlim_max;
+            if (rl.rlim_cur >= target)
+            {
+                spdlog::info("RLIMIT_NOFILE soft limit already {} (>= requested {}).",
+                             (unsigned long long)rl.rlim_cur, (unsigned long long)desired);
+            }
+            else
+            {
+                rlim_t previous = rl.rlim_cur;
+                rl.rlim_cur = target;
+                if (setrlimit(RLIMIT_NOFILE, &rl) == 0)
+                    spdlog::info("RLIMIT_NOFILE soft limit raised {} -> {} (requested {}, hard {}).",
+                                 (unsigned long long)previous, (unsigned long long)target,
+                                 (unsigned long long)desired, (unsigned long long)rl.rlim_max);
+                else
+                    spdlog::warn("Could not raise RLIMIT_NOFILE to {} (errno={}); staying at {}.",
+                                 (unsigned long long)target, errno, (unsigned long long)previous);
+            }
+        }
     }
 
     sls_load_pid_filename();

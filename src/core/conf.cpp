@@ -470,8 +470,27 @@ int sls_conf_parse_block(ifstream &ifs, int &line, sls_conf_base_t *b, bool &chi
     {
         line++;
         spdlog::trace("line:{:d}='{}'", line, str_line);
-        //remove #
-        index = str_line.find('#');
+        // Strip a '#' comment, but ignore a '#' inside a quoted value (e.g. a
+        // passphrase) so the value is not silently truncated. Quotes are honored
+        // the same way sls_remove_marks unwraps them ('...' or "...").
+        index = -1;
+        {
+            bool in_squote = false;
+            bool in_dquote = false;
+            for (string::size_type k = 0; k < str_line.size(); ++k)
+            {
+                char c = str_line[k];
+                if (c == '\'' && !in_dquote)
+                    in_squote = !in_squote;
+                else if (c == '"' && !in_squote)
+                    in_dquote = !in_dquote;
+                else if (c == '#' && !in_squote && !in_dquote)
+                {
+                    index = (int)k;
+                    break;
+                }
+            }
+        }
         if (index != -1)
         {
             str_line = str_line.substr(0, index);

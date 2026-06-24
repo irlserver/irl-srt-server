@@ -627,14 +627,14 @@ int CSLSSrt::libsrt_getpeeraddr(char *peer_name, int &port)
             inet_ntop(AF_INET6, &peer_addr.sin6_addr, m_peer_name, sizeof(m_peer_name));
             m_peer_port = ntohs(peer_addr.sin6_port);
 
-            strcpy(peer_name, m_peer_name);
+            strlcpy(peer_name, m_peer_name, IP_MAX_LEN);
             port = m_peer_port;
             ret = SLS_OK;
         }
     }
     else
     {
-        strcpy(peer_name, m_peer_name);
+        strlcpy(peer_name, m_peer_name, IP_MAX_LEN);
         port = m_peer_port;
         ret = SLS_OK;
     }

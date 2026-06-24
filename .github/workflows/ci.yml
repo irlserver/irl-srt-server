@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
 
@@ -38,7 +38,7 @@ jobs:
       # the build.
       - name: Cache SRT belabox build
         id: cache-srt
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: /usr/local/srt-belabox
           key: srt-belabox-${{ runner.os }}-v1
@@ -60,16 +60,22 @@ jobs:
           echo "PKG_CONFIG_PATH=/usr/local/srt-belabox/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Cache vendored libs
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: lib
           key: vendor-libs-${{ hashFiles('.gitmodules') }}-${{ hashFiles('lib/**/.git') }}
 
+      # CI-only -Werror gate. Scoped to high-signal, already-clean categories
+      # (missing return = UB; format-string = CWE-134) rather than a blanket
+      # -Werror, because the tree still carries pre-existing -Wall/-Wextra
+      # warnings (unused/shadow/missing-field-init). Kept out of CMakeLists so
+      # local dev builds are not blocked by them.
       - name: Configure (${{ matrix.config }})
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DSLS_BUILD_TESTS=ON \
+            -DCMAKE_CXX_FLAGS="-Werror=return-type -Werror=format-security -Werror=nonnull -Werror=address -Werror=sizeof-pointer-memaccess" \
             ${{ matrix.cmake_flags }}
 
       - name: Build
