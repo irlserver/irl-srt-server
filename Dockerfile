@@ -1,5 +1,7 @@
 # build stage
-FROM alpine:3.21 as build
+# Base image digest-pinned for reproducible, supply-chain-verifiable builds.
+# Bump the tag+digest together: docker inspect alpine:<tag> --format '{{index .RepoDigests 0}}'.
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d as build
 RUN apk update &&\
     apk add --no-cache linux-headers alpine-sdk cmake tcl openssl-dev zlib-dev
 WORKDIR /tmp
@@ -16,7 +18,7 @@ RUN cmake . -DCMAKE_BUILD_TYPE=Release
 RUN make -j$(nproc)
 
 # final stage
-FROM alpine:3.21
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
 ENV LD_LIBRARY_PATH /lib:/usr/lib:/usr/local/lib64
 RUN apk update &&\
     apk add --no-cache openssl libstdc++ &&\
