@@ -1,0 +1,22 @@
+Dockerfile
+  s_2000c2c5385991::t_66511146f6955b 21
+  s_2000c2c5385991::t_40422d7479bb0b 2-4
+src/sls.conf
+  s_2000c2c5385991::t_ad2de53e63aba1 14-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "8481b4e5b4452a4988a1a7cea1523ff34fd8761e",
+  "prompts": {},
+  "sessions": {
+    "s_2000c2c5385991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecb5d922-d7c2-429a-ada3-a7fb80ec0ba6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
