@@ -44,6 +44,11 @@ public:
     void erase();
     int size();
     int count_players_for_stream(const char *stream_key);
+    // Drop (and uninit) non-listener roles that have sat in this handoff list
+    // longer than ttl_ms without being adopted by a worker, so an overloaded
+    // worker cannot pin their sockets/rings indefinitely. Listener roles are
+    // never reaped. Returns the number reaped.
+    int reap_unadopted(int64_t now_ms, int64_t ttl_ms);
 
 protected:
 private:

@@ -113,6 +113,9 @@ public:
     int get_state(int64_t cur_time_microsec = 0);
     int get_sock_state();
     char *get_role_name();
+    // Creation timestamp (ms), stamped once at construction and never updated.
+    // Used to reap roles that sit un-adopted in the worker handoff list.
+    int64_t get_stat_start_time() { return m_stat_start_time; }
 
     // Ask the owning worker to tear this role down on its next state check.
     // Safe to call from another thread (the listener uses it for publisher

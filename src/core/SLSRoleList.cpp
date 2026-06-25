@@ -24,6 +24,7 @@
 
 #include <errno.h>
 #include <string.h>
+#include <vector>
 #include "spdlog/spdlog.h"
 
 #include "SLSRoleList.hpp"
@@ -86,6 +87,41 @@ int CSLSRoleList::size()
 {
     CSLSLock lock(&m_mutex);
     return m_list_role.size();
+}
+
+int CSLSRoleList::reap_unadopted(int64_t now_ms, int64_t ttl_ms)
+{
+    std::vector<std::shared_ptr<CSLSRole>> stale;
+    {
+        CSLSLock lock(&m_mutex);
+        for (auto it = m_list_role.begin(); it != m_list_role.end();)
+        {
+            std::shared_ptr<CSLSRole> &role = *it;
+            const char *name = role ? role->get_role_name() : nullptr;
+            // Never reap a listener: it lives in this handoff list only until
+            // the worker adopts it, and dropping it would stop all accepts on
+            // its port. Only transient data roles (publisher/player/puller)
+            // that have sat un-adopted past the admission TTL are reaped.
+            bool is_listener = name && strncmp(name, "listener", 8) == 0;
+            if (role && !is_listener && now_ms - role->get_stat_start_time() > ttl_ms)
+            {
+                stale.push_back(role);
+                it = m_list_role.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+    // uninit() outside the list lock: it takes other locks (epoll removal, map
+    // self-removal), so holding m_mutex across it could invert lock order.
+    for (auto &role : stale)
+    {
+        if (role)
+            role->uninit();
+    }
+    return static_cast<int>(stale.size());
 }
 
 int CSLSRoleList::count_players_for_stream(const char *stream_key)

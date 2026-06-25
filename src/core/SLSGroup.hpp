@@ -73,6 +73,7 @@ private:
     void check_reconnect_relay();
     void check_invalid_sock();
     void check_new_role();
+    void reap_unadopted_backlog();
     void check_wait_http_role();
 
     unsigned int m_worker_connections;

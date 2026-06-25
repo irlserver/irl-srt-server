@@ -48,6 +48,11 @@
 // maybe_idle_check.
 #define IDLE_CHECK_INTERVAL 50
 
+// Admission deadline for the handoff backlog: a role accepted by a listener
+// but not adopted by this worker within this window (because the worker is at
+// m_worker_connections) is reaped so it cannot pin its socket/ring forever.
+#define HANDOFF_ADMISSION_TTL_MS 5000
+
 /**
  * CSLSGroup class implementation
  */
@@ -114,6 +119,10 @@ void CSLSGroup::check_new_role()
     // first, check rolelist
     if (NULL == m_list_role)
         return;
+    // m_map_role counts this worker's adopted listener role(s) alongside data
+    // connections, so the usable data-connection budget is m_worker_connections
+    // minus that small fixed listener count. Size worker_connections with that
+    // headroom in mind.
     if (m_map_role.size() >= m_worker_connections)
         return;
 
@@ -299,7 +308,18 @@ void CSLSGroup::idle_check()
     check_wait_http_role();
     check_reconnect_relay();
     check_invalid_sock();
+    reap_unadopted_backlog();
     check_new_role();
+}
+
+void CSLSGroup::reap_unadopted_backlog()
+{
+    if (NULL == m_list_role)
+        return;
+    int reaped = m_list_role->reap_unadopted(sls_gettime_ms(), HANDOFF_ADMISSION_TTL_MS);
+    if (reaped > 0)
+        spdlog::warn("[{}] CSLSGroup::reap_unadopted_backlog, worker={:d}, reaped {:d} un-adopted backlog role(s) older than {:d}ms.",
+                     fmt::ptr(this), m_worker_number, reaped, HANDOFF_ADMISSION_TTL_MS);
 }
 
 void CSLSGroup::maybe_idle_check()
