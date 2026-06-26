@@ -1,0 +1,33 @@
+.github/workflows/ci.yml
+  s_2000c2c5385991::t_b7c3c685359005 500-569
+tests/e2e/normalize-stats.jq
+  s_2000c2c5385991::t_5aa94253343fef 1-42
+tests/e2e/sls-stats.conf
+  s_2000c2c5385991::t_d7a4a830a31ff5 1-45
+tests/e2e/stats_snapshot.sh
+  s_2000c2c5385991::t_a25a52ed8d9205 1-172
+tests/fixtures/disconnect-shape.json
+  s_2000c2c5385991::t_e4864f0ab89480 1-4
+tests/fixtures/healthz-shape.json
+  s_2000c2c5385991::t_2e9bd48be2bb20 1-3
+tests/fixtures/stats-shape.json
+  s_2000c2c5385991::t_d7343bbd2ce3a1 1-49
+tests/fixtures/stats-unauthorized-shape.json
+  s_2000c2c5385991::t_93b23470dfdd7f 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "25d444a4610ff67f20ce675ddda9487e969bca9f",
+  "prompts": {},
+  "sessions": {
+    "s_2000c2c5385991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecb5d922-d7c2-429a-ada3-a7fb80ec0ba6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
