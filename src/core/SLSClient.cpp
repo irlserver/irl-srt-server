@@ -55,7 +55,7 @@ CSLSClient::CSLSClient()
 	memset(m_ts_file_name, 0, 1024);
 	memset(m_out_file_name, 0, 1024);
 
-	sprintf(m_role_name, "client");
+	snprintf(m_role_name, sizeof(m_role_name), "client");
 }
 
 CSLSClient::~CSLSClient()

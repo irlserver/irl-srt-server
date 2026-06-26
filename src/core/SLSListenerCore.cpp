@@ -52,7 +52,7 @@ CSLSListener::CSLSListener()
     m_player_key_min_length = 8;
     m_player_key_regex = std::regex("^[\\x20-\\x7E]{8,64}$");
 
-    sprintf(m_role_name, "listener");
+    snprintf(m_role_name, sizeof(m_role_name), "listener");
 }
 
 CSLSListener::~CSLSListener() {}
@@ -93,9 +93,9 @@ void CSLSListener::set_listener_type(bool is_publisher)
 {
     m_is_publisher_listener = is_publisher;
     if (is_publisher) {
-        sprintf(m_role_name, "listener-publisher");
+        snprintf(m_role_name, sizeof(m_role_name), "listener-publisher");
     } else {
-        sprintf(m_role_name, "listener-player");
+        snprintf(m_role_name, sizeof(m_role_name), "listener-player");
     }
 }
 
@@ -103,7 +103,7 @@ void CSLSListener::set_srtla_mode(bool is_srtla)
 {
     m_is_srtla_listener = is_srtla;
     if (is_srtla && m_is_publisher_listener) {
-        sprintf(m_role_name, "listener-publisher-srtla");
+        snprintf(m_role_name, sizeof(m_role_name), "listener-publisher-srtla");
     }
 }
 
@@ -112,9 +112,9 @@ void CSLSListener::set_legacy_mode(bool is_legacy)
     m_is_legacy_listener = is_legacy;
     if (is_legacy) {
         if (m_is_publisher_listener) {
-            sprintf(m_role_name, "listener-legacy");
+            snprintf(m_role_name, sizeof(m_role_name), "listener-legacy");
         } else {
-            sprintf(m_role_name, "listener-legacy-player");
+            snprintf(m_role_name, sizeof(m_role_name), "listener-legacy-player");
         }
     }
 }

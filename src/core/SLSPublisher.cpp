@@ -48,7 +48,7 @@ CSLSPublisher::CSLSPublisher()
     m_is_write = 0;
     m_map_publisher = NULL;
 
-    sprintf(m_role_name, "publisher");
+    snprintf(m_role_name, sizeof(m_role_name), "publisher");
     
     // Record publisher start for summary logging
     sls_get_summary_logger().record_publisher_start();

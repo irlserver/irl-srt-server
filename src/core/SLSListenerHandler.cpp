@@ -185,7 +185,11 @@ int CSLSListener::handler()
     int latency_len = sizeof(negotiated_latency);
     int final_latency = 0;
 
-    if (0 != srt->libsrt_getsockopt(lat_opt, lat_opt_name, &negotiated_latency, &latency_len)) {
+    // Treat an optlen that libsrt did not write back as exactly sizeof(int) as a
+    // failed read: SRTO_RCVLATENCY/PEERLATENCY are int32, so a different width
+    // means negotiated_latency holds a partial/garbage value we must not trust.
+    if (0 != srt->libsrt_getsockopt(lat_opt, lat_opt_name, &negotiated_latency, &latency_len)
+        || latency_len != (int)sizeof(negotiated_latency)) {
         negotiated_latency = conf_server->latency_min > 0 ? conf_server->latency_min : 120;
         spdlog::warn("[{}] CSLSListener::handler, [{}:{:d}], failed to read latency, using fallback {} ms.",
                 fmt::ptr(this), peer_name, peer_port, negotiated_latency);
@@ -579,7 +583,14 @@ int CSLSListener::handler()
             return client_count;
         }
 
-        snprintf(key_app, sizeof(key_app), "%s/%s", host_name, app_name);
+    int key_app_written = snprintf(key_app, sizeof(key_app), "%s/%s", host_name, app_name);
+    if (key_app_written < 0 || (size_t)key_app_written >= sizeof(key_app)) {
+        spdlog::error("[connection:{}] host/app too long for routing key, rejecting {}:{}",
+                     session_id, peer_name, peer_port);
+        srt->libsrt_close();
+        delete srt;
+        return client_count;
+    }
 
         if (!key_is_cached) {
             spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], re-parsed validated stream: '{}/{}/{}'",

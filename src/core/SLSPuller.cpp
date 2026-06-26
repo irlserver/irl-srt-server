@@ -50,7 +50,7 @@ const char SLS_RELAY_STAT_INFO_BASE[] = "\
 CSLSPuller::CSLSPuller()
 {
 	m_is_write = 0;
-	sprintf(m_role_name, "puller");
+	snprintf(m_role_name, sizeof(m_role_name), "puller");
 }
 
 int CSLSPuller::uninit()

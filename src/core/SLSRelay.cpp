@@ -84,7 +84,7 @@ CSLSRelay::CSLSRelay()
     m_has_vetted_addr = false;
     memset(&m_vetted_addr, 0, sizeof(m_vetted_addr));
 
-    sprintf(m_role_name, "relay");
+    snprintf(m_role_name, sizeof(m_role_name), "relay");
 }
 
 CSLSRelay::~CSLSRelay()
