@@ -25,6 +25,7 @@
 #pragma once
 
 #include <vector>
+#include <memory>
 
 #include "SLSRole.hpp"
 #include "SLSRoleList.hpp"
@@ -77,6 +78,7 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
  * CSLSPublisher
  */
     class CSLSPusherManager;
+struct SLS_RELAY_INFO;
 
 class CSLSPublisher : public CSLSRole
 {
@@ -109,6 +111,9 @@ private:
     CSLSMapPublisher *m_map_publisher;
     CSLSRoleList *m_role_list = nullptr;
     int m_listen_port = 0;
-    CSLSPusherManager *m_dynamic_pusher_manager = nullptr;
-    struct SLS_RELAY_INFO *m_dynamic_pusher_sri = nullptr;
+    // Declaration order is load-bearing: the manager reads the SRI during its
+    // teardown, so the SRI must outlive it. Declared after the manager, the SRI
+    // destroys second (reverse declaration order). uninit() mirrors this.
+    std::unique_ptr<CSLSPusherManager> m_dynamic_pusher_manager;
+    std::unique_ptr<SLS_RELAY_INFO> m_dynamic_pusher_sri;
 };

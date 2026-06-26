@@ -121,15 +121,10 @@ int CSLSPublisher::uninit()
 
     if (m_dynamic_pusher_manager)
     {
-        delete m_dynamic_pusher_manager;
-        m_dynamic_pusher_manager = NULL;
+        m_dynamic_pusher_manager.reset();
         spdlog::info("[relay] dynamic pusher torn down for {}", m_map_data_key);
     }
-    if (m_dynamic_pusher_sri)
-    {
-        delete m_dynamic_pusher_sri;
-        m_dynamic_pusher_sri = NULL;
-    }
+    m_dynamic_pusher_sri.reset();
 
     return CSLSRole::uninit();
 }
@@ -145,7 +140,7 @@ int CSLSPublisher::handler()
     // The webhook flips m_http_passed and populates m_push_urls
     // asynchronously inside check_http_passed; once both happen we spin up
     // exactly one CSLSPusherManager carrying every accepted URL.
-    if (m_dynamic_pusher_manager == NULL && !m_push_urls.empty()) {
+    if (!m_dynamic_pusher_manager && !m_push_urls.empty()) {
         try_spawn_dynamic_pusher();
     }
     return ret;
@@ -173,7 +168,7 @@ void CSLSPublisher::try_spawn_dynamic_pusher()
     std::string app_uplive(m_map_data_key, slash - m_map_data_key);
     std::string stream_name(slash + 1);
 
-    m_dynamic_pusher_sri = new SLS_RELAY_INFO;
+    m_dynamic_pusher_sri = std::make_unique<SLS_RELAY_INFO>();
     snprintf(m_dynamic_pusher_sri->m_type, sizeof(m_dynamic_pusher_sri->m_type), "push");
     m_dynamic_pusher_sri->m_mode = SLS_PM_ALL;
     m_dynamic_pusher_sri->m_reconnect_interval = 10;
@@ -181,8 +176,8 @@ void CSLSPublisher::try_spawn_dynamic_pusher()
     m_dynamic_pusher_sri->m_upstreams = m_push_urls;
     m_dynamic_pusher_sri->m_vetted_addrs = m_push_vetted_addrs;
 
-    m_dynamic_pusher_manager = new CSLSPusherManager();
-    m_dynamic_pusher_manager->set_relay_conf(m_dynamic_pusher_sri);
+    m_dynamic_pusher_manager = std::make_unique<CSLSPusherManager>();
+    m_dynamic_pusher_manager->set_relay_conf(m_dynamic_pusher_sri.get());
     m_dynamic_pusher_manager->set_relay_info(app_uplive.c_str(), stream_name.c_str());
     m_dynamic_pusher_manager->set_map_data(m_map_data);
     m_dynamic_pusher_manager->set_map_publisher(m_map_publisher);
