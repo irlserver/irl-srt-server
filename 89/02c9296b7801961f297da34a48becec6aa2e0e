@@ -1,0 +1,25 @@
+.github/workflows/ci.yml
+  s_2000c2c5385991::t_2501fd4e01b1fd 412,418-447,460,479
+  s_2000c2c5385991::t_7de90f8c2326be 409-411
+  s_2000c2c5385991::t_68783ea44aa5ab 413-417
+  s_2000c2c5385991::t_906ea9608d5f47 448-450,457-459
+  s_2000c2c5385991::t_976da9e31c9a04 461-463,476-478
+  s_2000c2c5385991::t_3cbe2d7bca88d3 480-482
+  s_2000c2c5385991::t_0aa24e00e6ae4e 393-408,451-456,464-475,483-499
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "8902c9296b7801961f297da34a48becec6aa2e0e",
+  "prompts": {},
+  "sessions": {
+    "s_2000c2c5385991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecb5d922-d7c2-429a-ada3-a7fb80ec0ba6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
