@@ -28,9 +28,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     // The security gate the publisher/player listen callbacks run pre-accept.
     sls_validate_sid_format(sid.c_str());
 
-    // Canonicalization + the peer-scoped reject-cache key built from it.
+    // Canonicalization used to build the negative-auth cache key.
     sls_canonical_sid_key(sid);
-    sls_reject_cache_key("203.0.113.7", sid.c_str());
 
     return 0;
 }
