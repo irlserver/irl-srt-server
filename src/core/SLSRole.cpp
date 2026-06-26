@@ -487,7 +487,7 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
     // (pre-auth OOM). On failure (global stream/memory cap reached) kick the
     // role rather than spin retrying. Relays added their ring eagerly at
     // connect, so their add() here hits the idempotent early-return.
-    if (!m_ring_added)
+    if (!m_ring_added.load(std::memory_order_acquire))
     {
         int bitrate_hint = 0;
         if (m_conf != NULL)
@@ -502,7 +502,7 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
             invalid_srt();
             return SLS_ERROR;
         }
-        m_ring_added = true;
+        m_ring_added.store(true, std::memory_order_release);
         on_map_data_set();
     }
 

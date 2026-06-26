@@ -257,7 +257,13 @@ protected:
     // never-sending connection cannot pin a multi-megabyte ring (pre-auth
     // OOM). Relays add their ring eagerly at connect; for them the lazy add
     // is an idempotent no-op that simply flips this flag.
-    bool m_ring_added{false};
+    //
+    // Flipped in handler_read_data() and read in on_map_data_set(), both on
+    // the role-owning worker; also read on the listener-owning worker via the
+    // accept-time on_map_data_set(). Atomic (release/acquire) keeps the lazy
+    // flag well-defined across that worker boundary without a lock; the
+    // lazy-allocation behaviour is unchanged.
+    std::atomic<bool> m_ring_added{false};
 
     char m_data[DATA_BUFF_SIZE];
     // Worker-confined egress cursor: written and read only by the owning

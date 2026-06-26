@@ -206,7 +206,7 @@ void CSLSPublisher::on_map_data_set()
     // handler_read_data re-invokes this hook right after the lazy add(), with
     // m_ring_added set, so the gap-fill flag lands on the freshly-created
     // ts_info instead of warning about a missing entry.
-    if (!m_ring_added)
+    if (!m_ring_added.load(std::memory_order_acquire))
         return;
     if (m_map_data && strlen(m_map_data_key) > 0 && is_audio_gap_fill_enabled()) {
         m_map_data->set_audio_gap_fill(m_map_data_key, true);
