@@ -58,14 +58,14 @@ typedef struct SRTContext
     int iptos;
     int64_t inputbw;
     int oheadbw;
-    int64_t latency;
+    int32_t latency;
     int peer_idle_timeout; // SRTO_PEERIDLETIMEO (ms) for accepted sockets; 0 = leave libsrt/fork default
     int tlpktdrop;
     int nakreport;
     int64_t connect_timeout;
     int payload_size;
-    int64_t rcvlatency;
-    int64_t peerlatency;
+    int32_t rcvlatency;
+    int32_t peerlatency;
     enum SRTMode mode;
     int sndbuf;
     int rcvbuf;
