@@ -13,6 +13,7 @@
 
 set(SLS_FUZZ_TARGETS
     fuzz_ts_parser
+    fuzz_streamid
 )
 
 foreach(tgt ${SLS_FUZZ_TARGETS})
