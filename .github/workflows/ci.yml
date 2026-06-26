@@ -497,3 +497,73 @@ jobs:
           name: coverage-report
           path: coverage-report/
           if-no-files-found: ignore
+
+  # Golden-shape snapshot of the HTTP control plane (/stats, /healthz,
+  # /disconnect). Builds the server + client, runs a real srt loopback with one
+  # publisher + player, and diffs the normalized /stats|/healthz|/disconnect JSON
+  # against the committed fixtures so any accidental change to the control-plane
+  # API shape fails the job. FEC-free: drives plain srt_client only.
+  stats-snapshot:
+    name: stats-snapshot (control-plane API shape)
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Install build + harness tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake tcl pkg-config \
+            libssl-dev zlib1g-dev \
+            ffmpeg jq curl
+
+      - name: Resolve SRT belabox HEAD commit
+        id: srt-head
+        run: |
+          SHA=$(git ls-remote https://github.com/irlserver/srt.git refs/heads/belabox | cut -f1)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Cache SRT belabox build
+        id: cache-srt
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: /usr/local/srt-belabox
+          key: srt-belabox-${{ runner.os }}-${{ steps.srt-head.outputs.sha }}
+
+      - name: Build SRT belabox fork
+        if: steps.cache-srt.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch belabox https://github.com/irlserver/srt.git /tmp/srt
+          cd /tmp/srt
+          ./configure --prefix=/usr/local/srt-belabox
+          make -j$(nproc)
+          sudo make install
+
+      - name: Expose SRT to the build
+        run: |
+          echo "CPATH=/usr/local/srt-belabox/include" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=/usr/local/srt-belabox/lib" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/usr/local/srt-belabox/lib" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/local/srt-belabox/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: Cache vendored libs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: lib
+          key: vendor-libs-${{ hashFiles('.gitmodules') }}-${{ hashFiles('lib/**/.git') }}
+
+      - name: Build server + client
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSLS_BUILD_TESTS=ON
+          cmake --build build -j
+
+      - name: Stats-snapshot (verify control-plane API shape)
+        run: |
+          SRT_SERVER="$PWD/build/bin/srt_server" \
+          SRT_CLIENT="$PWD/build/bin/srt_client" \
+            bash tests/e2e/stats_snapshot.sh

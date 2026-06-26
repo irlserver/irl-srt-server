@@ -1,0 +1,49 @@
+{
+  "publishers": {
+    "<STREAM_ID>": {
+      "audioGapFill": {
+        "audioTrackCount": "<number>",
+        "enabled": "<bool>",
+        "gapCount": "<number>",
+        "pmtParsed": "<bool>",
+        "silentBytesInserted": "<number>",
+        "silentFramesInserted": "<number>",
+        "silentPacketsInserted": "<number>",
+        "tracks": [
+          {
+            "channels": "<number>",
+            "formatDetected": "<bool>",
+            "gapCount": "<number>",
+            "lastGapFrames": "<number>",
+            "lastGapPtsDelta": "<number>",
+            "pid": "<number>",
+            "sampleRate": "<number>",
+            "silentBytesInserted": "<number>",
+            "silentFramesInserted": "<number>",
+            "silentPacketsInserted": "<number>",
+            "streamId": "<number>",
+            "streamType": "<number>"
+          }
+        ]
+      },
+      "bitrate": "<number>",
+      "bytesRcvDrop": "<number>",
+      "bytesRcvLoss": "<number>",
+      "latency": "<number>",
+      "mbpsBandwidth": "<number>",
+      "mbpsRecvRate": "<number>",
+      "msRcvBuf": "<number>",
+      "pktRcvDrop": "<number>",
+      "pktRcvLoss": "<number>",
+      "pktRcvRetrans": "<number>",
+      "pktRecvNAKTotal": "<number>",
+      "pktRetransTotal": "<number>",
+      "pktSentNAKTotal": "<number>",
+      "ringOverruns": "<number>",
+      "rtt": "<number>",
+      "sendBackpressure": "<number>",
+      "uptime": "<number>"
+    }
+  },
+  "status": "<string>"
+}
