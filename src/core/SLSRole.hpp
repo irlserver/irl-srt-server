@@ -255,9 +255,19 @@ protected:
     bool m_ring_added{false};
 
     char m_data[DATA_BUFF_SIZE];
+    // Worker-confined egress cursor: written and read only by the owning
+    // worker (handler_write_data / update_egress_arming), never by the
+    // stats/HTTP thread. Plain int — no cross-thread access to race, and
+    // keeping it off the atomic path avoids cost on the write hot loop.
     int m_data_len;
     int m_data_pos;
-    bool m_need_reconnect;
+    // Relay reconnect flag. Set once at construction on the building thread
+    // (listener/manager or a worker), read on the owning worker via
+    // is_reconnect() in CSLSGroup::check_invalid_sock — writer and reader are
+    // distinct threads. Atomic (relaxed; advisory, set before publication) to
+    // keep that cross-thread access explicit and TSan-clean, matching the
+    // file's other relay flags (m_kick_requested, m_relay_manager).
+    std::atomic<bool> m_need_reconnect{false};
 
     // Incremented every time srt_sendmsg returns EASYNCSND on this
     // role's egress write. Read concurrently by the stats HTTP server,

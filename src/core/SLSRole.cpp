@@ -75,7 +75,7 @@ CSLSRole::CSLSRole()
     memset(m_data, 0, DATA_BUFF_SIZE);
     m_data_len = 0;
     m_data_pos = 0;
-    m_need_reconnect = false;
+    m_need_reconnect.store(false, std::memory_order_relaxed);
     m_http_future = nullptr;
 
     // Initialize bitrate limiter
@@ -332,7 +332,7 @@ char *CSLSRole::get_map_data_key()
 
 bool CSLSRole::is_reconnect()
 {
-    return m_need_reconnect;
+    return m_need_reconnect.load(std::memory_order_relaxed);
 }
 
 void CSLSRole::set_conf(sls_conf_base_t *conf)

@@ -79,7 +79,7 @@ CSLSRelay::CSLSRelay()
     m_server_port = 0;
     m_map_publisher = NULL;
     m_relay_manager.store(NULL, std::memory_order_relaxed);
-    m_need_reconnect = true;
+    m_need_reconnect.store(true, std::memory_order_relaxed);
 
     m_has_vetted_addr = false;
     memset(&m_vetted_addr, 0, sizeof(m_vetted_addr));
