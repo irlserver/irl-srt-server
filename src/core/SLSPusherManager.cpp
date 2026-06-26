@@ -29,6 +29,7 @@
 #include "spdlog/spdlog.h"
 
 #include "common.hpp"
+#include "util.hpp"
 #include "SLSPusherManager.hpp"
 #include "SLSLog.hpp"
 #include "SLSPusher.hpp"
@@ -72,7 +73,11 @@ int CSLSPusherManager::connect_all()
 		// format string would let a spec like {stream_name:>1500000000} blow up
 		// into a 1.5 GB allocation (CWE-134). Webhook URLs are also brace-checked
 		// in validate_push_url; this sink is safe regardless of the source.
-		std::string substituted = sls_substitute_stream_name(szTmp, m_stream_name);
+		// Percent-encode the client-supplied stream name before it lands in the
+		// {stream_name} slot of the upstream streamid. Unencoded, a '?'/'=' in the
+		// streamid would let a publisher splice relay socket options into the push
+		// leg; encoding keeps it inside the streamid value (the upstream decodes it).
+		std::string substituted = sls_substitute_stream_name(szTmp, url_encode(m_stream_name));
 		int written;
 		// Check if the srt:// prefix is already specified
 		if (strncmp(szTmp, "srt://", 6) == 0)

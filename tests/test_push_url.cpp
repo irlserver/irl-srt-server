@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "SLSPushUrlValidator.hpp"
+#include "util.hpp"
 
 // T8 (CWE-134): a webhook-supplied push URL must never be interpreted as a
 // fmt format string. These tests pin both halves of the fix: the substitution
@@ -105,4 +106,46 @@ TEST_CASE("validate_push_url: a rejected URL leaves the vetted address untouched
     CHECK(validate_push_url("srt://127.0.0.1:9000?streamid=live/feed", app, {}, &vetted) ==
           PushUrlReject::DenyInternal);
     CHECK(vetted.ss_family == 0);
+}
+
+// The relay/pull/push legs splice the client-supplied stream name into an
+// outbound srt:// URL (SLSPullerManager / SLSRelayManager / SLSPusherManager).
+// sls_is_safe_name intentionally permits a legacy query token (a trailing
+// "?key=value" passed through to auth) in a streamid, so the URL builders
+// percent-encode the stream name at the sink instead. These pin that property:
+// a query token still survives losslessly (the upstream's parser decodes it
+// back to the literal streamid), but a publisher cannot use '?'/'='/'&' to
+// inject relay socket options (streamid/passphrase/latency) into our leg.
+
+TEST_CASE("url_encode: escapes every query-structural character")
+{
+    CHECK(url_encode("?") == "%3F");
+    CHECK(url_encode("=") == "%3D");
+    CHECK(url_encode("&") == "%26");
+    CHECK(url_encode("#") == "%23");
+    CHECK(url_encode("/") == "%2F");
+    CHECK(url_encode(" ") == "%20");
+    CHECK(url_encode("%") == "%25");
+}
+
+TEST_CASE("url_encode: a legacy query token round-trips as one opaque value")
+{
+    CHECK(url_encode("feed1?token=abc") == "feed1%3Ftoken%3Dabc");
+}
+
+TEST_CASE("encoded stream name cannot inject a second relay query parameter")
+{
+    // Threat: streamid "evil?streamid=hijacked" spliced raw into
+    // srt://host?streamid=live/<stream> would override the upstream streamid.
+    // Encoded, the '?'/'=' are inert, so the whole thing stays the value of the
+    // single streamid parameter.
+    const std::string url =
+        sls_substitute_stream_name("srt://h:9000?streamid=live/{stream_name}",
+                                   url_encode("evil?streamid=hijacked"));
+    CHECK(url == "srt://h:9000?streamid=live/evil%3Fstreamid%3Dhijacked");
+    // After the first '?', no raw query delimiter from the stream name survives,
+    // so a URL parser sees exactly one query parameter.
+    const size_t q = url.find('?');
+    CHECK(url.find('?', q + 1) == std::string::npos);
+    CHECK(url.find('&') == std::string::npos);
 }

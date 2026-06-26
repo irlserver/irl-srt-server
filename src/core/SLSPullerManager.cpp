@@ -27,6 +27,7 @@
 #include "spdlog/spdlog.h"
 
 #include "common.hpp"
+#include "util.hpp"
 #include "SLSPullerManager.hpp"
 #include "SLSLog.hpp"
 #include "SLSPuller.hpp"
@@ -75,7 +76,14 @@ int CSLSPullerManager::connect_loop()
 			index = 0;
 
 		const char *szTmp = m_sri->m_upstreams[index].c_str();
-		ret = snprintf(szURL, sizeof(szURL), "srt://%s/%s", szTmp, m_stream_name);
+		// Percent-encode the client-supplied stream name before it is spliced
+		// into the outbound relay URL. Streamids may legitimately carry a trailing
+		// query token (a legacy auth parameter), but unencoded that same '?'/'='
+		// would let a publisher inject relay socket options (streamid, passphrase,
+		// latency) into our pull leg. Encoding keeps the value inside the upstream
+		// streamid; CxxUrl decodes it so the upstream still sees the literal id.
+		std::string encoded_stream = url_encode(m_stream_name);
+		ret = snprintf(szURL, sizeof(szURL), "srt://%s/%s", szTmp, encoded_stream.c_str());
 		if (ret < 0 || (unsigned)ret >= sizeof(szURL))
 		{
 			spdlog::error("[relay] Puller connect_loop failed, URL too long | ret={}", ret);

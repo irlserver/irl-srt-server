@@ -155,7 +155,12 @@ int CSLSRelayManager::connect_hash()
 	}
 	const char *szTmp = url.c_str();
 
-	ret = snprintf(szURL, sizeof(szURL), "srt://%s/%s", szTmp, m_stream_name);
+	// Percent-encode the client-supplied stream name so its '?'/'=' cannot break
+	// out of the upstream streamid and inject relay socket options into our
+	// outbound leg. CxxUrl decodes it on parse, so the upstream still receives
+	// the literal streamid (including any legacy query token).
+	std::string encoded_stream = url_encode(m_stream_name);
+	ret = snprintf(szURL, sizeof(szURL), "srt://%s/%s", szTmp, encoded_stream.c_str());
 	if (ret < 0 || (unsigned)ret >= sizeof(szURL))
 	{
 		spdlog::error("[{}] CSLSManager::connect_hash, failed, url={}.", fmt::ptr(this), url.c_str());
