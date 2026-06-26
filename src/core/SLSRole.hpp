@@ -240,7 +240,12 @@ protected:
     char m_role_name[STR_MAX_LEN];
     char m_streamid[URL_MAX_LEN];
     char m_http_url[URL_MAX_LEN];
-    bool m_http_passed;
+    // Auth gate written by set_http_url() (false) on the listener-owning
+    // worker and by check_http_passed() (true) / read by on_close() on the
+    // role-owning worker — a different OS thread in multi-worker mode. Atomic
+    // (release/acquire) makes the transition well-defined without a lock on
+    // the handler_read/write_data hot path.
+    std::atomic<bool> m_http_passed{true};
 
     sls_conf_base_t *m_conf;
     CSLSMapData *m_map_data;

@@ -65,7 +65,7 @@ CSLSRole::CSLSRole()
     memset(m_role_name, 0, STR_MAX_LEN);
     memset(m_streamid, 0, URL_MAX_LEN);
     memset(m_http_url, 0, URL_MAX_LEN);
-    m_http_passed = true;
+    m_http_passed.store(true, std::memory_order_relaxed);
 
     m_conf = NULL;
     m_map_data = NULL;
@@ -746,7 +746,7 @@ void CSLSRole::set_http_url(const char *http_url)
         return;
     }
     strlcpy(m_http_url, http_url, sizeof(m_http_url));
-    m_http_passed = false;
+    m_http_passed.store(false, std::memory_order_release);
 }
 
 void CSLSRole::set_auth_reject_cache(std::shared_ptr<AuthRejectCache> cache)
@@ -777,7 +777,7 @@ int CSLSRole::on_connect()
 
 int CSLSRole::on_close()
 {
-    if (!m_http_passed)
+    if (!m_http_passed.load(std::memory_order_acquire))
         return SLS_OK;
     if (strlen(m_http_url) == 0)
         return SLS_OK;
@@ -800,7 +800,7 @@ int CSLSRole::on_close()
 
 int CSLSRole::check_http_passed()
 {
-    if (m_http_passed)
+    if (m_http_passed.load(std::memory_order_acquire))
         return SLS_OK;
 
     if (!m_http_future)
@@ -836,7 +836,7 @@ int CSLSRole::check_http_passed()
 
     spdlog::info("[{}] CSLSRole::check_http_client_response, http finished, {}, http_url='{}', status={}, response='{}'.",
                  fmt::ptr(this), m_role_name, m_http_url, response.status_code, response.body);
-    m_http_passed = true;
+    m_http_passed.store(true, std::memory_order_release);
 
     // Optional JSON payload from the publisher-auth webhook may carry a
     // list of outbound SRT push destinations. Parse only when the body
