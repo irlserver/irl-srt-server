@@ -1,0 +1,32 @@
+src/core/SLSMapData.hpp
+  s_a2ad363f024564::t_ac34933f48dac7 92-96
+src/core/SLSMapData.cpp
+  s_a2ad363f024564::t_68018d89f45490 28
+  s_a2ad363f024564::t_3daaf57e582e12 127
+  s_a2ad363f024564::t_b6d23d5970e090 170
+  s_a2ad363f024564::t_63ddb69e8456da 172
+  s_a2ad363f024564::t_f905532e601fac 320,330
+  s_a2ad363f024564::t_f4cf22a60a11e3 369
+  s_a2ad363f024564::t_06abb331866129 304
+  s_a2ad363f024564::t_982eb1b45bb4db 273
+  s_a2ad363f024564::t_d333c70b243a5f 389
+  s_a2ad363f024564::t_a65d529ac637fb 53
+  s_a2ad363f024564::t_055618939d0ff4 140,151
+  s_a2ad363f024564::t_122868ce815206 210,212,235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "b5d6dfc37bf94a5debaa1db2054975ff91973829",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}

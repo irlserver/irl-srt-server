@@ -1,0 +1,20 @@
+CONFIGURATION.md
+  s_a2ad363f024564::t_a00f8599968e43 1-195
+  s_a2ad363f024564::t_b414bba6106214 196-199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "8fd807cdfb5265cc311182320d4170faff34b3ef",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+src/core/TSFileTimeReader.cpp
+  s_a2ad363f024564::t_6e25a400781952 182-183
+  s_a2ad363f024564::t_7e4aae1ae6b06b 147
+  s_a2ad363f024564::t_f6dd049130b077 169
+  s_a2ad363f024564::t_558c74ba7fc3bc 192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "212db670e62593a68eeea8aeb8c0908278663479",
+  "prompts": {},
+  "sessions": {
+    "s_a2ad363f024564": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cd528d0-17b2-40d9-8ecf-24b5e3cae1bf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Thomas Lekanger <thomas.lekanger@hotmail.com>"
+    }
+  }
+}
