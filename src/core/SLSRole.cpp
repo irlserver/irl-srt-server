@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <cassert>
 
 #include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
@@ -121,6 +122,29 @@ int CSLSRole::invalid_srt()
 {
     if (m_srt)
     {
+        // Single-owner teardown (Todo 19): roles live behind a
+        // std::shared_ptr<CSLSRole> and only one thread ever frees m_srt for a
+        // given role. The owning worker serialises get_state()/handler()/
+        // invalid_srt() in its loop; a cross-thread kick only flips
+        // m_kick_requested and the owner does the teardown in get_state(); and at
+        // shutdown the workers are joined before the main thread drains the rest,
+        // so ownership transfers but never overlaps. The debug tripwire below
+        // claims this role's teardown for the current thread and asserts no
+        // second thread is concurrently inside — the double-free of m_srt a
+        // broken model would cause. It passes on the serialized shutdown handoff
+        // (no concurrency) and fires only on a real race; the read/write-vs-delete
+        // race is separately covered by the task-19 TSan storm. No runtime mutex
+        // is added on the socket hot path.
+#ifndef NDEBUG
+        std::thread::id prev = std::thread::id{};
+        bool claimed = m_invalidating_tid.compare_exchange_strong(
+            prev, std::this_thread::get_id(), std::memory_order_acq_rel);
+        assert(claimed &&
+               "CSLSRole::invalid_srt entered concurrently by a second thread "
+               "(single-owner shared_ptr teardown violated; would double-free m_srt)");
+        (void)claimed;
+#endif
+
         int fd = get_fd(); // Get fd before closing
         spdlog::info("[{}] CSLSRole::invalid_srt, close sock={:d}, m_state={:d}.", fmt::ptr(this), fd, m_state);
         
@@ -131,6 +155,10 @@ int CSLSRole::invalid_srt()
 
         // Notify about disconnection
         on_close();
+
+#ifndef NDEBUG
+        m_invalidating_tid.store(std::thread::id{}, std::memory_order_release);
+#endif
     }
     return SLS_OK;
 }

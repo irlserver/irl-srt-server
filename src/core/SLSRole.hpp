@@ -39,6 +39,7 @@
 #include <future>
 #include <memory>
 #include <atomic>
+#include <thread>
 #include "SLSBitrateLimit.hpp"
 
 class AuthRejectCache;
@@ -233,6 +234,23 @@ protected:
     // get_state() on the owning worker. Atomic so the listener thread can
     // signal a takeover without locking the socket hot path.
     std::atomic<bool> m_kick_requested{false};
+
+#ifndef NDEBUG
+    // Single-owner teardown tripwire (Todo 19 — verify, don't blanket-lock).
+    // Roles are owned by a std::shared_ptr<CSLSRole> (see CSLSRoleList) and their
+    // SRT socket is torn down by exactly one thread at a time: the owning worker
+    // serialises handler()/get_state()/invalid_srt() in its single-threaded loop;
+    // a cross-thread kick only flips m_kick_requested (release/acquire) and the
+    // owner performs the actual invalid_srt() in get_state(); and at shutdown the
+    // worker threads are joined before the main thread drains the rest, so
+    // ownership transfers but the teardown never overlaps. This atomic records
+    // which thread (if any) is currently inside invalid_srt()'s delete path for
+    // this role; a second thread entering concurrently fails the assert there —
+    // the exact double-free of m_srt a broken single-owner model would cause.
+    // The complementary read/write-vs-delete race is covered by the task-19 TSan
+    // storm. Wholly compiled out in release (NDEBUG) — zero production footprint.
+    std::atomic<std::thread::id> m_invalidating_tid{std::thread::id{}};
+#endif
     int m_back_log; //maximum number of connections at the same time
     int m_port;
     char m_peer_ip[IP_MAX_LEN];
