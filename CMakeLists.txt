@@ -3,6 +3,14 @@ project(srt-live-server VERSION 3.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Emit compile_commands.json for clang-based tooling (clang-tidy, clang-tidy-diff,
+# clangd). Honors a caller-supplied -DCMAKE_EXPORT_COMPILE_COMMANDS=OFF; otherwise
+# defaults ON so the static-analysis CI job (and local clang-tidy runs) always
+# have a compilation database to drive `-p <build-dir>`.
+if (NOT DEFINED CMAKE_EXPORT_COMPILE_COMMANDS)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif()
+
 # Default to a hardened, optimized Release build when the caller does not pick a
 # build type. _FORTIFY_SOURCE (added below) needs -O1 or higher, so an unset
 # build type would silently ship without it; Release (-O3) guarantees it is live.
