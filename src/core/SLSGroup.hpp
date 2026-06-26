@@ -37,11 +37,11 @@
 /**
  * CSLSGroup , group of players, publishers and listener
  */
-class CSLSGroup : public CSLSEpollThread
+class CSLSGroup final : public CSLSEpollThread
 {
 public:
     CSLSGroup();
-    ~CSLSGroup();
+    ~CSLSGroup() override;
 
     int start();
     int stop();
@@ -51,13 +51,13 @@ public:
     void set_worker_connections(unsigned int n);
     void set_worker_number(int n);
 
-    virtual int handler();
+    virtual int handler() override;
 
     void set_stat_post_interval(int interval);
     void get_stat_info(vector<stat_info_t> &info);
 
 protected:
-    virtual void clear();
+    virtual void clear() override;
 
 private:
     CSLSRoleList *m_list_role;

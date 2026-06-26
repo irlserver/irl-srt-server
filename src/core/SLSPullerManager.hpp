@@ -33,20 +33,20 @@
 /**
  * CSLSPullerManager
  */
-class CSLSPullerManager : public CSLSRelayManager
+class CSLSPullerManager final : public CSLSRelayManager
 {
 public:
     CSLSPullerManager();
-    virtual ~CSLSPullerManager();
+    virtual ~CSLSPullerManager() override;
 
-    virtual int start();
-    virtual int add_reconnect_stream(char *relay_url);
-    virtual int reconnect(int64_t cur_tm_ms);
+    virtual int start() override;
+    virtual int add_reconnect_stream(char *relay_url) override;
+    virtual int reconnect(int64_t cur_tm_ms) override;
 
 protected:
     int connect_loop();
-    virtual CSLSRelay *create_relay();
-    virtual int set_relay_param(std::shared_ptr<CSLSRelay> relay);
+    virtual CSLSRelay *create_relay() override;
+    virtual int set_relay_param(std::shared_ptr<CSLSRelay> relay) override;
     int check_relay_param();
 
     int m_cur_loop_index;

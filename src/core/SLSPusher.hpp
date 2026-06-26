@@ -29,14 +29,14 @@
 /**
  * CSLSPuller
  */
-class CSLSPusher : public CSLSRelay
+class CSLSPusher final : public CSLSRelay
 {
 public:
     CSLSPusher();
-    virtual ~CSLSPusher();
+    virtual ~CSLSPusher() override;
 
-    virtual int handler();
-    virtual int get_stat_base(char *stat_base);
+    virtual int handler() override;
+    virtual int get_stat_base(char *stat_base) override;
 
 protected:
 };

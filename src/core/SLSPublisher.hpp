@@ -80,11 +80,11 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     class CSLSPusherManager;
 struct SLS_RELAY_INFO;
 
-class CSLSPublisher : public CSLSRole
+class CSLSPublisher final : public CSLSRole
 {
 public:
     CSLSPublisher();
-    virtual ~CSLSPublisher();
+    virtual ~CSLSPublisher() override;
 
     void set_map_publisher(CSLSMapPublisher *publisher);
 
@@ -93,10 +93,10 @@ public:
     void set_role_list(CSLSRoleList *list) { m_role_list = list; }
     void set_listen_port(int port) { m_listen_port = port; }
 
-    virtual int init();
-    virtual int uninit();
+    virtual int init() override;
+    virtual int uninit() override;
 
-    virtual int handler();
+    virtual int handler() override;
     virtual void on_map_data_set() override;
     virtual bool is_audio_gap_fill_enabled() const override;
     // A live external broadcaster is shielded from takeover by a not-yet-proven

@@ -19,10 +19,14 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # --- Compiler-specific flags ---
+# -Wsuggest-override / -Woverloaded-virtual catch silent v-table signature drift
+# across the CSLSRole hierarchy (a derived override that no longer matches its base
+# becomes a NEW virtual instead, silently). Both flags are GCC/Clang only; the
+# generic fallback branch keeps the portable base set.
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wshadow -Wno-invalid-offsetof -fcompare-debug-second")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wshadow -Wsuggest-override -Woverloaded-virtual -Wno-invalid-offsetof -fcompare-debug-second")
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wshadow -Wno-invalid-offsetof")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wshadow -Wsuggest-override -Woverloaded-virtual -Wno-invalid-offsetof")
 else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wshadow -Wno-invalid-offsetof")
 endif()
