@@ -414,6 +414,14 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear) {
     ret["bytesRcvLoss"]     = stats.byteRcvLoss;
     ret["bytesRcvDrop"]     = stats.byteRcvDrop;
     ret["mbpsRecvRate"]     = stats.mbpsRecvRate;
+    // NAK / retransmit counters. A publisher role's SRT socket is the server's
+    // RECEIVE side, so it SENDS NAKs upstream (pktSentNAKTotal) and RECEIVES the
+    // resulting retransmits (pktRcvRetrans) — the L1-vs-L2 differential: L1 keeps
+    // periodic NAK on so these climb under loss, L2 (NAK off) stays near zero.
+    ret["pktSentNAKTotal"]  = stats.pktSentNAKTotal;
+    ret["pktRecvNAKTotal"]  = stats.pktRecvNAKTotal;
+    ret["pktRetransTotal"]  = stats.pktRetransTotal;
+    ret["pktRcvRetrans"]    = stats.pktRcvRetrans;
     // Instant
     ret["rtt"]              = stats.msRTT;
     ret["msRcvBuf"]         = stats.msRcvBuf;
