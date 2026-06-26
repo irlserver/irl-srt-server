@@ -35,7 +35,9 @@
 
 CSLSThread::CSLSThread()
 {
-	m_exit = 0;
+	// Constructor runs before start() spawns the worker, so no other thread
+	// can observe m_exit yet — relaxed is sufficient for the initial value.
+	m_exit.store(false, std::memory_order_relaxed);
 	m_th_id = 0;
 }
 CSLSThread::~CSLSThread()
@@ -69,7 +71,9 @@ int CSLSThread::stop()
 	}
 	spdlog::info("[{}] CSLSThread::stop, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
 
-	m_exit = 1;
+	// Release: publish the exit request so the worker's acquire-load in its
+	// loop predicate (and is_exit()) is guaranteed to observe it.
+	m_exit.store(true, std::memory_order_release);
 	pthread_join(m_th_id, NULL);
 	m_th_id = 0;
 	clear();
@@ -83,7 +87,8 @@ void CSLSThread::clear()
 
 bool CSLSThread::is_exit()
 {
-	return m_exit == 1;
+	// Acquire: pairs with the release store in stop()/CSLSGroup::handler().
+	return m_exit.load(std::memory_order_acquire);
 }
 
 void *CSLSThread::thread_func(void *arg)

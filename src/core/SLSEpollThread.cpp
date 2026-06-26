@@ -170,8 +170,10 @@ int CSLSEpollThread::work()
 {
     int ret = 0;
     spdlog::info("[{}] CSLSEpollThread::work, begin th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
-    // epoll loop
-    while (!m_exit)
+    // epoll loop. Acquire-load pairs with the release store in
+    // CSLSThread::stop() / CSLSGroup::handler() so the worker observes a
+    // stop/reload request without a data race.
+    while (!m_exit.load(std::memory_order_acquire))
     {
         handler();
     }

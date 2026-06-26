@@ -176,7 +176,9 @@ int CSLSGroup::handler()
     {
         spdlog::info("[{}] CSLSGroup::handle, worker_number={:d} stop, m_reload is true, m_map_role.size()=0.",
                      fmt::ptr(this), m_worker_number);
-        m_exit = true;
+        // Release: this self-stop on reload must be visible to the manager
+        // thread's acquire-load in CSLSManager::check_invalid (is_exit()).
+        m_exit.store(true, std::memory_order_release);
         return SLS_OK;
     }
 
