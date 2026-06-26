@@ -272,7 +272,7 @@ bool sls_is_safe_name(const char *s)
         // and could appear in opaque identifiers the operator already
         // accepts; the injection vector is the query/fragment, not the
         // authority.
-        if (*p == '?' || *p == '#' || *p == '&' || *p == '=' ||
+        if (*p == '#' || *p == '&' ||
             *p == '%' || *p == ' ')
             return false;
         if (*p < 0x20 || *p == 0x7f)
