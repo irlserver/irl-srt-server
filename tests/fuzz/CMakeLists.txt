@@ -14,6 +14,7 @@
 set(SLS_FUZZ_TARGETS
     fuzz_ts_parser
     fuzz_streamid
+    fuzz_conf
 )
 
 foreach(tgt ${SLS_FUZZ_TARGETS})
