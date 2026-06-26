@@ -51,7 +51,7 @@ int CSLSThread::start()
 	int err;
 	pthread_t th_id;
 
-	err = pthread_create(&th_id, NULL, thread_func, (void *)this);
+	err = pthread_create(&th_id, nullptr, thread_func, (void *)this);
 	if (err != 0)
 	{
 		spdlog::error("[{}] CSLSThread::start, can't create thread, error: {}", fmt::ptr(this), strerror(err));
@@ -74,7 +74,7 @@ int CSLSThread::stop()
 	// Release: publish the exit request so the worker's acquire-load in its
 	// loop predicate (and is_exit()) is guaranteed to observe it.
 	m_exit.store(true, std::memory_order_release);
-	pthread_join(m_th_id, NULL);
+	pthread_join(m_th_id, nullptr);
 	m_th_id = 0;
 	clear();
 
@@ -97,10 +97,11 @@ void *CSLSThread::thread_func(void *arg)
 	if (!pThis)
 	{
 		spdlog::error("CSLSThread::thread_func, thread arg is null.");
+		return nullptr;
 	}
 
 	pThis->work();
-	return NULL;
+	return nullptr;
 }
 
 int CSLSThread::work()
