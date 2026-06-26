@@ -1,0 +1,33 @@
+tests/test_sls_sid.cpp
+  s_c030b6d957dd3f::t_68ff8366ca208f 106,108-110,117-123
+  s_c030b6d957dd3f::t_5af21fdd6ab63f 124-125
+src/core/SLSPullerManager.cpp
+  s_c030b6d957dd3f::t_08f172ec38afa1 79,82-86
+  s_c030b6d957dd3f::t_d964356d9a7579 30
+  s_c030b6d957dd3f::t_6d3c008a6b26a7 80-81
+tests/test_push_url.cpp
+  s_c030b6d957dd3f::t_d6355dc696279f 110-112,119-130,132,134-151
+  s_c030b6d957dd3f::t_387b1660667106 11
+  s_c030b6d957dd3f::t_c9d74bcca21c40 113-118,131,133
+src/core/SLSRelayManager.cpp
+  s_c030b6d957dd3f::t_a10668a8c1aecf 158-163
+src/core/SLSPusherManager.cpp
+  s_c030b6d957dd3f::t_380b4251aa57f1 32
+  s_c030b6d957dd3f::t_1c21b552d01dad 76-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "648b1270bfd9f014bde6eb90274731e649ff43f3",
+  "prompts": {},
+  "sessions": {
+    "s_c030b6d957dd3f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "20adc851-82c6-43a4-88c1-51d381e0538c",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
