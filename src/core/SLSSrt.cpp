@@ -30,6 +30,7 @@
 #include "spdlog/spdlog.h"
 
 #include "SLSSrt.hpp"
+#include "SLSHandle.hpp"
 #include "SLSLog.hpp"
 #include "SLSLock.hpp"
 #include "util.hpp"

@@ -143,7 +143,7 @@ void CSLSGroup::check_new_role()
     }
 
     // add to epoll
-    if (0 == role->add_to_epoll(m_eid))
+    if (0 == role->add_to_epoll(m_eid.get()))
     {
         m_map_role[fd] = role;
         // Log at DEBUG level (worker operations are verbose)
@@ -189,7 +189,7 @@ int CSLSGroup::handler()
     // because writable roles are no longer permanently armed for OUT and
     // a role whose publisher lives in another worker has no SRT event to
     // wake this one when fresh ring data appears.
-    ret = srt_epoll_wait(m_eid, m_read_socks, &read_len,
+    ret = srt_epoll_wait(m_eid.get(), m_read_socks, &read_len,
                          m_write_socks, &write_len,
                          POLLING_TIME,
                          sys_read_socks, &sys_read_len,

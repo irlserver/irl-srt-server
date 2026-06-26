@@ -44,7 +44,6 @@
 
 CSLSEpollThread::CSLSEpollThread()
 {
-    m_eid = -1;
     m_wake_fd = -1;
     m_wake_fd_write = -1;
 }
@@ -57,14 +56,14 @@ int CSLSEpollThread::init_epoll()
 {
     int ret = 0;
 
-    m_eid = CSLSSrt::libsrt_epoll_create();
-    if (m_eid < 0)
+    m_eid.reset(CSLSSrt::libsrt_epoll_create());
+    if (!m_eid.valid())
     {
         spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_create failed. th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
         return CSLSSrt::libsrt_neterrno();
     }
     // compatible with srt v1.4.0 when container is empty.
-    srt_epoll_set(m_eid, SRT_EPOLL_ENABLE_EMPTY);
+    srt_epoll_set(m_eid.get(), SRT_EPOLL_ENABLE_EMPTY);
 
     // Create the wake eventfd and register it with the SRT epoll as a
     // system socket. Reading the eventfd in srt_epoll_wait's lrfds output
@@ -99,7 +98,7 @@ int CSLSEpollThread::init_epoll()
     m_wake_fd_write = pipefd[1];
 #endif
     int events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
-    if (srt_epoll_add_ssock(m_eid, m_wake_fd, &events) != SRT_SUCCESS)
+    if (srt_epoll_add_ssock(m_eid.get(), m_wake_fd, &events) != SRT_SUCCESS)
     {
         spdlog::error("[{}] CSLSEpollThread::init_epoll, srt_epoll_add_ssock(wake_fd={:d}) failed.",
                       fmt::ptr(this), m_wake_fd);
@@ -118,19 +117,18 @@ int CSLSEpollThread::uninit_epoll()
     int ret = 0;
     if (m_wake_fd >= 0)
     {
-        if (m_eid >= 0)
-            srt_epoll_remove_ssock(m_eid, m_wake_fd);
+        if (m_eid.valid())
+            srt_epoll_remove_ssock(m_eid.get(), m_wake_fd);
         close(m_wake_fd);
         if (m_wake_fd_write != m_wake_fd && m_wake_fd_write >= 0)
             close(m_wake_fd_write);
         m_wake_fd = -1;
         m_wake_fd_write = -1;
     }
-    if (m_eid >= 0)
+    if (m_eid.valid())
     {
-        CSLSSrt::libsrt_epoll_release(m_eid);
+        m_eid.reset(); // srt_epoll_release
         spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_release ok, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
-        m_eid = -1;
     }
     return ret;
 }

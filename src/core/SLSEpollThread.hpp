@@ -26,6 +26,7 @@
 
 #include <srt/srt.h>
 #include "SLSThread.hpp"
+#include "SLSHandle.hpp"
 
 #define MAX_SOCK_COUNT 1024
 
@@ -61,7 +62,9 @@ protected:
     bool drain_wake_fd();
     int wake_fd() const { return m_wake_fd; }
 
-    int m_eid;
+    // RAII owner for the SRT epoll id; get() yields the same raw id the plain
+    // int used to hold (value unchanged), reset() releases the prior one.
+    SrtEpollHandle m_eid;
     // Wake primitive: on Linux a single eventfd (read==write fd); elsewhere a
     // self-pipe (m_wake_fd is the read end registered with the epoll, m_wake_fd_write
     // is the write end). wake() writes the write end; drain_wake_fd() reads m_wake_fd.
