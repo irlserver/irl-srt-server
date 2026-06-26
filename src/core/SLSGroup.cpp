@@ -410,12 +410,20 @@ void CSLSGroup::check_invalid_sock()
     if (d >= m_stat_post_interval * 1000)
     {
         update_stat_info = true;
-        {
-            CSLSLock lock(&m_mutex_stat);
-            m_stat_info.clear();
-        }
         m_stat_post_last_tm_ms = cur_time_ms;
     }
+
+    // Collect this pass's per-role stats into a worker-local vector and swap it
+    // into m_stat_info under a single m_mutex_stat hold AFTER the loop. The old
+    // code cleared m_stat_info up front and push_back'd one role at a time, each
+    // under its own lock, so a concurrent /stats reader (get_stat_info, same
+    // lock) could observe the published vector empty or half-filled. Building
+    // locally first lets the reader keep seeing the previous complete snapshot
+    // until the new one is swapped in atomically; the lock is never held across
+    // the role iteration or the get_stat_info() call.
+    std::vector<stat_info_t> local_stat_info;
+    if (update_stat_info)
+        local_stat_info.reserve(m_map_role.size());
 
     std::map<int, std::shared_ptr<CSLSRole>>::iterator it;
     std::map<int, std::shared_ptr<CSLSRole>>::iterator it_erase;
@@ -432,11 +440,7 @@ void CSLSGroup::check_invalid_sock()
 
         if (update_stat_info)
         {
-
-            stat_info_t stat_info = role->get_stat_info();
-
-            CSLSLock lock(&m_mutex_stat);
-            m_stat_info.push_back(stat_info);
+            local_stat_info.push_back(role->get_stat_info());
         }
 
         int state = role->get_state(cur_time_ms);
@@ -490,6 +494,12 @@ void CSLSGroup::check_invalid_sock()
             m_map_role.erase(it_erase);
             continue;
         }
+    }
+
+    if (update_stat_info)
+    {
+        CSLSLock lock(&m_mutex_stat);
+        m_stat_info.swap(local_stat_info);
     }
 }
 
