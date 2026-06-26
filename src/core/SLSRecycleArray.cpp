@@ -23,6 +23,7 @@
  */
 
 #include <stdio.h>
+#include <cassert>
 #include "spdlog/spdlog.h"
 
 #include "SLSRecycleArray.hpp"
@@ -237,6 +238,11 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
             }
         }
     }
+    // Defensive post-wrap invariants: a violation means the ring math produced
+    // an index/length the memcpy above would have read past. assert in debug;
+    // the runtime clamp just below still corrects nReadPos in release.
+    assert(copy_data_len >= 0 && copy_data_len <= size);
+    assert(read_id->nReadPos >= 0 && read_id->nReadPos <= m_nDataSize);
     if (read_id->nReadPos == m_nDataSize)
         read_id->nReadPos = 0;
 

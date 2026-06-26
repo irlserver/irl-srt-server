@@ -490,7 +490,10 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
 
     m_stat_bitrate_datacount += n;
     int64_t d = m_invalid_begin_tm - m_stat_bitrate_last_tm;
-    if (d >= m_stat_bitrate_interval)
+    // d>0 guards the divide: m_stat_bitrate_interval can be <=0 (misconfig or an
+    // unset default), and a non-monotonic clock can make d zero/negative, either
+    // of which would be a divide-by-zero / UB here.
+    if (d > 0 && d >= m_stat_bitrate_interval)
     {
         m_kbitrate = (int)(m_stat_bitrate_datacount * 8 / d);
         m_stat_bitrate_datacount = 0;
@@ -628,7 +631,9 @@ int CSLSRole::handler_write_data()
             //update invalid begin time
             m_invalid_begin_tm = sls_gettime_ms();
             int d = m_invalid_begin_tm - m_stat_bitrate_last_tm;
-            if (d >= m_stat_bitrate_interval)
+            // d>0 guards the divide (see handler_read_data): a non-positive
+            // interval or a non-monotonic clock would otherwise divide by zero.
+            if (d > 0 && d >= m_stat_bitrate_interval)
             {
                 m_kbitrate = m_stat_bitrate_datacount * 8 / d;
                 m_stat_bitrate_datacount = 0;
