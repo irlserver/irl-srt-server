@@ -1,0 +1,19 @@
+src/core/SLSManager.cpp
+  s_2000c2c5385991::t_a7c55a29bcb64e 417-424
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "b12ce69519387519d7e2fdbaf1258a5d19019c8b",
+  "prompts": {},
+  "sessions": {
+    "s_2000c2c5385991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecb5d922-d7c2-429a-ada3-a7fb80ec0ba6",
+        "model": "unknown"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
