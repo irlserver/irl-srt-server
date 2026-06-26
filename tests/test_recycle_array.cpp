@@ -1,7 +1,10 @@
 #include "doctest.h"
 
+#include <atomic>
 #include <cstring>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "SLSRecycleArray.hpp"
 #include "common.hpp"
@@ -122,4 +125,82 @@ TEST_CASE("CSLSRecycleArray: null data pointer is rejected")
     CSLSRecycleArray ring;
     ring.setSize(64);
     CHECK(ring.put(nullptr, 8) == SLS_ERROR);
+}
+
+// Locks the under-lock bFirst snapshot. get()'s first call samples the write
+// head (m_nWritePos, a plain int guarded only by the rwlock) together with the
+// byte counter under the read lock, so a concurrent put() cannot tear the
+// (pos, count) pair. A writer thread hammers put() while many readers take
+// their first snapshot at the same instant and then drain. Under TSan this is
+// a race detector for the snapshot: if a future change moved the m_nWritePos
+// read out of the read lock, TSan would flag it against put()'s write-locked
+// m_nWritePos update. Functionally, every aligned get() must stay non-negative
+// and CHUNK-aligned (a torn snapshot would mis-size the copy or spuriously
+// trip overrun). doctest macros are not thread-safe, so threads only record
+// outcomes into atomics and all CHECKs run on the main thread after join.
+TEST_CASE("CSLSRecycleArray: bFirst snapshot stays consistent under concurrent put/get")
+{
+    const int RING = 64 * 188; // room for real copies AND frequent laps
+    const int CHUNK = 188;     // one TS packet; drives aligned get()
+    const int WRITER_ITERS = 5000;
+    const int N_READERS = 8;
+
+    CSLSRecycleArray ring;
+    ring.setSize(RING);
+
+    std::atomic<bool> start{false};
+    std::atomic<bool> writer_done{false};
+    std::atomic<int> anchor_ok{0};
+    std::atomic<int> drain_ok{0};
+
+    std::thread writer([&] {
+        char chunk[CHUNK];
+        std::memset(chunk, 'Z', sizeof(chunk));
+        while (!start.load(std::memory_order_acquire))
+            std::this_thread::yield();
+        for (int i = 0; i < WRITER_ITERS; i++)
+            ring.put(chunk, CHUNK);
+        writer_done.store(true, std::memory_order_release);
+    });
+
+    std::vector<std::thread> readers;
+    readers.reserve(N_READERS);
+    for (int r = 0; r < N_READERS; r++)
+    {
+        readers.emplace_back([&] {
+            SLSRecycleArrayID id{};
+            id.bFirst = true;
+            char out[CHUNK * 4];
+            while (!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+
+            // First get(): the bFirst snapshot, concurrent with put().
+            int rc = ring.get(out, sizeof(out), &id, CHUNK);
+            if (rc == SLS_OK && !id.bFirst)
+                anchor_ok.fetch_add(1, std::memory_order_relaxed);
+
+            bool ok = true;
+            for (int i = 0; i < WRITER_ITERS + 100; i++)
+            {
+                int g = ring.get(out, sizeof(out), &id, CHUNK);
+                if (g < 0 || (g % CHUNK) != 0 || g > (int)sizeof(out))
+                {
+                    ok = false;
+                    break;
+                }
+                if (writer_done.load(std::memory_order_acquire) && g == 0)
+                    break;
+            }
+            if (ok)
+                drain_ok.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+    writer.join();
+    for (auto &t : readers)
+        t.join();
+
+    CHECK(anchor_ok.load() == N_READERS);
+    CHECK(drain_ok.load() == N_READERS);
 }

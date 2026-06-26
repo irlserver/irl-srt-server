@@ -80,8 +80,11 @@ private:
     int m_nWritePos;
     // Written by every concurrent get() reader (under the rwlock's shared/read
     // side, so the writes still race each other) and read with no lock by
-    // get_last_read_time() on the group idle-check thread. Atomic so that
-    // cross-thread read and the racing reader writes are well-defined.
+    // get_last_read_time() on the group idle-check thread. The reader store is
+    // release and the idle-check load is acquire so that observing a fresh
+    // timestamp happens-after the reader progress that produced it, giving the
+    // idle/timeout decision a defined ordering rather than relying on relaxed
+    // timing.
     std::atomic<int64_t> m_last_read_time{0};
     std::atomic<int64_t> m_overrun_count;
 
