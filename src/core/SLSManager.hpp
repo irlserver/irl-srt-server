@@ -169,15 +169,23 @@ public:
 private:
     vector<CSLSListener *> m_servers;
     int m_server_count;
-    CSLSMapData *m_map_data;
-    CSLSMapPublisher *m_map_publisher;
-    CSLSMapRelay *m_map_puller;
-    CSLSMapRelay *m_map_pusher;
+    // RAII-owned (Todo 20): one element per configured server, sized once in
+    // start() and never resized, so the &m_map_data[i] pointers handed to
+    // listeners stay stable for the manager's lifetime. std::vector frees them
+    // exception-safely; CSLSMapData/Publisher/Relay carry a CSLSMutex (non-
+    // movable), which is why start() assigns a freshly constructed vector
+    // (default-insert, no element moves) rather than resize().
+    std::vector<CSLSMapData> m_map_data;
+    std::vector<CSLSMapPublisher> m_map_publisher;
+    std::vector<CSLSMapRelay> m_map_puller;
+    std::vector<CSLSMapRelay> m_map_pusher;
 
     vector<CSLSGroup *> m_workers;
     int m_worker_threads;
 
-    CSLSRoleList *m_list_role;
+    // The role handoff list, owned here and shared (by raw .get()) with every
+    // worker group and listener; unique_ptr so stop()/dtor free it exception-safely.
+    std::unique_ptr<CSLSRoleList> m_list_role;
     CSLSGroup *m_single_group;
 
     // Process-wide negative-auth cache, shared (by shared_ptr) with every

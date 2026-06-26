@@ -51,13 +51,9 @@ CSLSManager::CSLSManager()
 {
     m_worker_threads = DEFAULT_GROUP;
     m_server_count = 1;
-    m_list_role = NULL;
     m_single_group = NULL;
-
-    m_map_data = NULL;
-    m_map_publisher = NULL;
-    m_map_puller = NULL;
-    m_map_pusher = NULL;
+    // m_map_* (std::vector) and m_list_role (std::unique_ptr) default-construct
+    // empty; populated in start(), released by RAII in stop()/dtor.
 }
 
 CSLSManager::~CSLSManager()
@@ -149,10 +145,13 @@ int CSLSManager::start()
     spdlog::info("[{}] CSLSManager::start, detected {} server configuration(s)", fmt::ptr(this), m_server_count);
     
     sls_conf_server_t *conf = conf_server;
-    m_map_data = new CSLSMapData[m_server_count];
-    m_map_publisher = new CSLSMapPublisher[m_server_count];
-    m_map_puller = new CSLSMapRelay[m_server_count];
-    m_map_pusher = new CSLSMapRelay[m_server_count];
+    // Construct fresh, exactly-sized vectors (default-insert; no element moves,
+    // so the CSLSMutex members are fine). Never resized after this, keeping the
+    // &m_map_*[i] pointers handed to listeners stable for the manager's lifetime.
+    m_map_data = std::vector<CSLSMapData>(m_server_count);
+    m_map_publisher = std::vector<CSLSMapPublisher>(m_server_count);
+    m_map_puller = std::vector<CSLSMapRelay>(m_server_count);
+    m_map_pusher = std::vector<CSLSMapRelay>(m_server_count);
 
     int cap_max_streams = conf_srt->max_streams > 0 ? conf_srt->max_streams : 256;
     int cap_max_total_ring_mb = conf_srt->max_total_ring_mb > 0 ? conf_srt->max_total_ring_mb : 2048;
@@ -165,8 +164,8 @@ int CSLSManager::start()
                  fmt::ptr(this), cap_max_streams, cap_max_total_ring_mb);
 
     //role list
-    m_list_role = new CSLSRoleList;
-    spdlog::info("[{}] CSLSManager::start, new m_list_role={}.", fmt::ptr(this), fmt::ptr(m_list_role));
+    m_list_role = std::make_unique<CSLSRoleList>();
+    spdlog::info("[{}] CSLSManager::start, new m_list_role={}.", fmt::ptr(this), fmt::ptr(m_list_role.get()));
 
     // One negative-auth cache shared across all listeners and roles. TTL is
     // applied per publisher listener from its conf in init_conf_app; default
@@ -189,7 +188,7 @@ int CSLSManager::start()
         // does not re-derive it from the (now multi-port) conf spec.
         auto make_listener = [&](int port, bool is_publisher, bool srtla, bool legacy) -> CSLSListener * {
             CSLSListener *l = new CSLSListener(); //deleted by groups
-            l->set_role_list(m_list_role);
+            l->set_role_list(m_list_role.get());
             l->set_auth_reject_cache(m_auth_reject_cache);
             l->set_conf((sls_conf_base_t *)conf);
             l->set_map_data("", &m_map_data[i]);
@@ -328,7 +327,7 @@ int CSLSManager::start()
     {
         CSLSGroup *p = new CSLSGroup();
         p->set_worker_number(0);
-        p->set_role_list(m_list_role);
+        p->set_role_list(m_list_role.get());
         p->set_worker_connections(conf_srt->worker_connections);
         p->set_stat_post_interval(conf_srt->stat_post_interval);
         if (SLS_OK != p->init_epoll())
@@ -345,7 +344,7 @@ int CSLSManager::start()
         {
             CSLSGroup *p = new CSLSGroup();
             p->set_worker_number(i);
-            p->set_role_list(m_list_role);
+            p->set_role_list(m_list_role.get());
             p->set_worker_connections(conf_srt->worker_connections);
             p->set_stat_post_interval(conf_srt->stat_post_interval);
             if (SLS_OK != p->init_epoll())
@@ -566,36 +565,19 @@ int CSLSManager::stop()
     }
     m_workers.clear();
 
-    if (m_map_data)
-    {
-        delete[] m_map_data;
-        m_map_data = NULL;
-    }
-    if (m_map_publisher)
-    {
-        delete[] m_map_publisher;
-        m_map_publisher = NULL;
-    }
-
-    if (m_map_puller)
-    {
-        delete[] m_map_puller;
-        m_map_puller = NULL;
-    }
-
-    if (m_map_pusher)
-    {
-        delete[] m_map_pusher;
-        m_map_pusher = NULL;
-    }
+    // Must run AFTER the worker loop above: workers hold raw &m_map_*[i]
+    // pointers into these vectors, so the elements outlive every worker.
+    m_map_data.clear();
+    m_map_publisher.clear();
+    m_map_puller.clear();
+    m_map_pusher.clear();
 
     //release rolelist
     if (m_list_role)
     {
         spdlog::info("[{}] CSLSManager::stop, release rolelist, size={:d}.", fmt::ptr(this), m_list_role->size());
         m_list_role->erase();
-        delete m_list_role;
-        m_list_role = NULL;
+        m_list_role.reset();
     }
     return ret;
 }
