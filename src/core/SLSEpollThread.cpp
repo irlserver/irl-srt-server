@@ -48,9 +48,7 @@ CSLSEpollThread::CSLSEpollThread()
     m_wake_fd_write = -1;
 }
 
-CSLSEpollThread::~CSLSEpollThread()
-{
-}
+CSLSEpollThread::~CSLSEpollThread() {}
 
 int CSLSEpollThread::init_epoll()
 {
@@ -59,7 +57,8 @@ int CSLSEpollThread::init_epoll()
     m_eid.reset(CSLSSrt::libsrt_epoll_create());
     if (!m_eid.valid())
     {
-        spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_create failed. th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
+        spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_create failed. th_id={:d}.", fmt::ptr(this),
+                     sls_tid(m_th_id));
         return CSLSSrt::libsrt_neterrno();
     }
     // compatible with srt v1.4.0 when container is empty.
@@ -75,8 +74,7 @@ int CSLSEpollThread::init_epoll()
     m_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (m_wake_fd < 0)
     {
-        spdlog::error("[{}] CSLSEpollThread::init_epoll, eventfd() failed: {}",
-                      fmt::ptr(this), strerror(errno));
+        spdlog::error("[{}] CSLSEpollThread::init_epoll, eventfd() failed: {}", fmt::ptr(this), strerror(errno));
         return SLS_ERROR;
     }
     m_wake_fd_write = m_wake_fd; // eventfd is read+write on one fd
@@ -84,8 +82,7 @@ int CSLSEpollThread::init_epoll()
     int pipefd[2];
     if (pipe(pipefd) != 0)
     {
-        spdlog::error("[{}] CSLSEpollThread::init_epoll, pipe() failed: {}",
-                      fmt::ptr(this), strerror(errno));
+        spdlog::error("[{}] CSLSEpollThread::init_epoll, pipe() failed: {}", fmt::ptr(this), strerror(errno));
         return SLS_ERROR;
     }
     for (int i = 0; i < 2; ++i)
@@ -100,8 +97,8 @@ int CSLSEpollThread::init_epoll()
     int events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
     if (srt_epoll_add_ssock(m_eid.get(), m_wake_fd, &events) != SRT_SUCCESS)
     {
-        spdlog::error("[{}] CSLSEpollThread::init_epoll, srt_epoll_add_ssock(wake_fd={:d}) failed.",
-                      fmt::ptr(this), m_wake_fd);
+        spdlog::error("[{}] CSLSEpollThread::init_epoll, srt_epoll_add_ssock(wake_fd={:d}) failed.", fmt::ptr(this),
+                      m_wake_fd);
         close(m_wake_fd);
         if (m_wake_fd_write != m_wake_fd)
             close(m_wake_fd_write);
@@ -128,7 +125,8 @@ int CSLSEpollThread::uninit_epoll()
     if (m_eid.valid())
     {
         m_eid.reset(); // srt_epoll_release
-        spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_release ok, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
+        spdlog::info("[{}] CSLSEpollThread::work, srt_epoll_release ok, m_th_id={:d}.", fmt::ptr(this),
+                     sls_tid(m_th_id));
     }
     return ret;
 }

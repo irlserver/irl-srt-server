@@ -33,7 +33,6 @@
 #include "SLSRole.hpp"
 #include "SLSMapRelay.hpp"
 
-
 /**
  * CSLSGroup , group of players, publishers and listener
  */

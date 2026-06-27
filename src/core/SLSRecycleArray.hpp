@@ -52,7 +52,10 @@ public:
 
     void setSize(int n);
     int count();
-    int get_data_size() const { return m_nDataSize; }
+    int get_data_size() const
+    {
+        return m_nDataSize;
+    }
 
     int64_t get_last_read_time();
     // Number of times a reader was detected to have fallen far enough behind

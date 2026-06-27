@@ -49,15 +49,15 @@ CSLSPublisher::CSLSPublisher()
     m_map_publisher = NULL;
 
     snprintf(m_role_name, sizeof(m_role_name), "publisher");
-    
+
     // Record publisher start for summary logging
     sls_get_summary_logger().record_publisher_start();
 }
 
 CSLSPublisher::~CSLSPublisher()
 {
-    //release
-    // Record publisher stop for summary logging
+    // release
+    //  Record publisher stop for summary logging
     sls_get_summary_logger().record_publisher_stop();
 }
 
@@ -67,21 +67,25 @@ int CSLSPublisher::init()
     if (m_conf)
     {
         sls_conf_app_t *app_conf = ((sls_conf_app_t *)m_conf);
-        //m_exit_delay = ((sls_conf_app_t *)m_conf)->publisher_exit_delay;
+        // m_exit_delay = ((sls_conf_app_t *)m_conf)->publisher_exit_delay;
 
         // Initialize bitrate limiter if configured
-        if (app_conf->max_input_bitrate_kbps > 0) {
+        if (app_conf->max_input_bitrate_kbps > 0)
+        {
             int violation_timeout = app_conf->max_input_bitrate_violation_timeout;
-            if (violation_timeout <= 0) {
+            if (violation_timeout <= 0)
+            {
                 violation_timeout = 30; // Default to 30 seconds if not configured
             }
             // Spike tolerance: config is percentage (e.g. 120 = 1.2x), default to 120 if not set
             float spike_tolerance = 1.2f;
-            if (app_conf->max_input_bitrate_spike_tolerance > 0) {
+            if (app_conf->max_input_bitrate_spike_tolerance > 0)
+            {
                 spike_tolerance = app_conf->max_input_bitrate_spike_tolerance / 100.0f;
             }
             ret = init_bitrate_limiter(app_conf->max_input_bitrate_kbps, violation_timeout, spike_tolerance);
-            if (ret != SLS_OK) {
+            if (ret != SLS_OK)
+            {
                 spdlog::error("[{}] CSLSPublisher::init, failed to initialize bitrate limiter", fmt::ptr(this));
                 return ret;
             }
@@ -108,15 +112,14 @@ int CSLSPublisher::uninit()
     if (m_map_data)
     {
         ret = m_map_data->remove(m_map_data_key);
-        spdlog::info("[{}] CSLSPublisher::uninit, removed publisher from m_map_data, ret={:d}.",
-                     fmt::ptr(this), ret);
+        spdlog::info("[{}] CSLSPublisher::uninit, removed publisher from m_map_data, ret={:d}.", fmt::ptr(this), ret);
     }
 
     if (m_map_publisher)
     {
         ret = m_map_publisher->remove(this);
-        spdlog::info("[{}] CSLSPublisher::uninit, removed publisher from m_map_publisher, ret={:d}.",
-                     fmt::ptr(this), ret);
+        spdlog::info("[{}] CSLSPublisher::uninit, removed publisher from m_map_publisher, ret={:d}.", fmt::ptr(this),
+                     ret);
     }
 
     if (m_dynamic_pusher_manager)
@@ -140,7 +143,8 @@ int CSLSPublisher::handler()
     // The webhook flips m_http_passed and populates m_push_urls
     // asynchronously inside check_http_passed; once both happen we spin up
     // exactly one CSLSPusherManager carrying every accepted URL.
-    if (!m_dynamic_pusher_manager && !m_push_urls.empty()) {
+    if (!m_dynamic_pusher_manager && !m_push_urls.empty())
+    {
         try_spawn_dynamic_pusher();
     }
     return ret;
@@ -148,7 +152,8 @@ int CSLSPublisher::handler()
 
 void CSLSPublisher::try_spawn_dynamic_pusher()
 {
-    if (m_role_list == NULL || m_map_data == NULL || m_map_publisher == NULL) {
+    if (m_role_list == NULL || m_map_data == NULL || m_map_publisher == NULL)
+    {
         spdlog::warn("[relay] cannot spawn dynamic pusher for {}: missing context (role_list/map_data/map_publisher)",
                      m_map_data_key);
         // Avoid retrying every handler tick on a misconfigured deploy.
@@ -159,7 +164,8 @@ void CSLSPublisher::try_spawn_dynamic_pusher()
 
     // Split m_map_data_key ("app_uplive/stream_name") for the pusher manager.
     const char *slash = strchr(m_map_data_key, '/');
-    if (slash == NULL || slash == m_map_data_key) {
+    if (slash == NULL || slash == m_map_data_key)
+    {
         spdlog::warn("[relay] cannot spawn dynamic pusher: malformed key='{}'", m_map_data_key);
         m_push_urls.clear();
         m_push_vetted_addrs.clear();
@@ -184,13 +190,15 @@ void CSLSPublisher::try_spawn_dynamic_pusher()
     m_dynamic_pusher_manager->set_role_list(m_role_list);
     m_dynamic_pusher_manager->set_listen_port(m_listen_port);
 
-    if (SLS_OK != m_dynamic_pusher_manager->start()) {
+    if (SLS_OK != m_dynamic_pusher_manager->start())
+    {
         spdlog::warn("[relay] dynamic pusher start failed for {}, will retry on reconnect", m_map_data_key);
         // Leave the manager allocated so the reconnect loop in CSLSGroup
         // gets a chance to retry; teardown in uninit() will clean it up.
-    } else {
-        spdlog::info("[relay] dynamic pusher started for {} | upstream_count={}",
-                     m_map_data_key, m_push_urls.size());
+    }
+    else
+    {
+        spdlog::info("[relay] dynamic pusher started for {} | upstream_count={}", m_map_data_key, m_push_urls.size());
     }
 }
 
@@ -203,10 +211,11 @@ void CSLSPublisher::on_map_data_set()
     // ts_info instead of warning about a missing entry.
     if (!m_ring_added.load(std::memory_order_acquire))
         return;
-    if (m_map_data && strlen(m_map_data_key) > 0 && is_audio_gap_fill_enabled()) {
+    if (m_map_data && strlen(m_map_data_key) > 0 && is_audio_gap_fill_enabled())
+    {
         m_map_data->set_audio_gap_fill(m_map_data_key, true);
-        spdlog::info("[{}] CSLSPublisher::on_map_data_set, audio gap filling enabled for {}",
-                     fmt::ptr(this), m_map_data_key);
+        spdlog::info("[{}] CSLSPublisher::on_map_data_set, audio gap filling enabled for {}", fmt::ptr(this),
+                     m_map_data_key);
     }
 }
 

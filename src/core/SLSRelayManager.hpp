@@ -43,8 +43,8 @@ struct SLS_RELAY_INFO
     std::vector<sockaddr_storage> m_vetted_addrs;
     char m_type[32];
     int m_mode;
-    int m_reconnect_interval;   //unit: s
-    int m_idle_streams_timeout; //unit: s
+    int m_reconnect_interval;   // unit: s
+    int m_idle_streams_timeout; // unit: s
 };
 
 /**
@@ -74,7 +74,7 @@ protected:
     CSLSMapData *m_map_data;
     CSLSRoleList *m_role_list;
     SLS_RELAY_INFO *m_sri;
-    int64_t m_reconnect_begin_tm; //unit: ms
+    int64_t m_reconnect_begin_tm; // unit: ms
     int m_listen_port;
 
     char m_app_uplive[1024];

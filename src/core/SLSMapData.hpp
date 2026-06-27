@@ -85,9 +85,15 @@ public:
     // listener accepts a connection, so no locking is required to publish them.
     void set_caps(int max_streams, int64_t max_total_ring_bytes);
     // Live count of allocated rings (one per active publisher/relay stream).
-    int get_stream_count() const { return m_stream_count.load(std::memory_order_relaxed); }
+    int get_stream_count() const
+    {
+        return m_stream_count.load(std::memory_order_relaxed);
+    }
     // Cumulative bytes committed across all allocated rings.
-    int64_t get_total_ring_bytes() const { return m_total_ring_bytes.load(std::memory_order_relaxed); }
+    int64_t get_total_ring_bytes() const
+    {
+        return m_total_ring_bytes.load(std::memory_order_relaxed);
+    }
 
     // Cumulative overrun count across the publisher's ring buffer
     // (writer lapped the reader). Returns -1 if `key` is unknown.
@@ -106,8 +112,8 @@ private:
     // Transparent comparator (std::less<>) lets hot lookups (put/get) use
     // std::string_view{key} without constructing a temporary std::string —
     // saves a per-packet heap allocation per direction.
-    std::map<std::string, CSLSRecycleArray *, std::less<>> m_map_array; //uplive_key_stream:data'
-    std::map<std::string, ts_info *, std::less<>> m_map_ts_info;        //uplive_key_stream:ts_info'
+    std::map<std::string, CSLSRecycleArray *, std::less<>> m_map_array; // uplive_key_stream:data'
+    std::map<std::string, ts_info *, std::less<>> m_map_ts_info;        // uplive_key_stream:ts_info'
     CSLSRWLock m_rwclock;
 
     // Global ring-budget accounting. Mutated only under m_rwclock's write lock

@@ -17,8 +17,7 @@ TEST_CASE("first-data probation reaps a publisher that never sent media")
 
     SUBCASE("not yet at the deadline -> keep")
     {
-        CHECK_FALSE(sls_should_reap_role(1999, /*last_recv*/ 0, /*activity*/ 0,
-                                         first_data_ms, idle_s));
+        CHECK_FALSE(sls_should_reap_role(1999, /*last_recv*/ 0, /*activity*/ 0, first_data_ms, idle_s));
     }
     SUBCASE("exactly at the deadline -> reap")
     {

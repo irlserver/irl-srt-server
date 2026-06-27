@@ -101,7 +101,8 @@ int CSLSGroup::stop()
         }
     }
     m_list_wait_http_role.clear();
-    spdlog::info("[{}] CSLSGroup::stop, m_list_wait_http_role.clear, worker_number={:d}.", fmt::ptr(this), m_worker_number);
+    spdlog::info("[{}] CSLSGroup::stop, m_list_wait_http_role.clear, worker_number={:d}.", fmt::ptr(this),
+                 m_worker_number);
     return ret;
 }
 
@@ -148,7 +149,8 @@ void CSLSGroup::check_new_role()
         m_map_role[fd] = role;
         // Log at DEBUG level (worker operations are verbose)
         spdlog::debug("[{}] CSLSGroup::check_new_role, worker={:d}, {}={}, fd={:d}, role_map.size={:d}.",
-                     fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()), fd, m_map_role.size());
+                      fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()), fd,
+                      m_map_role.size());
     }
     else
     {
@@ -189,11 +191,8 @@ int CSLSGroup::handler()
     // because writable roles are no longer permanently armed for OUT and
     // a role whose publisher lives in another worker has no SRT event to
     // wake this one when fresh ring data appears.
-    ret = srt_epoll_wait(m_eid.get(), m_read_socks, &read_len,
-                         m_write_socks, &write_len,
-                         POLLING_TIME,
-                         sys_read_socks, &sys_read_len,
-                         NULL, &sys_write_len);
+    ret = srt_epoll_wait(m_eid.get(), m_read_socks, &read_len, m_write_socks, &write_len, POLLING_TIME, sys_read_socks,
+                         &sys_read_len, NULL, &sys_write_len);
     if (ret < 0)
     {
         ret = srt_getlasterror(NULL);
@@ -242,8 +241,10 @@ int CSLSGroup::handler()
             if (ret < 0)
             {
                 // handle exception
-                SPDLOG_TRACE("[{}] CSLSGroup::handle, worker_number={:d}, readable sock={:d} is invalid, {}={}, readable len={:d}, role_map.size={:d}.",
-                             fmt::ptr(this), m_worker_number, m_read_socks[i], role->get_role_name(), fmt::ptr(role), read_len, m_map_role.size());
+                SPDLOG_TRACE("[{}] CSLSGroup::handle, worker_number={:d}, readable sock={:d} is invalid, {}={}, "
+                             "readable len={:d}, role_map.size={:d}.",
+                             fmt::ptr(this), m_worker_number, m_read_socks[i], role->get_role_name(), fmt::ptr(role),
+                             read_len, m_map_role.size());
                 role->invalid_srt();
             }
             else
@@ -278,8 +279,9 @@ int CSLSGroup::handler()
         ret = role->handler();
         if (ret < 0)
         {
-            SPDLOG_TRACE("[{}] CSLSGroup::handle, worker_number={:d}, egress sock={:d} is invalid, {}={}, role_map.size={:d}.",
-                         fmt::ptr(this), m_worker_number, it->first, role->get_role_name(), fmt::ptr(role), m_map_role.size());
+            SPDLOG_TRACE(
+                "[{}] CSLSGroup::handle, worker_number={:d}, egress sock={:d} is invalid, {}={}, role_map.size={:d}.",
+                fmt::ptr(this), m_worker_number, it->first, role->get_role_name(), fmt::ptr(role), m_map_role.size());
             role->invalid_srt();
         }
         else
@@ -320,7 +322,8 @@ void CSLSGroup::reap_unadopted_backlog()
         return;
     int reaped = m_list_role->reap_unadopted(sls_gettime_ms(), HANDOFF_ADMISSION_TTL_MS);
     if (reaped > 0)
-        spdlog::warn("[{}] CSLSGroup::reap_unadopted_backlog, worker={:d}, reaped {:d} un-adopted backlog role(s) older than {:d}ms.",
+        spdlog::warn("[{}] CSLSGroup::reap_unadopted_backlog, worker={:d}, reaped {:d} un-adopted backlog role(s) "
+                     "older than {:d}ms.",
                      fmt::ptr(this), m_worker_number, reaped, HANDOFF_ADMISSION_TTL_MS);
 }
 
@@ -359,8 +362,8 @@ void CSLSGroup::check_wait_http_role()
         }
         if (SLS_ERROR == role->check_http_client())
         {
-            spdlog::info("[{}] CSLSGroup::check_wait_http_role, worker_number={d}, delete {}={}.",
-                         fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role));
+            spdlog::info("[{}] CSLSGroup::check_wait_http_role, worker_number={d}, delete {}={}.", fmt::ptr(this),
+                         m_worker_number, role->get_role_name(), fmt::ptr(role));
             role->uninit();
             m_list_wait_http_role.erase(it_erase);
         }
@@ -446,8 +449,10 @@ void CSLSGroup::check_invalid_sock()
         int state = role->get_state(cur_time_ms);
         if (SLS_RS_INVALID == state || SLS_RS_UNINIT == state)
         {
-            spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, invalid sock={:d}, state={:d}, role_map.size={:d}.",
-                         fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()), role->get_fd(), state, m_map_role.size());
+            spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, invalid sock={:d}, "
+                         "state={:d}, role_map.size={:d}.",
+                         fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()), role->get_fd(),
+                         state, m_map_role.size());
             // check relay
             if (role->is_reconnect())
             {
@@ -458,18 +463,19 @@ void CSLSGroup::check_invalid_sock()
                     // Detached child: its publisher tore down the dynamic pusher
                     // manager, so there is nothing to reconnect through. Skip so
                     // we never enqueue (and later deref) a freed manager.
-                    spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, detached relay, skip reconnect.",
+                    spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, detached relay, skip "
+                                 "reconnect.",
                                  fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
                 }
-                else if (std::find(m_list_reconnect_relay_manager.begin(),
-                                   m_list_reconnect_relay_manager.end(),
+                else if (std::find(m_list_reconnect_relay_manager.begin(), m_list_reconnect_relay_manager.end(),
                                    relay_manager) != m_list_reconnect_relay_manager.end())
                 {
                     // De-dup: already queued (e.g. several of this manager's
                     // upstreams dropped at once). A duplicate would have one
                     // check_reconnect_relay pass process the same manager twice.
-                    spdlog::debug("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, manager already queued, skip duplicate.",
-                                 fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
+                    spdlog::debug("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, manager already "
+                                  "queued, skip duplicate.",
+                                  fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
                 }
                 else
                 {
@@ -483,13 +489,14 @@ void CSLSGroup::check_invalid_sock()
             if (SLS_OK == role->check_http_client())
             {
                 m_list_wait_http_role.push_back(role);
-                spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, put into m_list_wait_http_role.",
-                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
+                spdlog::info(
+                    "[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, put into m_list_wait_http_role.",
+                    fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
             }
             else
             {
-                spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, delete.",
-                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
+                spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, delete.", fmt::ptr(this),
+                             m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
             }
             m_map_role.erase(it_erase);
             continue;
@@ -505,15 +512,15 @@ void CSLSGroup::check_invalid_sock()
 
 void CSLSGroup::clear()
 {
-    spdlog::info("[{}] CSLSGroup::clear, worker_number={:d}, role_map.size={:d}.",
-                 fmt::ptr(this), m_worker_number, m_map_role.size());
+    spdlog::info("[{}] CSLSGroup::clear, worker_number={:d}, role_map.size={:d}.", fmt::ptr(this), m_worker_number,
+                 m_map_role.size());
     for (auto &entry : m_map_role)
     {
         CSLSRole *role = entry.second.get();
         if (role)
         {
-            spdlog::info("[{}] CSLSGroup::clear, worker_number={:d}, delete {}={}.",
-                         fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role));
+            spdlog::info("[{}] CSLSGroup::clear, worker_number={:d}, delete {}={}.", fmt::ptr(this), m_worker_number,
+                         role->get_role_name(), fmt::ptr(role));
             role->uninit();
         }
     }

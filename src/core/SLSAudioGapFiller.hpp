@@ -50,10 +50,8 @@ static const int OPUS_DEFAULT_SAMPLE_RATE = 48000;
 static const int STREAM_TYPE_PRIVATE_DATA = 0x06;
 
 // ADTS sample rate table (ISO 14496-3)
-static const int ADTS_SAMPLE_RATES[] = {
-    96000, 88200, 64000, 48000, 44100, 32000,
-    24000, 22050, 16000, 12000, 11025, 8000, 7350
-};
+static const int ADTS_SAMPLE_RATES[] = {96000, 88200, 64000, 48000, 44100, 32000, 24000,
+                                        22050, 16000, 12000, 11025, 8000,  7350};
 static const int ADTS_SAMPLE_RATE_COUNT = 13;
 
 // MP3 sample rate table (MPEG-1)
@@ -64,9 +62,7 @@ static const int MP3_SAMPLE_RATES_MPEG2[] = {22050, 24000, 16000};
 static const int MP3_SAMPLE_RATES_MPEG25[] = {11025, 12000, 8000};
 
 // MP3 bitrate table for MPEG-1 Layer III (kbps), index 0 = free, 15 = bad
-static const int MP3_BITRATES_MPEG1_L3[] = {
-    0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0
-};
+static const int MP3_BITRATES_MPEG1_L3[] = {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0};
 
 class SLSAudioGapFiller
 {
@@ -76,11 +72,8 @@ public:
 
     // Generate silent MPEG-TS packets for a specific audio track to fill a PTS gap.
     // Supports AAC (ADTS) and MP3. Returns TS data (multiple of TS_PACK_LEN bytes).
-    static std::vector<uint8_t> generate_gap_packets(
-        const audio_track_info *track,
-        int64_t last_pts,
-        int64_t current_pts,
-        uint8_t &cc);
+    static std::vector<uint8_t> generate_gap_packets(const audio_track_info *track, int64_t last_pts,
+                                                     int64_t current_pts, uint8_t &cc);
 
     // Try to detect audio format from an ADTS header in the ES payload.
     static bool detect_adts_format(const uint8_t *es_data, int es_len, audio_track_info *at);
@@ -102,28 +95,16 @@ public:
 
 private:
     // Build a single silent TS packet with the given PTS for the given track
-    static void build_silent_ts_packet(
-        uint8_t *out_packet,
-        const audio_track_info *track,
-        int64_t pts,
-        uint8_t &cc);
+    static void build_silent_ts_packet(uint8_t *out_packet, const audio_track_info *track, int64_t pts, uint8_t &cc);
 
     // Build a silent AAC ADTS frame for the given format. Returns frame length.
-    static int build_silent_adts_frame(
-        uint8_t *out_buf,
-        int profile,
-        int sample_rate_index,
-        int channel_config);
+    static int build_silent_adts_frame(uint8_t *out_buf, int profile, int sample_rate_index, int channel_config);
 
     // Build a silent MP3 frame for the given format. Returns frame length.
-    static int build_silent_mp3_frame(
-        uint8_t *out_buf,
-        const audio_track_info *track);
+    static int build_silent_mp3_frame(uint8_t *out_buf, const audio_track_info *track);
 
     // Build a silent Opus frame. Returns frame length.
-    static int build_silent_opus_frame(
-        uint8_t *out_buf,
-        const audio_track_info *track);
+    static int build_silent_opus_frame(uint8_t *out_buf, const audio_track_info *track);
 
     // Write PTS into a PES header buffer (5 bytes)
     static void write_pes_pts(uint8_t *buf, int64_t pts, int marker_bits);

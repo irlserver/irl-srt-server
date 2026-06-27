@@ -59,7 +59,7 @@ private:
     int reconnect_all(int64_t cur_tm_ms, bool no_publisher);
 
     CSLSRWLock m_rwclock;
-    std::map<std::string, int64_t> m_map_reconnect_relay; //relay:timeout
+    std::map<std::string, int64_t> m_map_reconnect_relay; // relay:timeout
 
     // Weak handles to the child pushers spawned via set_relay_param(). Weak so
     // tracking never extends a pusher's lifetime; the owning worker's role map

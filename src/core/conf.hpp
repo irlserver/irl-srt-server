@@ -74,14 +74,9 @@ struct sls_conf_cmd_t
  * offsetof(sls_conf_##conf##_t, tgt) - offset of the configuration object
  * sls_conf_set_##type - invokes function for right data type
  */
-#define SLS_SET_CONF(conf, type, tgt, desc, min, max) \
-    {                                                 \
-#tgt,                                         \
-            #desc,                                    \
-            offsetof(sls_conf_##conf##_t, tgt),       \
-            sls_conf_set_##type,                      \
-            min,                                      \
-            max,                                      \
+#define SLS_SET_CONF(conf, type, tgt, desc, min, max)                                                                  \
+    {                                                                                                                  \
+        #tgt, #desc, offsetof(sls_conf_##conf##_t, tgt), sls_conf_set_##type, min, max,                                \
     }
 
 /*
@@ -97,14 +92,9 @@ struct sls_conf_cmd_t
  * offsetof(sls_conf_##conf##_t, tgt) - offset of the configuration object
  * sls_conf_set_##type - invokes function for right data type
  */
-#define SLS_SET_CONF2(conf, type, tgt_var, name, desc, min, max) \
-    {                                                            \
-#name,                                                   \
-            #desc,                                               \
-            offsetof(sls_conf_##conf##_t, tgt_var),              \
-            sls_conf_set_##type,                                 \
-            min,                                                 \
-            max,                                                 \
+#define SLS_SET_CONF2(conf, type, tgt_var, name, desc, min, max)                                                       \
+    {                                                                                                                  \
+        #name, #desc, offsetof(sls_conf_##conf##_t, tgt_var), sls_conf_set_##type, min, max,                           \
     }
 
 const char *sls_conf_set_int(const char *v, sls_conf_cmd_t *cmd, void *conf);
@@ -159,7 +149,7 @@ struct sls_conf_base_t
 
 /**
  * @brief Defines possible actions for a connection client
- * 
+ *
  */
 enum class sls_access_action : int
 {
@@ -203,44 +193,39 @@ struct sls_ip_acl_t
 /**
  * conf dynamic macro
  */
-#define SLS_CONF_DYNAMIC_DECLARE_BEGIN(c_n)            \
-    struct sls_conf_##c_n##_t : public sls_conf_base_t \
-    {                                                  \
-        static sls_runtime_conf_t runtime_conf;        \
+#define SLS_CONF_DYNAMIC_DECLARE_BEGIN(c_n)                                                                            \
+    struct sls_conf_##c_n##_t : public sls_conf_base_t                                                                 \
+    {                                                                                                                  \
+        static sls_runtime_conf_t runtime_conf;                                                                        \
         static sls_conf_base_t *create_conf();
 
-#define SLS_CONF_DYNAMIC_DECLARE_END \
-    }                                \
+#define SLS_CONF_DYNAMIC_DECLARE_END                                                                                   \
+    }                                                                                                                  \
     ;
 
-#define SLS_CONF_DYNAMIC_IMPLEMENT(c_n)                                 \
-    sls_conf_base_t *sls_conf_##c_n##_t::create_conf()                  \
-    {                                                                   \
-        sls_conf_base_t *p = (sls_conf_base_t *)new sls_conf_##c_n##_t; \
-        memset(p, 0, sizeof(sls_conf_##c_n##_t));                       \
-        p->child = NULL;                                                \
-        p->sibling = NULL;                                              \
-        p->name = sls_conf_##c_n##_t::runtime_conf.conf_name;           \
-        return p;                                                       \
-    }                                                                   \
-    sls_runtime_conf_t sls_conf_##c_n##_t::runtime_conf(                \
-        #c_n,                                                           \
-        sls_conf_##c_n##_t::create_conf,                                \
-        conf_cmd_##c_n,                                                 \
-        sizeof(conf_cmd_##c_n) / sizeof(sls_conf_cmd_t));
+#define SLS_CONF_DYNAMIC_IMPLEMENT(c_n)                                                                                \
+    sls_conf_base_t *sls_conf_##c_n##_t::create_conf()                                                                 \
+    {                                                                                                                  \
+        sls_conf_base_t *p = (sls_conf_base_t *)new sls_conf_##c_n##_t;                                                \
+        memset(p, 0, sizeof(sls_conf_##c_n##_t));                                                                      \
+        p->child = NULL;                                                                                               \
+        p->sibling = NULL;                                                                                             \
+        p->name = sls_conf_##c_n##_t::runtime_conf.conf_name;                                                          \
+        return p;                                                                                                      \
+    }                                                                                                                  \
+    sls_runtime_conf_t sls_conf_##c_n##_t::runtime_conf(#c_n, sls_conf_##c_n##_t::create_conf, conf_cmd_##c_n,         \
+                                                        sizeof(conf_cmd_##c_n) / sizeof(sls_conf_cmd_t));
 
 /*
  * conf cmd dynamic macro
  */
-#define SLS_CONF_CMD_DYNAMIC_DECLARE_BEGIN(c_n) \
-    static sls_conf_cmd_t conf_cmd_##c_n[] = {
+#define SLS_CONF_CMD_DYNAMIC_DECLARE_BEGIN(c_n) static sls_conf_cmd_t conf_cmd_##c_n[] = {
 
-#define SLS_CONF_CMD_DYNAMIC_DECLARE_END \
-    }                                    \
+#define SLS_CONF_CMD_DYNAMIC_DECLARE_END                                                                               \
+    }                                                                                                                  \
     ;
 
-#define SLS_CONF_GET_CONF_INFO(c_name) \
-    (sls_conf_##c_name *)sls_conf_##c_name::runtime_conf_##c_name.conf_name;
+#define SLS_CONF_GET_CONF_INFO(c_name) (sls_conf_##c_name *)sls_conf_##c_name::runtime_conf_##c_name.conf_name;
 
 /*
  * conf api functions
@@ -257,16 +242,11 @@ std::shared_ptr<sls_conf_base_t> sls_conf_get_root_shared();
 /**
  * parse the argv
  */
-#define SLS_SET_OPT(type, c, n, m, min, max) \
-    {                                        \
-#c,                                  \
-            #m,                              \
-            offsetof(sls_opt_t, n),          \
-            sls_conf_set_##type,             \
-            min,                             \
-            max,                             \
+#define SLS_SET_OPT(type, c, n, m, min, max)                                                                           \
+    {                                                                                                                  \
+        #c, #m, offsetof(sls_opt_t, n), sls_conf_set_##type, min, max,                                                 \
     }
-//1: add new parameter here
+// 1: add new parameter here
 struct sls_opt_t
 {
     char conf_file_name[1024]; //-c

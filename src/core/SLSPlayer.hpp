@@ -32,10 +32,10 @@
 class CSLSPlayer final : public CSLSRole
 {
 public:
-	CSLSPlayer();
-	~CSLSPlayer() override;
+    CSLSPlayer();
+    ~CSLSPlayer() override;
 
-	virtual int handler() override;
+    virtual int handler() override;
 
 private:
 };

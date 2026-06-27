@@ -31,40 +31,43 @@
 /**
  * Async HTTP response structure
  */
-struct AsyncHttpResponse {
+struct AsyncHttpResponse
+{
     bool success;
     int status_code;
     std::string body;
     std::string error;
     int64_t duration_ms;
-    
+
     AsyncHttpResponse() : success(false), status_code(0), duration_ms(0) {}
 };
 
 /**
  * High-performance async HTTP client using BS::thread_pool
- * 
+ *
  * FEATURES:
  * - NON-BLOCKING: All requests execute asynchronously in a thread pool
  * - Returns immediately with std::shared_future for immediate continue
  * - Prevents thread starvation on listener thread
  * - Perfect for player key validation, webhook calls, and auth APIs
  * - Uses cpp-httplib v0.18.0+ for actual HTTP operations
- * 
+ *
  * USAGE:
  *   auto future = AsyncHttpClient::instance().get_async("http://example.com/api", 5);
  *   // Do other work here...
  *   auto response = future.get();  // Wait for result when needed
- * 
+ *
  * PERFORMANCE BENEFITS:
  * - Listener thread never blocks on network I/O
  * - Supports thousands of concurrent connections without thread pool overhead
  * - Graceful timeout handling
  * - Metrics for monitoring thread pool health
  */
-class AsyncHttpClient {
+class AsyncHttpClient
+{
 public:
-    static AsyncHttpClient& instance() {
+    static AsyncHttpClient &instance()
+    {
         static AsyncHttpClient client;
         return client;
     }
@@ -76,7 +79,7 @@ public:
      * @param timeout_sec Request timeout in seconds (default 5)
      * @return shared_future that can be waited on
      */
-    std::shared_future<AsyncHttpResponse> get_async(const std::string& url, int timeout_sec = 5);
+    std::shared_future<AsyncHttpResponse> get_async(const std::string &url, int timeout_sec = 5);
 
     /**
      * Async POST request - returns immediately with a future
@@ -86,10 +89,8 @@ public:
      * @param timeout_sec Request timeout in seconds (default 5)
      * @return shared_future that can be waited on
      */
-    std::shared_future<AsyncHttpResponse> post_async(const std::string& url, 
-                                               const std::string& body,
-                                               const std::string& content_type,
-                                               int timeout_sec = 5);
+    std::shared_future<AsyncHttpResponse> post_async(const std::string &url, const std::string &body,
+                                                     const std::string &content_type, int timeout_sec = 5);
 
     /**
      * Get thread pool statistics
@@ -102,20 +103,14 @@ private:
     AsyncHttpClient();
     ~AsyncHttpClient();
 
-    AsyncHttpClient(const AsyncHttpClient&) = delete;
-    AsyncHttpClient& operator=(const AsyncHttpClient&) = delete;
+    AsyncHttpClient(const AsyncHttpClient &) = delete;
+    AsyncHttpClient &operator=(const AsyncHttpClient &) = delete;
 
-    static AsyncHttpResponse execute_get(const std::string& url, int timeout_sec);
-    static AsyncHttpResponse execute_post(const std::string& url, 
-                                          const std::string& body,
-                                          const std::string& content_type,
-                                          int timeout_sec);
+    static AsyncHttpResponse execute_get(const std::string &url, int timeout_sec);
+    static AsyncHttpResponse execute_post(const std::string &url, const std::string &body,
+                                          const std::string &content_type, int timeout_sec);
 
-    static bool parse_url(const std::string& url, 
-                         std::string& scheme, 
-                         std::string& host, 
-                         int& port, 
-                         std::string& path);
+    static bool parse_url(const std::string &url, std::string &scheme, std::string &host, int &port, std::string &path);
 
     BS::thread_pool<> m_pool;
 };

@@ -63,7 +63,7 @@ int initialize_logger()
     g_log_config.summary_interval_sec = 60;
     g_log_config.session_ids_enabled = true;
     g_log_config.json_format = false;
-    
+
     // Initialize all category levels as "not set"
     for (int i = 0; i < static_cast<int>(SLSLogCategory::COUNT); i++)
     {
@@ -76,7 +76,7 @@ int initialize_logger()
 
 int sls_set_log_level(char *log_level)
 {
-    log_level = sls_strlower(log_level); //to upper
+    log_level = sls_strlower(log_level); // to upper
     std::string log_level_str(log_level);
     spdlog::level::level_enum new_level = spdlog::level::from_str(log_level_str);
     spdlog::get(APP_NAME)->set_level(new_level);
@@ -89,9 +89,9 @@ int sls_set_log_file(char *log_file)
     if (log_file && strlen(log_file) > 0)
     {
         g_log_file_path = log_file;
-        
+
         spdlog::sink_ptr file_sink;
-        
+
         // Use JSON sink if JSON format is enabled
         if (g_log_config.json_format)
         {
@@ -101,7 +101,7 @@ int sls_set_log_file(char *log_file)
         {
             file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file);
         }
-        
+
         LOGGER_MUTEX.lock();
         spdlog::get(APP_NAME)->sinks().push_back(file_sink);
         LOGGER_MUTEX.unlock();
@@ -114,25 +114,25 @@ int sls_set_category_log_level(SLSLogCategory category, const char *log_level)
 {
     std::string log_level_str(log_level);
     spdlog::level::level_enum new_level = spdlog::level::from_str(log_level_str);
-    
+
     int cat_idx = static_cast<int>(category);
     g_log_config.category_levels[cat_idx] = new_level;
     g_log_config.category_level_set[cat_idx] = true;
-    
+
     return SLS_OK;
 }
 
-sls_log_config_t& sls_get_log_config()
+sls_log_config_t &sls_get_log_config()
 {
     return g_log_config;
 }
 
-CSLSLogRateLimiter& sls_get_rate_limiter()
+CSLSLogRateLimiter &sls_get_rate_limiter()
 {
     return g_rate_limiter;
 }
 
-CSLSSummaryLogger& sls_get_summary_logger()
+CSLSSummaryLogger &sls_get_summary_logger()
 {
     return g_summary_logger;
 }
@@ -140,13 +140,13 @@ CSLSSummaryLogger& sls_get_summary_logger()
 bool sls_should_log_category(SLSLogCategory category, spdlog::level::level_enum level)
 {
     int cat_idx = static_cast<int>(category);
-    
+
     // Check category-specific level if set
     if (g_log_config.category_level_set[cat_idx])
     {
         return level >= g_log_config.category_levels[cat_idx];
     }
-    
+
     // Fall back to global level
     return level >= spdlog::get(APP_NAME)->level();
 }

@@ -24,8 +24,8 @@ TEST_CASE("CSLSMapData::add refuses new streams past the stream-count cap")
     CHECK(m.add(s2) == SLS_OK);
     CHECK(m.get_stream_count() == 2);
 
-    CHECK(m.add(s3) == SLS_ERROR); // third stream over the cap of 2
-    CHECK(m.get_stream_count() == 2);  // a refused add must not change the count
+    CHECK(m.add(s3) == SLS_ERROR);    // third stream over the cap of 2
+    CHECK(m.get_stream_count() == 2); // a refused add must not change the count
 }
 
 TEST_CASE("CSLSMapData::add refuses new streams past the total ring-memory cap")

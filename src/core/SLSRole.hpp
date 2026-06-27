@@ -96,7 +96,10 @@ public:
 
     int get_fd();
     int set_eid(int eid);
-    bool is_write() { return m_is_write; };
+    bool is_write()
+    {
+        return m_is_write;
+    };
 
     int set_srt(CSLSSrt *srt);
     int invalid_srt();
@@ -117,7 +120,10 @@ public:
     char *get_role_name();
     // Creation timestamp (ms), stamped once at construction and never updated.
     // Used to reap roles that sit un-adopted in the worker handoff list.
-    int64_t get_stat_start_time() { return m_stat_start_time; }
+    int64_t get_stat_start_time()
+    {
+        return m_stat_start_time;
+    }
 
     // Ask the owning worker to tear this role down on its next state check.
     // Safe to call from another thread (the listener uses it for publisher
@@ -147,7 +153,10 @@ public:
     // shielded from publisher takeover. Only a real external broadcaster
     // (CSLSPublisher) is: a puller/relay incumbent must stay evictable so a
     // local publisher can take over a pulled stream (origin/edge promotion).
-    virtual bool is_takeover_protected() const { return false; }
+    virtual bool is_takeover_protected() const
+    {
+        return false;
+    }
 
     char *get_streamid();
     // Override the cached streamid so that webhook / stats reporting can see
@@ -174,12 +183,21 @@ public:
     // Push destinations harvested from the publish-auth webhook response.
     // Populated by check_http_passed; consumed by the listener handler to
     // spin up a dynamic CSLSPusherManager per publisher.
-    const std::vector<std::string> &get_push_urls() const { return m_push_urls; }
+    const std::vector<std::string> &get_push_urls() const
+    {
+        return m_push_urls;
+    }
     int get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
     int get_bitrate();
     int get_uptime();
-    int get_latency() { return m_latency; }
-    void set_latency(int latency) { m_latency = latency; }
+    int get_latency()
+    {
+        return m_latency;
+    }
+    void set_latency(int latency)
+    {
+        m_latency = latency;
+    }
     bool get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear = 0) const;
     // Cumulative overrun count for this publisher's ring buffer. Each
     // overrun means a subscriber fell so far behind the writer that the
@@ -209,14 +227,14 @@ public:
 
 protected:
     CSLSSrt *m_srt;
-    bool m_is_write;                //listener: 0, publisher: 0, player: 1
-    int64_t      m_stat_start_time;
+    bool m_is_write; // listener: 0, publisher: 0, player: 1
+    int64_t m_stat_start_time;
     int64_t m_invalid_begin_tm;     //
     int64_t m_stat_bitrate_last_tm; //
-    int m_stat_bitrate_interval;    //ms
+    int m_stat_bitrate_interval;    // ms
     int64_t m_stat_bitrate_datacount;
-    int m_kbitrate;             //kb
-    int m_idle_streams_timeout; //unit: s, -1: unlimited
+    int m_kbitrate;             // kb
+    int m_idle_streams_timeout; // unit: s, -1: unlimited
     // Probation window (ms) before a publisher that has never delivered media
     // is reaped. 0 = disabled. Only set on accept-path publishers.
     int m_first_data_timeout_ms{0};
@@ -227,7 +245,7 @@ protected:
     // snapshot to tell a delivering publisher from a silent one, not a
     // happens-before against any other state.
     std::atomic<int64_t> m_last_recv_data_tm{0};
-    int m_latency;              //ms
+    int m_latency; // ms
 
     int m_state;
     // Cross-thread teardown request set by request_kick(). Observed by
@@ -251,7 +269,7 @@ protected:
     // storm. Wholly compiled out in release (NDEBUG) — zero production footprint.
     std::atomic<std::thread::id> m_invalidating_tid{std::thread::id{}};
 #endif
-    int m_back_log; //maximum number of connections at the same time
+    int m_back_log; // maximum number of connections at the same time
     int m_port;
     char m_peer_ip[IP_MAX_LEN];
     int m_peer_port;

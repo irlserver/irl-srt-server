@@ -123,14 +123,16 @@ int sls_parse_port_list(const char *spec, vector<int> &out_ports)
     if (spec == NULL || *spec == '\0')
         return 0;
 
-    auto trim_local = [](const std::string &s) -> std::string {
+    auto trim_local = [](const std::string &s) -> std::string
+    {
         size_t a = s.find_first_not_of(" \t");
         if (a == std::string::npos)
             return std::string();
         size_t b = s.find_last_not_of(" \t");
         return s.substr(a, b - a + 1);
     };
-    auto push_unique = [&out_ports](int port) {
+    auto push_unique = [&out_ports](int port)
+    {
         if (std::find(out_ports.begin(), out_ports.end(), port) == out_ports.end())
             out_ports.push_back(port);
     };
@@ -277,8 +279,8 @@ const char *sls_conf_set_ipset(const char *conf_line, sls_conf_cmd_t *cmd, void 
 
     // Add IP object to the list
     ip_access_list->push_back(ip_access_obj);
-    spdlog::debug("Added IP address to the list [ip='{}' list='{}' action='{}']",
-                  conf_line_split[1], conf_line_split[0], cmd->name);
+    spdlog::debug("Added IP address to the list [ip='{}' list='{}' action='{}']", conf_line_split[1],
+                  conf_line_split[0], cmd->name);
     return SLS_CONF_OK;
 }
 
@@ -381,7 +383,7 @@ int sls_conf_get_conf_count(sls_conf_base_t *c)
 
 /**
  * @brief Split provided char array at any of the provided delimiters.
- * 
+ *
  * @param str String to split into tokens.
  * @param delim Delimiters to consider when splitting.
  * @return vector<char *> Vector of strings - individual tokens.
@@ -413,7 +415,7 @@ vector<string> sls_conf_string_split(const char *str, const char *delim)
 
 /**
  * @brief Trim spaces at the beginning and the end of the string
- * 
+ *
  * @param s String to trim.
  * @return string& Trimmed string.
  */
@@ -450,7 +452,7 @@ sls_conf_base_t *sls_conf_create_block_by_name(string n, sls_runtime_conf_t *&p_
         if (strcmp(n.c_str(), p_runtime->conf_name) == 0)
         {
             p = p_runtime->create_fn();
-            //sls_add_conf_to_runtime(p, p_runtime);
+            // sls_add_conf_to_runtime(p, p_runtime);
             break;
         }
         p_runtime = p_runtime->next;
@@ -458,7 +460,8 @@ sls_conf_base_t *sls_conf_create_block_by_name(string n, sls_runtime_conf_t *&p_
     return p;
 }
 
-int sls_conf_parse_block(ifstream &ifs, int &line, sls_conf_base_t *b, bool &child, sls_runtime_conf_t *p_runtime, int brackets_layers)
+int sls_conf_parse_block(ifstream &ifs, int &line, sls_conf_base_t *b, bool &child, sls_runtime_conf_t *p_runtime,
+                         int brackets_layers)
 {
     int ret = SLS_ERROR;
     sls_conf_base_t *block = NULL;
@@ -495,7 +498,7 @@ int sls_conf_parse_block(ifstream &ifs, int &line, sls_conf_base_t *b, bool &chi
         {
             str_line = str_line.substr(0, index);
         }
-        //trim and replace '\t'
+        // trim and replace '\t'
         str_line = replace_all(str_line, "\t", "");
         str_line = trim(str_line);
         if (str_line.length() == 0)
@@ -504,7 +507,7 @@ int sls_conf_parse_block(ifstream &ifs, int &line, sls_conf_base_t *b, bool &chi
             continue;
         }
 
-        //check if the last char is ';', '{', '}'
+        // check if the last char is ';', '{', '}'
         line_end_flag = str_line.substr(str_line.length() - 1);
 
         if (line_end_flag == ";")
@@ -524,13 +527,13 @@ int sls_conf_parse_block(ifstream &ifs, int &line, sls_conf_base_t *b, bool &chi
                 break;
             }
 
-            //key value
+            // key value
             str_line = str_line.substr(0, str_line.length() - 1);
 
             str_line = replace_all(str_line, "\t", "");
             str_line = trim(str_line);
 
-            //split by space
+            // split by space
             int index = str_line.find(' ');
             if (index == -1)
             {
@@ -724,10 +727,10 @@ int sls_parse_argv(int argc, char *argv[], sls_opt_t *sls_opt, sls_conf_cmd_t *c
     char temp[256] = {0};
 
     int ret = SLS_OK;
-    int i = 1; //skip
+    int i = 1; // skip
     int len = cmd_size;
 
-    //special for '-h'
+    // special for '-h'
     if (argc == 2)
     {
         strlcpy(temp, argv[1], sizeof(temp));
@@ -737,11 +740,8 @@ int sls_parse_argv(int argc, char *argv[], sls_opt_t *sls_opt, sls_conf_cmd_t *c
             spdlog::info("option help info:");
             for (i = 0; i < len; i++)
             {
-                spdlog::info("-{}, {}, range: {:.0f}-{:.0f}.",
-                             conf_cmd_opt[i].name,
-                             conf_cmd_opt[i].mark,
-                             conf_cmd_opt[i].min,
-                             conf_cmd_opt[i].max);
+                spdlog::info("-{}, {}, range: {:.0f}-{:.0f}.", conf_cmd_opt[i].name, conf_cmd_opt[i].mark,
+                             conf_cmd_opt[i].min, conf_cmd_opt[i].max);
             }
         }
         else
@@ -796,7 +796,7 @@ int sls_parse_argv(int argc, char *argv[], sls_opt_t *sls_opt, sls_conf_cmd_t *c
 }
 
 // Helper function to trim leading/trailing whitespace
-std::string trim_whitespace(const std::string& str)
+std::string trim_whitespace(const std::string &str)
 {
     size_t first = str.find_first_not_of(" \t");
     if (string::npos == first)
@@ -816,17 +816,19 @@ const char *sls_conf_set_string_list(const char *v, sls_conf_cmd_t *cmd, void *c
     list_ptr->clear();
 
     std::vector<std::string> tokens = sls_conf_string_split(v, ",");
-    for (const auto& token : tokens)
+    for (const auto &token : tokens)
     {
         std::string trimmed_token = trim_whitespace(token);
-        if (!trimmed_token.empty()) {
+        if (!trimmed_token.empty())
+        {
             list_ptr->push_back(trimmed_token);
         }
     }
 
-     if (list_ptr->size() < cmd->min || list_ptr->size() > cmd->max) {
-         return SLS_CONF_OUT_RANGE;
-     }
+    if (list_ptr->size() < cmd->min || list_ptr->size() > cmd->max)
+    {
+        return SLS_CONF_OUT_RANGE;
+    }
 
     return SLS_CONF_OK;
 }

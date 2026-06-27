@@ -27,17 +27,17 @@ std::vector<uint8_t> make_packet(uint8_t b1, uint8_t b2, uint8_t b3)
 std::vector<uint8_t> make_pat(int pmt_pid)
 {
     std::vector<uint8_t> pkt = make_packet(0x40, 0x00, 0x10); // PUSI, PID 0, payload
-    pkt[4] = 0x00;        // pointer_field
-    pkt[5] = 0x00;        // table_id (PAT)
-    pkt[6] = 0xB0;        // section_syntax + section_length hi nibble = 0
-    pkt[7] = 0x0D;        // section_length = 13
+    pkt[4] = 0x00;                                            // pointer_field
+    pkt[5] = 0x00;                                            // table_id (PAT)
+    pkt[6] = 0xB0;                                            // section_syntax + section_length hi nibble = 0
+    pkt[7] = 0x0D;                                            // section_length = 13
     pkt[8] = 0x00;
-    pkt[9] = 0x01;        // transport_stream_id
-    pkt[10] = 0xC1;       // version / current_next_indicator
-    pkt[11] = 0x00;       // section_number
-    pkt[12] = 0x00;       // last_section_number
+    pkt[9] = 0x01;  // transport_stream_id
+    pkt[10] = 0xC1; // version / current_next_indicator
+    pkt[11] = 0x00; // section_number
+    pkt[12] = 0x00; // last_section_number
     pkt[13] = 0x00;
-    pkt[14] = 0x01;       // program_number = 1 (non-zero -> sets pmt_pid)
+    pkt[14] = 0x01; // program_number = 1 (non-zero -> sets pmt_pid)
     pkt[15] = 0xE0 | ((pmt_pid >> 8) & 0x1F);
     pkt[16] = pmt_pid & 0xFF;
     return pkt;
@@ -45,26 +45,25 @@ std::vector<uint8_t> make_pat(int pmt_pid)
 
 std::vector<uint8_t> make_pmt(int pmt_pid, int audio_pid)
 {
-    std::vector<uint8_t> pkt = make_packet(
-        0x40 | ((pmt_pid >> 8) & 0x1F), pmt_pid & 0xFF, 0x10);
-    pkt[4] = 0x00;        // pointer_field
-    pkt[5] = 0x02;        // table_id (PMT)
-    pkt[6] = 0xB0;        // section_length hi nibble = 0
-    pkt[7] = 0x12;        // section_length = 18
+    std::vector<uint8_t> pkt = make_packet(0x40 | ((pmt_pid >> 8) & 0x1F), pmt_pid & 0xFF, 0x10);
+    pkt[4] = 0x00; // pointer_field
+    pkt[5] = 0x02; // table_id (PMT)
+    pkt[6] = 0xB0; // section_length hi nibble = 0
+    pkt[7] = 0x12; // section_length = 18
     pkt[8] = 0x00;
-    pkt[9] = 0x01;        // program_number
-    pkt[10] = 0xC1;       // version / current_next_indicator
+    pkt[9] = 0x01;  // program_number
+    pkt[10] = 0xC1; // version / current_next_indicator
     pkt[11] = 0x00;
     pkt[12] = 0x00;
     pkt[13] = 0xE0;
-    pkt[14] = 0x00;       // PCR_PID
+    pkt[14] = 0x00; // PCR_PID
     pkt[15] = 0xF0;
-    pkt[16] = 0x00;       // program_info_length = 0
-    pkt[17] = 0x0F;       // stream_type = AAC (audio)
+    pkt[16] = 0x00; // program_info_length = 0
+    pkt[17] = 0x0F; // stream_type = AAC (audio)
     pkt[18] = 0xE0 | ((audio_pid >> 8) & 0x1F);
     pkt[19] = audio_pid & 0xFF;
     pkt[20] = 0xF0;
-    pkt[21] = 0x00;       // es_info_length = 0
+    pkt[21] = 0x00; // es_info_length = 0
     return pkt;
 }
 
@@ -73,20 +72,20 @@ std::vector<uint8_t> make_pmt(int pmt_pid, int audio_pid)
 // unless the MEM-1 bound (pos + 13 < pkt_len) clamps it.
 std::vector<uint8_t> make_audio_overrun(int audio_pid)
 {
-    std::vector<uint8_t> pkt = make_packet(
-        0x40 | ((audio_pid >> 8) & 0x1F), audio_pid & 0xFF, 0x30); // adaptation+payload
-    pkt[4] = 173;         // adaptation_field_length -> pos = 4 + 1 + 173 = 178
+    std::vector<uint8_t> pkt =
+        make_packet(0x40 | ((audio_pid >> 8) & 0x1F), audio_pid & 0xFF, 0x30); // adaptation+payload
+    pkt[4] = 173; // adaptation_field_length -> pos = 4 + 1 + 173 = 178
     const int pos = 178;
     pkt[pos + 0] = 0x00;
     pkt[pos + 1] = 0x00;
-    pkt[pos + 2] = 0x01;  // PES start code
-    pkt[pos + 3] = 0xC0;  // audio stream_id
+    pkt[pos + 2] = 0x01; // PES start code
+    pkt[pos + 3] = 0xC0; // audio stream_id
     pkt[pos + 4] = 0x00;
-    pkt[pos + 5] = 0x00;  // PES packet length
-    pkt[pos + 6] = 0x80;  // PES header flags 1
-    pkt[pos + 7] = 0x80;  // PES header flags 2 -> PTS present
-    pkt[pos + 8] = 0x05;  // PES_header_data_length
-    pkt[pos + 9] = 0x21;  // first PTS byte (pkt[187]); pkt[188..191] are OOB
+    pkt[pos + 5] = 0x00; // PES packet length
+    pkt[pos + 6] = 0x80; // PES header flags 1
+    pkt[pos + 7] = 0x80; // PES header flags 2 -> PTS present
+    pkt[pos + 8] = 0x05; // PES_header_data_length
+    pkt[pos + 9] = 0x21; // first PTS byte (pkt[187]); pkt[188..191] are OOB
     return pkt;
 }
 } // namespace
@@ -117,8 +116,7 @@ TEST_CASE("sls_parse_ts_info: PAT with adaptation_field_length=182 stays in boun
 TEST_CASE("sls_parse_ts_info: truncated PES PTS stays in bounds")
 {
     const int es_pid = 0x100;
-    std::vector<uint8_t> pkt = make_packet(
-        0x40 | ((es_pid >> 8) & 0x1F), es_pid & 0xFF, 0x30);
+    std::vector<uint8_t> pkt = make_packet(0x40 | ((es_pid >> 8) & 0x1F), es_pid & 0xFF, 0x30);
     pkt[4] = 170; // pos = 4 + 171 = 175, only 13 payload bytes remain
     const int pos = 175;
     pkt[pos + 0] = 0x00;

@@ -57,8 +57,8 @@ public:
     std::map<std::string, std::shared_ptr<CSLSRole>> get_publishers();
 
 private:
-    std::map<std::string, std::string> m_map_live_2_uplive;       // 'hostname/live':'hostname/uplive'
-    std::map<std::string, sls_conf_base_t *> m_map_uplive_2_conf; // 'hostname/uplive':sls_app_conf_t
+    std::map<std::string, std::string> m_map_live_2_uplive;                  // 'hostname/live':'hostname/uplive'
+    std::map<std::string, sls_conf_base_t *> m_map_uplive_2_conf;            // 'hostname/uplive':sls_app_conf_t
     std::map<std::string, std::shared_ptr<CSLSRole>> m_map_push_2_publisher; // 'hostname/uplive/steam_name':publisher'
 
     CSLSRWLock m_rwclock;

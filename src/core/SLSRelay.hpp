@@ -34,37 +34,38 @@
  * SRT URL options parsed from query parameters
  * All values of -1 indicate "use default" (not specified in URL)
  */
-struct SRTUrlOptions {
+struct SRTUrlOptions
+{
     // Stream identification (required)
     char streamid[URL_MAX_LEN] = {0};
 
     // Timing options
-    int latency = -1;           // SRTO_LATENCY: latency in ms (0-10000, default 120)
-    int connect_timeout = -1;   // SRTO_CONNTIMEO: connect timeout in ms (0-30000)
+    int latency = -1;         // SRTO_LATENCY: latency in ms (0-10000, default 120)
+    int connect_timeout = -1; // SRTO_CONNTIMEO: connect timeout in ms (0-30000)
 
     // Encryption options
-    char passphrase[80] = {0};  // SRTO_PASSPHRASE: max 79 chars + null
-    int pbkeylen = -1;          // SRTO_PBKEYLEN: 0 (disabled), 16, 24, or 32
+    char passphrase[80] = {0}; // SRTO_PASSPHRASE: max 79 chars + null
+    int pbkeylen = -1;         // SRTO_PBKEYLEN: 0 (disabled), 16, 24, or 32
 
     // Bandwidth options
-    int64_t maxbw = -1;         // SRTO_MAXBW: max bandwidth bytes/sec (0=infinite, -1=auto)
-    int64_t inputbw = -1;       // SRTO_INPUTBW: input bandwidth estimate bytes/sec
-    int oheadbw = -1;           // SRTO_OHEADBW: overhead bandwidth % (5-100)
+    int64_t maxbw = -1;   // SRTO_MAXBW: max bandwidth bytes/sec (0=infinite, -1=auto)
+    int64_t inputbw = -1; // SRTO_INPUTBW: input bandwidth estimate bytes/sec
+    int oheadbw = -1;     // SRTO_OHEADBW: overhead bandwidth % (5-100)
 
     // Buffer options
-    int rcvbuf = -1;            // SRTO_RCVBUF: receive buffer size bytes
-    int sndbuf = -1;            // SRTO_SNDBUF: send buffer size bytes
-    int fc = -1;                // SRTO_FC: flight flag size (flow control window)
+    int rcvbuf = -1; // SRTO_RCVBUF: receive buffer size bytes
+    int sndbuf = -1; // SRTO_SNDBUF: send buffer size bytes
+    int fc = -1;     // SRTO_FC: flight flag size (flow control window)
 
     // Network options
-    int mss = -1;               // SRTO_MSS: max segment size (76-1500)
-    int lossmaxttl = -1;        // SRTO_LOSSMAXTTL: packet reorder tolerance (0-1000)
-    int ipttl = -1;             // SRTO_IPTTL: IP time-to-live (1-255)
-    int iptos = -1;             // SRTO_IPTOS: IP type of service (0-255)
+    int mss = -1;        // SRTO_MSS: max segment size (76-1500)
+    int lossmaxttl = -1; // SRTO_LOSSMAXTTL: packet reorder tolerance (0-1000)
+    int ipttl = -1;      // SRTO_IPTTL: IP time-to-live (1-255)
+    int iptos = -1;      // SRTO_IPTOS: IP type of service (0-255)
 
     // Reliability options
-    int tlpktdrop = -1;         // SRTO_TLPKTDROP: too-late packet drop (0 or 1)
-    int nakreport = -1;         // SRTO_NAKREPORT: periodic NAK reports (0 or 1)
+    int tlpktdrop = -1; // SRTO_TLPKTDROP: too-late packet drop (0 or 1)
+    int nakreport = -1; // SRTO_NAKREPORT: periodic NAK reports (0 or 1)
 };
 
 /**
@@ -84,17 +85,17 @@ SLS_CONF_DYNAMIC_DECLARE_END
  */
 
 SLS_CONF_CMD_DYNAMIC_DECLARE_BEGIN(relay)
-SLS_SET_CONF(relay, string, type, "pull, push", 1, 31),
-    SLS_SET_CONF(relay, string, mode, "relay mode.", 1, 31),
+SLS_SET_CONF(relay, string, type, "pull, push", 1, 31), SLS_SET_CONF(relay, string, mode, "relay mode.", 1, 31),
     SLS_SET_CONF(relay, upstreams, upstreams, "upstreams", 1, 1023),
     SLS_SET_CONF(relay, int, reconnect_interval, "reconnect interval, unit s", 1, 3600),
     SLS_SET_CONF(relay, int, idle_streams_timeout, "idle streams timeout, unit s", -1, 3600),
 
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
-    enum SLS_PULL_MODE { SLS_PM_LOOP = 0,
-                         SLS_PM_HASH = 1,
-                         SLS_PM_ALL = 2,
+    enum SLS_PULL_MODE {
+        SLS_PM_LOOP = 0,
+        SLS_PM_HASH = 1,
+        SLS_PM_ALL = 2,
     };
 
 /**

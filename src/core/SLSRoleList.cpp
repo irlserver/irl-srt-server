@@ -35,12 +35,8 @@
  * CSLSRoleList class implementation
  */
 
-CSLSRoleList::CSLSRoleList()
-{
-}
-CSLSRoleList::~CSLSRoleList()
-{
-}
+CSLSRoleList::CSLSRoleList() {}
+CSLSRoleList::~CSLSRoleList() {}
 
 int CSLSRoleList::push(std::shared_ptr<CSLSRole> role)
 {
@@ -126,7 +122,8 @@ int CSLSRoleList::reap_unadopted(int64_t now_ms, int64_t ttl_ms)
 
 int CSLSRoleList::count_players_for_stream(const char *stream_key)
 {
-    if (!stream_key) {
+    if (!stream_key)
+    {
         return 0;
     }
 
@@ -147,7 +144,7 @@ int CSLSRoleList::count_players_for_stream(const char *stream_key)
         }
     }
 
-    spdlog::debug("[{}] CSLSRoleList::count_players_for_stream, stream='{}', player_count={:d}",
-                  fmt::ptr(this), stream_key, player_count);
+    spdlog::debug("[{}] CSLSRoleList::count_players_for_stream, stream='{}', player_count={:d}", fmt::ptr(this),
+                  stream_key, player_count);
     return player_count;
 }

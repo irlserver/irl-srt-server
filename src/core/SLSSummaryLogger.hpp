@@ -30,13 +30,13 @@
 
 /**
  * Summary logger for periodic operational statistics
- * 
+ *
  * Tracks high-level metrics and generates periodic summary logs:
  * - Active publishers and players
  * - Connection/disconnection counts
  * - Error counts
  * - Traffic statistics
- * 
+ *
  * Example output:
  * [summary] Active: 1 publishers, 23 players, 1 streams | Last 60s: 15 connects, 12 disconnects, 0 errors
  */
@@ -54,18 +54,18 @@ public:
     void record_publisher_start();
     void record_publisher_stop();
     void record_error();
-    
+
     /**
      * Set current active counts (called by manager)
      */
     void set_active_counts(int publishers, int players, int streams);
-    
+
     /**
      * Check if summary should be logged and generate log message
      * @param interval_sec Interval in seconds between summaries (default: 60)
      * @return true if summary should be logged (along with message in out_message)
      */
-    bool should_log_summary(int interval_sec, std::string& out_message);
+    bool should_log_summary(int interval_sec, std::string &out_message);
 
     /**
      * Reset all counters (useful for testing or config reload)
@@ -79,12 +79,12 @@ private:
     std::atomic<int> m_publisher_starts;
     std::atomic<int> m_publisher_stops;
     std::atomic<int> m_errors;
-    
+
     // Current active counts
     std::atomic<int> m_active_publishers;
     std::atomic<int> m_active_players;
     std::atomic<int> m_active_streams;
-    
+
     // Timing
     int64_t m_last_summary_time_ms;
     std::mutex m_mutex;

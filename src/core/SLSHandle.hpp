@@ -48,7 +48,10 @@ public:
     SrtEpollHandle() noexcept : m_eid(kInvalid) {}
     explicit SrtEpollHandle(int eid) noexcept : m_eid(eid) {}
 
-    SrtEpollHandle(SrtEpollHandle &&other) noexcept : m_eid(other.m_eid) { other.m_eid = kInvalid; }
+    SrtEpollHandle(SrtEpollHandle &&other) noexcept : m_eid(other.m_eid)
+    {
+        other.m_eid = kInvalid;
+    }
     SrtEpollHandle &operator=(SrtEpollHandle &&other) noexcept
     {
         if (this != &other)
@@ -63,11 +66,23 @@ public:
     SrtEpollHandle(const SrtEpollHandle &) = delete;
     SrtEpollHandle &operator=(const SrtEpollHandle &) = delete;
 
-    ~SrtEpollHandle() { reset(); }
+    ~SrtEpollHandle()
+    {
+        reset();
+    }
 
-    int get() const noexcept { return m_eid; }
-    bool valid() const noexcept { return m_eid >= 0; }
-    explicit operator bool() const noexcept { return valid(); }
+    int get() const noexcept
+    {
+        return m_eid;
+    }
+    bool valid() const noexcept
+    {
+        return m_eid >= 0;
+    }
+    explicit operator bool() const noexcept
+    {
+        return valid();
+    }
 
     // Relinquish ownership without releasing; the returned id is now the
     // caller's responsibility to release.
@@ -99,7 +114,10 @@ public:
     SrtSocketHandle() noexcept : m_sock(SRT_INVALID_SOCK) {}
     explicit SrtSocketHandle(SRTSOCKET sock) noexcept : m_sock(sock) {}
 
-    SrtSocketHandle(SrtSocketHandle &&other) noexcept : m_sock(other.m_sock) { other.m_sock = SRT_INVALID_SOCK; }
+    SrtSocketHandle(SrtSocketHandle &&other) noexcept : m_sock(other.m_sock)
+    {
+        other.m_sock = SRT_INVALID_SOCK;
+    }
     SrtSocketHandle &operator=(SrtSocketHandle &&other) noexcept
     {
         if (this != &other)
@@ -114,11 +132,23 @@ public:
     SrtSocketHandle(const SrtSocketHandle &) = delete;
     SrtSocketHandle &operator=(const SrtSocketHandle &) = delete;
 
-    ~SrtSocketHandle() { reset(); }
+    ~SrtSocketHandle()
+    {
+        reset();
+    }
 
-    SRTSOCKET get() const noexcept { return m_sock; }
-    bool valid() const noexcept { return m_sock >= 0; }
-    explicit operator bool() const noexcept { return valid(); }
+    SRTSOCKET get() const noexcept
+    {
+        return m_sock;
+    }
+    bool valid() const noexcept
+    {
+        return m_sock >= 0;
+    }
+    explicit operator bool() const noexcept
+    {
+        return valid();
+    }
 
     // Relinquish ownership without closing; the returned socket is now the
     // caller's responsibility to close (e.g. handed to CSLSSrt::m_sc.fd).

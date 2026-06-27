@@ -32,7 +32,7 @@ void anchor(CSLSRecycleArray &ring, SLSRecycleArrayID &id)
     CHECK(rc == SLS_OK);
     CHECK_FALSE(id.bFirst);
 }
-}
+} // namespace
 
 TEST_CASE("CSLSRecycleArray: put then get round-trips bytes without wrap")
 {
@@ -153,47 +153,51 @@ TEST_CASE("CSLSRecycleArray: bFirst snapshot stays consistent under concurrent p
     std::atomic<int> anchor_ok{0};
     std::atomic<int> drain_ok{0};
 
-    std::thread writer([&] {
-        char chunk[CHUNK];
-        std::memset(chunk, 'Z', sizeof(chunk));
-        while (!start.load(std::memory_order_acquire))
-            std::this_thread::yield();
-        for (int i = 0; i < WRITER_ITERS; i++)
-            ring.put(chunk, CHUNK);
-        writer_done.store(true, std::memory_order_release);
-    });
+    std::thread writer(
+        [&]
+        {
+            char chunk[CHUNK];
+            std::memset(chunk, 'Z', sizeof(chunk));
+            while (!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            for (int i = 0; i < WRITER_ITERS; i++)
+                ring.put(chunk, CHUNK);
+            writer_done.store(true, std::memory_order_release);
+        });
 
     std::vector<std::thread> readers;
     readers.reserve(N_READERS);
     for (int r = 0; r < N_READERS; r++)
     {
-        readers.emplace_back([&] {
-            SLSRecycleArrayID id{};
-            id.bFirst = true;
-            char out[CHUNK * 4];
-            while (!start.load(std::memory_order_acquire))
-                std::this_thread::yield();
-
-            // First get(): the bFirst snapshot, concurrent with put().
-            int rc = ring.get(out, sizeof(out), &id, CHUNK);
-            if (rc == SLS_OK && !id.bFirst)
-                anchor_ok.fetch_add(1, std::memory_order_relaxed);
-
-            bool ok = true;
-            for (int i = 0; i < WRITER_ITERS + 100; i++)
+        readers.emplace_back(
+            [&]
             {
-                int g = ring.get(out, sizeof(out), &id, CHUNK);
-                if (g < 0 || (g % CHUNK) != 0 || g > (int)sizeof(out))
+                SLSRecycleArrayID id{};
+                id.bFirst = true;
+                char out[CHUNK * 4];
+                while (!start.load(std::memory_order_acquire))
+                    std::this_thread::yield();
+
+                // First get(): the bFirst snapshot, concurrent with put().
+                int rc = ring.get(out, sizeof(out), &id, CHUNK);
+                if (rc == SLS_OK && !id.bFirst)
+                    anchor_ok.fetch_add(1, std::memory_order_relaxed);
+
+                bool ok = true;
+                for (int i = 0; i < WRITER_ITERS + 100; i++)
                 {
-                    ok = false;
-                    break;
+                    int g = ring.get(out, sizeof(out), &id, CHUNK);
+                    if (g < 0 || (g % CHUNK) != 0 || g > (int)sizeof(out))
+                    {
+                        ok = false;
+                        break;
+                    }
+                    if (writer_done.load(std::memory_order_acquire) && g == 0)
+                        break;
                 }
-                if (writer_done.load(std::memory_order_acquire) && g == 0)
-                    break;
-            }
-            if (ok)
-                drain_ok.fetch_add(1, std::memory_order_relaxed);
-        });
+                if (ok)
+                    drain_ok.fetch_add(1, std::memory_order_relaxed);
+            });
     }
 
     start.store(true, std::memory_order_release);

@@ -92,9 +92,12 @@ void CSLSListener::set_map_pusher(CSLSMapRelay *map_pusher)
 void CSLSListener::set_listener_type(bool is_publisher)
 {
     m_is_publisher_listener = is_publisher;
-    if (is_publisher) {
+    if (is_publisher)
+    {
         snprintf(m_role_name, sizeof(m_role_name), "listener-publisher");
-    } else {
+    }
+    else
+    {
         snprintf(m_role_name, sizeof(m_role_name), "listener-player");
     }
 }
@@ -102,7 +105,8 @@ void CSLSListener::set_listener_type(bool is_publisher)
 void CSLSListener::set_srtla_mode(bool is_srtla)
 {
     m_is_srtla_listener = is_srtla;
-    if (is_srtla && m_is_publisher_listener) {
+    if (is_srtla && m_is_publisher_listener)
+    {
         snprintf(m_role_name, sizeof(m_role_name), "listener-publisher-srtla");
     }
 }
@@ -110,10 +114,14 @@ void CSLSListener::set_srtla_mode(bool is_srtla)
 void CSLSListener::set_legacy_mode(bool is_legacy)
 {
     m_is_legacy_listener = is_legacy;
-    if (is_legacy) {
-        if (m_is_publisher_listener) {
+    if (is_legacy)
+    {
+        if (m_is_publisher_listener)
+        {
             snprintf(m_role_name, sizeof(m_role_name), "listener-legacy");
-        } else {
+        }
+        else
+        {
             snprintf(m_role_name, sizeof(m_role_name), "listener-legacy-player");
         }
     }
@@ -133,7 +141,8 @@ int CSLSListener::start()
         spdlog::error("[listener] Start failed, conf is null");
         return SLS_ERROR;
     }
-    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug))
+    {
         spdlog::debug("[listener] Starting listener");
     }
 
@@ -147,28 +156,38 @@ int CSLSListener::start()
     if (NULL == m_srt)
         m_srt = new CSLSSrt();
 
-    sls_conf_server_t* server_conf = (sls_conf_server_t*)m_conf;
-    if (m_is_publisher_listener && !m_is_legacy_listener) {
-        if (server_conf->latency_min > 0) {
+    sls_conf_server_t *server_conf = (sls_conf_server_t *)m_conf;
+    if (m_is_publisher_listener && !m_is_legacy_listener)
+    {
+        if (server_conf->latency_min > 0)
+        {
             m_srt->libsrt_set_latency(server_conf->latency_min);
-            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
-				spdlog::info("[listener] Publisher listener latency set | latency={}ms",
-							 server_conf->latency_min);
-				}
-        } else {
-            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
-				spdlog::debug("[listener] Publisher listener allows client latency control");
-				}
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info))
+            {
+                spdlog::info("[listener] Publisher listener latency set | latency={}ms", server_conf->latency_min);
+            }
         }
-    } else if (m_is_legacy_listener) {
-        if (server_conf->latency_min > 0) {
+        else
+        {
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug))
+            {
+                spdlog::debug("[listener] Publisher listener allows client latency control");
+            }
+        }
+    }
+    else if (m_is_legacy_listener)
+    {
+        if (server_conf->latency_min > 0)
+        {
             m_srt->libsrt_set_latency(server_conf->latency_min);
-            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
-				spdlog::info("[listener] Legacy listener latency set | latency={}ms",
-							 server_conf->latency_min);
-				}
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info))
+            {
+                spdlog::info("[listener] Legacy listener latency set | latency={}ms", server_conf->latency_min);
+            }
         }
-    } else {
+    }
+    else
+    {
         // Player listener: also apply latency_min as a floor. SRT handshake
         // negotiates the effective latency to max(caller_proposed,
         // listener_configured), so this clamps viewers that connect with
@@ -180,22 +199,29 @@ int CSLSListener::start()
         // handler_write_data. Even a brief viewer-side network hiccup
         // fills the send buffer and triggers EASYNCSND. Raising the floor
         // gives proportionally more headroom for retransmit and pacing.
-        if (server_conf->latency_min > 0) {
+        if (server_conf->latency_min > 0)
+        {
             m_srt->libsrt_set_latency(server_conf->latency_min);
-            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
-                spdlog::info("[listener] Player listener latency floor set | latency={}ms",
-                             server_conf->latency_min);
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info))
+            {
+                spdlog::info("[listener] Player listener latency floor set | latency={}ms", server_conf->latency_min);
             }
-        } else {
-            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
+        }
+        else
+        {
+            if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug))
+            {
                 spdlog::debug("[listener] Player listener uses network-determined latency");
             }
         }
     }
 
-    if (m_port_override > 0) {
+    if (m_port_override > 0)
+    {
         m_port = m_port_override;
-    } else {
+    }
+    else
+    {
         // Only the legacy / fallback listener reaches here and binds the single
         // `listen` directive. Publisher, SRTLA and player listeners always
         // receive an explicit port from CSLSManager, which expands their
@@ -203,9 +229,10 @@ int CSLSListener::start()
         m_port = server_conf->listen;
     }
 
-    if (m_port <= 0) {
-        spdlog::error("[listener] Start failed, invalid port | port={} type={}",
-				m_port, m_is_publisher_listener ? "publisher" : "player");
+    if (m_port <= 0)
+    {
+        spdlog::error("[listener] Start failed, invalid port | port={} type={}", m_port,
+                      m_is_publisher_listener ? "publisher" : "player");
         return SLS_ERROR;
     }
 
@@ -214,8 +241,8 @@ int CSLSListener::start()
     // Player listeners don't need patches (server is sender, not receiver)
     bool use_srtla_patches = m_is_srtla_listener;
 
-    if (server_conf->srt_pbkeylen != 0 && server_conf->srt_pbkeylen != 16 &&
-        server_conf->srt_pbkeylen != 24 && server_conf->srt_pbkeylen != 32)
+    if (server_conf->srt_pbkeylen != 0 && server_conf->srt_pbkeylen != 16 && server_conf->srt_pbkeylen != 24 &&
+        server_conf->srt_pbkeylen != 32)
     {
         spdlog::error("[listener] Start failed, srt_pbkeylen={} is invalid (must be 0/16/24/32) | port={}",
                       server_conf->srt_pbkeylen, m_port);
@@ -226,18 +253,19 @@ int CSLSListener::start()
         size_t pass_len = strlen(server_conf->srt_passphrase);
         if (pass_len < 10 || pass_len > 79)
         {
-            spdlog::error("[listener] Start failed, srt_passphrase length {} out of range (must be 10-79 bytes) | port={}",
-                          pass_len, m_port);
+            spdlog::error(
+                "[listener] Start failed, srt_passphrase length {} out of range (must be 10-79 bytes) | port={}",
+                pass_len, m_port);
             return SLS_ERROR;
         }
         m_srt->libsrt_set_passphrase(server_conf->srt_passphrase, server_conf->srt_pbkeylen);
-        spdlog::info("[listener] SRT encryption enabled | port={} pbkeylen={}",
-                     m_port, server_conf->srt_pbkeylen);
+        spdlog::info("[listener] SRT encryption enabled | port={} pbkeylen={}", m_port, server_conf->srt_pbkeylen);
     }
 
     // Inherited by every accepted socket on this listener. See libsrt_setup
     // for the bonding-tolerance tradeoff; 0 leaves the fork default.
-    if (server_conf->peer_idle_timeout > 0) {
+    if (server_conf->peer_idle_timeout > 0)
+    {
         m_srt->libsrt_set_peer_idle_timeout(server_conf->peer_idle_timeout);
     }
 
@@ -248,10 +276,10 @@ int CSLSListener::start()
         return ret;
     }
 
-    const char* listener_type = m_is_srtla_listener ? "publisher-srtla" :
-                                (m_is_publisher_listener ? "publisher" : "player");
-    spdlog::info("[listener] Listener started | port={} type={} srtla_patches={}",
-		m_port, listener_type, use_srtla_patches ? "on" : "off");
+    const char *listener_type =
+        m_is_srtla_listener ? "publisher-srtla" : (m_is_publisher_listener ? "publisher" : "player");
+    spdlog::info("[listener] Listener started | port={} type={} srtla_patches={}", m_port, listener_type,
+                 use_srtla_patches ? "on" : "off");
 
     ret = m_srt->libsrt_listen(m_back_log);
     if (SLS_OK != ret)
@@ -267,8 +295,7 @@ int CSLSListener::start()
     // failure here just falls back to the post-accept validation.
     if (m_is_publisher_listener)
     {
-        if (m_srt->libsrt_set_listen_callback(sls_publisher_listen_callback,
-                                              m_auth_reject_cache.get()) != SLS_OK)
+        if (m_srt->libsrt_set_listen_callback(sls_publisher_listen_callback, m_auth_reject_cache.get()) != SLS_OK)
         {
             spdlog::warn("[listener] set_listen_callback failed | port={}", m_port);
         }
@@ -279,27 +306,29 @@ int CSLSListener::start()
         // at the handshake so a garbage-streamid flood never reaches
         // srt_accept. No auth cache here (the player path authorizes via the
         // player_key webhook post-accept, not the publisher negative cache).
-        if (m_srt->libsrt_set_listen_callback(sls_player_listen_callback,
-                                              nullptr) != SLS_OK)
+        if (m_srt->libsrt_set_listen_callback(sls_player_listen_callback, nullptr) != SLS_OK)
         {
             spdlog::warn("[listener] set_listen_callback (player) failed | port={}", m_port);
         }
     }
 
-    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
-			spdlog::debug("[listener] Checking role list");
-			}
+    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug))
+    {
+        spdlog::debug("[listener] Checking role list");
+    }
     if (NULL == m_list_role)
     {
-        if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
-				spdlog::debug("[listener] Role list is null");
-				}
+        if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug))
+        {
+            spdlog::debug("[listener] Role list is null");
+        }
         return ret;
     }
 
-    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug)) {
-			spdlog::debug("[listener] Added to role list");
-			}
+    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::debug))
+    {
+        spdlog::debug("[listener] Added to role list");
+    }
     // Hand the role list the sole owning reference to this listener. start()
     // runs exactly once and only reaches here on success, so this is the only
     // control block ever created for `this`; m_servers keeps a non-owning raw
@@ -313,9 +342,10 @@ int CSLSListener::start()
 int CSLSListener::stop()
 {
     int ret = SLS_OK;
-    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info)) {
-			spdlog::info("[listener] Listener stopped | port={}", m_port);
-			}
+    if (sls_should_log_category(SLSLogCategory::LISTENER, spdlog::level::info))
+    {
+        spdlog::info("[listener] Listener stopped | port={}", m_port);
+    }
     return ret;
 }
 
@@ -327,8 +357,7 @@ stat_info_t CSLSListener::get_stat_info()
         sls_gettime_default_string(cur_time, sizeof(cur_time));
 
         m_stat_info.port = m_port;
-        m_stat_info.role = m_role_name,
-        m_stat_info.start_time = cur_time;
+        m_stat_info.role = m_role_name, m_stat_info.start_time = cur_time;
     }
     return m_stat_info;
 }

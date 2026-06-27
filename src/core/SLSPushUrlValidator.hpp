@@ -14,7 +14,8 @@
  * loopback or into the publisher's intranet without an explicit opt-in.
  */
 
-enum class PushUrlReject {
+enum class PushUrlReject
+{
     Ok,
     TooLong,
     InvalidUrl,
@@ -40,8 +41,7 @@ extern const char *const kPushUrlStreamNameToken;
  * verbatim (and rejected upstream by validate_push_url) rather than expanded
  * into a multi-gigabyte string (CWE-134 format-string DoS).
  */
-std::string sls_substitute_stream_name(const std::string &url_template,
-                                       const std::string &stream_name);
+std::string sls_substitute_stream_name(const std::string &url_template, const std::string &stream_name);
 
 /**
  * Default hard deadline (milliseconds) for resolving a push-destination host
@@ -78,8 +78,7 @@ constexpr int kPushUrlDnsTimeoutDefaultMs = 5000;
  * The port carried in `vetted_addr` mirrors the URL's port; callers that parse
  * the port independently may overwrite it. Untouched on any non-Ok verdict.
  */
-PushUrlReject validate_push_url(const std::string &url,
-                                const sls_conf_app_t &app_conf,
+PushUrlReject validate_push_url(const std::string &url, const sls_conf_app_t &app_conf,
                                 const std::vector<std::string> &bind_addresses,
                                 sockaddr_storage *vetted_addr = nullptr);
 

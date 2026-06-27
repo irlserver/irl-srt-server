@@ -44,35 +44,52 @@ enum class SLSLogCategory
 /**
  * Convert category to string name
  */
-inline const char* sls_log_category_name(SLSLogCategory category)
+inline const char *sls_log_category_name(SLSLogCategory category)
 {
     switch (category)
     {
-    case SLSLogCategory::CONNECTION: return "connection";
-    case SLSLogCategory::LISTENER:   return "listener";
-    case SLSLogCategory::STREAM:     return "stream";
-    case SLSLogCategory::DATA:       return "data";
-    case SLSLogCategory::RELAY:      return "relay";
-    case SLSLogCategory::HTTP:       return "http";
-    case SLSLogCategory::AUTH:       return "auth";
-    case SLSLogCategory::SYSTEM:     return "system";
-    default:                         return "unknown";
+    case SLSLogCategory::CONNECTION:
+        return "connection";
+    case SLSLogCategory::LISTENER:
+        return "listener";
+    case SLSLogCategory::STREAM:
+        return "stream";
+    case SLSLogCategory::DATA:
+        return "data";
+    case SLSLogCategory::RELAY:
+        return "relay";
+    case SLSLogCategory::HTTP:
+        return "http";
+    case SLSLogCategory::AUTH:
+        return "auth";
+    case SLSLogCategory::SYSTEM:
+        return "system";
+    default:
+        return "unknown";
     }
 }
 
 /**
  * Parse category from string
  */
-inline SLSLogCategory sls_log_category_from_string(const char* str)
+inline SLSLogCategory sls_log_category_from_string(const char *str)
 {
     std::string s(str);
-    if (s == "connection") return SLSLogCategory::CONNECTION;
-    if (s == "listener")   return SLSLogCategory::LISTENER;
-    if (s == "stream")     return SLSLogCategory::STREAM;
-    if (s == "data")       return SLSLogCategory::DATA;
-    if (s == "relay")      return SLSLogCategory::RELAY;
-    if (s == "http")       return SLSLogCategory::HTTP;
-    if (s == "auth")       return SLSLogCategory::AUTH;
-    if (s == "system")     return SLSLogCategory::SYSTEM;
+    if (s == "connection")
+        return SLSLogCategory::CONNECTION;
+    if (s == "listener")
+        return SLSLogCategory::LISTENER;
+    if (s == "stream")
+        return SLSLogCategory::STREAM;
+    if (s == "data")
+        return SLSLogCategory::DATA;
+    if (s == "relay")
+        return SLSLogCategory::RELAY;
+    if (s == "http")
+        return SLSLogCategory::HTTP;
+    if (s == "auth")
+        return SLSLogCategory::AUTH;
+    if (s == "system")
+        return SLSLogCategory::SYSTEM;
     return SLSLogCategory::SYSTEM; // Default
 }

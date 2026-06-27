@@ -113,9 +113,12 @@ SLS_SET_CONF(srt, string, log_file, "save log file name.", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, string, stat_post_url, "statistic info post url", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, int, stat_post_interval, "interval of statistic info post.", 1, 60),
     SLS_SET_CONF(srt, string, user, "drop privileges to this user after bind", 1, SHORT_STR_MAX_LEN - 1),
-    SLS_SET_CONF(srt, string, group, "drop privileges to this group after bind (defaults to user's primary group)", 1, SHORT_STR_MAX_LEN - 1),
+    SLS_SET_CONF(srt, string, group, "drop privileges to this group after bind (defaults to user's primary group)", 1,
+                 SHORT_STR_MAX_LEN - 1),
     SLS_SET_CONF(srt, int, http_port, "rest api port", 1, 65535),
-    SLS_SET_CONF(srt, string, http_bind_addr, "http control-plane bind address (empty=all interfaces; set 127.0.0.1 for loopback only)", 1, URL_MAX_LEN - 1),
+    SLS_SET_CONF(srt, string, http_bind_addr,
+                 "http control-plane bind address (empty=all interfaces; set 127.0.0.1 for loopback only)", 1,
+                 URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, string, cors_header, "cors header", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, string_list, api_keys, "comma-separated list of API keys for /stats endpoint", 0, 10240),
     // New logging configuration
@@ -134,18 +137,25 @@ SLS_SET_CONF(srt, string, log_file, "save log file name.", 1, URL_MAX_LEN - 1),
     SLS_SET_CONF(srt, string, log_level_http, "http category log level", 1, 31),
     SLS_SET_CONF(srt, string, log_level_auth, "auth category log level", 1, 31),
     SLS_SET_CONF(srt, string, log_level_system, "system category log level", 1, 31),
-    SLS_SET_CONF(srt, int, push_url_dns_timeout_ms, "hard deadline in ms for off-worker push-URL DNS resolution (0=default 5000)", 0, 60000),
-    SLS_SET_CONF(srt, int, rcv_buf_mb, "per-socket SRT receive buffer in MB; also scales SRTO_FC (0=derive from bitrate/latency below)", 0, 1024),
-    SLS_SET_CONF(srt, int, rcv_sizing_max_bitrate_kbps, "peak bitrate (kbps) used to size the receive buffer when rcv_buf_mb=0 (0=default 20000)", 0, 1000000),
-    SLS_SET_CONF(srt, int, rcv_sizing_max_latency_ms, "max latency (ms) used to size the receive buffer when rcv_buf_mb=0 (0=default 8000)", 0, 60000),
-    SLS_SET_CONF(srt, int, max_streams, "max concurrent publisher/relay streams (rings) per server (0=default 256)", 0, 100000),
-    SLS_SET_CONF(srt, int, max_total_ring_mb, "max cumulative ring-buffer memory in MB per server (0=default 2048)", 0, 1048576),
+    SLS_SET_CONF(srt, int, push_url_dns_timeout_ms,
+                 "hard deadline in ms for off-worker push-URL DNS resolution (0=default 5000)", 0, 60000),
+    SLS_SET_CONF(srt, int, rcv_buf_mb,
+                 "per-socket SRT receive buffer in MB; also scales SRTO_FC (0=derive from bitrate/latency below)", 0,
+                 1024),
+    SLS_SET_CONF(srt, int, rcv_sizing_max_bitrate_kbps,
+                 "peak bitrate (kbps) used to size the receive buffer when rcv_buf_mb=0 (0=default 20000)", 0, 1000000),
+    SLS_SET_CONF(srt, int, rcv_sizing_max_latency_ms,
+                 "max latency (ms) used to size the receive buffer when rcv_buf_mb=0 (0=default 8000)", 0, 60000),
+    SLS_SET_CONF(srt, int, max_streams, "max concurrent publisher/relay streams (rings) per server (0=default 256)", 0,
+                 100000),
+    SLS_SET_CONF(srt, int, max_total_ring_mb, "max cumulative ring-buffer memory in MB per server (0=default 2048)", 0,
+                 1048576),
     SLS_SET_CONF(srt, int, nofile_limit, "RLIMIT_NOFILE soft ceiling raised at startup (0=default 65536)", 0, 1048576),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**
- * CSLSManager , manage players, publishers and listener
- */
+     * CSLSManager , manage players, publishers and listener
+     */
     class CSLSManager
 {
 public:

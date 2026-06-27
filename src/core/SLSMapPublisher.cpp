@@ -32,9 +32,7 @@
  * CSLSMapPublisher class implementation
  */
 
-CSLSMapPublisher::CSLSMapPublisher()
-{
-}
+CSLSMapPublisher::CSLSMapPublisher() {}
 CSLSMapPublisher::~CSLSMapPublisher()
 {
     clear();
@@ -74,14 +72,18 @@ int CSLSMapPublisher::set_push_2_publisher(std::string app_streamname, std::shar
         const std::shared_ptr<CSLSRole> &cur_role = it->second;
         if (NULL != cur_role)
         {
-            spdlog::error("[{}] CSLSMapPublisher::set_push_2_publisher, failed, cur_role={}, exist, app_streamname={}, m_map_push_2_publisher.size()={:d}.",
-                          fmt::ptr(this), fmt::ptr(cur_role.get()), app_streamname.c_str(), m_map_push_2_publisher.size());
+            spdlog::error("[{}] CSLSMapPublisher::set_push_2_publisher, failed, cur_role={}, exist, app_streamname={}, "
+                          "m_map_push_2_publisher.size()={:d}.",
+                          fmt::ptr(this), fmt::ptr(cur_role.get()), app_streamname.c_str(),
+                          m_map_push_2_publisher.size());
             return SLS_ERROR;
         }
     }
 
-    spdlog::info("[{}] CSLSMapPublisher::set_push_2_publisher, ok, {}={}, app_streamname={}, m_map_push_2_publisher.size()={:d}.",
-                 fmt::ptr(this), role->get_role_name(), fmt::ptr(role.get()), app_streamname.c_str(), m_map_push_2_publisher.size() + 1);
+    spdlog::info("[{}] CSLSMapPublisher::set_push_2_publisher, ok, {}={}, app_streamname={}, "
+                 "m_map_push_2_publisher.size()={:d}.",
+                 fmt::ptr(this), role->get_role_name(), fmt::ptr(role.get()), app_streamname.c_str(),
+                 m_map_push_2_publisher.size() + 1);
     m_map_push_2_publisher[app_streamname] = std::move(role);
     return SLS_OK;
 }
@@ -130,12 +132,14 @@ std::shared_ptr<CSLSRole> CSLSMapPublisher::get_publisher(std::string strAppStre
     return publisher;
 }
 
-std::vector<std::string> CSLSMapPublisher::get_publisher_names() {
+std::vector<std::string> CSLSMapPublisher::get_publisher_names()
+{
     // Read lock: the worker thread mutates m_map_push_2_publisher concurrently
     // (set_push_2_publisher / remove), so iterating it unlocked is a data race.
     CSLSLock lock(&m_rwclock, false);
     std::vector<std::string> ret;
-    for (const auto &val : m_map_push_2_publisher) {
+    for (const auto &val : m_map_push_2_publisher)
+    {
         ret.push_back(val.first);
     }
     return ret;
@@ -161,8 +165,8 @@ int CSLSMapPublisher::remove(CSLSRole *role)
     {
         if (role == it->second.get())
         {
-            spdlog::info("[{}] CSLSMapPublisher::remove, {}={}, live_key={}.",
-                         fmt::ptr(this), it->second->get_role_name(), fmt::ptr(it->second.get()), it->first.c_str());
+            spdlog::info("[{}] CSLSMapPublisher::remove, {}={}, live_key={}.", fmt::ptr(this),
+                         it->second->get_role_name(), fmt::ptr(it->second.get()), it->first.c_str());
             m_map_push_2_publisher.erase(it);
             ret = SLS_OK;
             break;

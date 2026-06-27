@@ -60,7 +60,10 @@ protected:
     // Subclasses must call this from their handler() loop when system
     // sockets were reported readable.
     bool drain_wake_fd();
-    int wake_fd() const { return m_wake_fd; }
+    int wake_fd() const
+    {
+        return m_wake_fd;
+    }
 
     // RAII owner for the SRT epoll id; get() yields the same raw id the plain
     // int used to hold (value unchanged), reset() releases the prior one.

@@ -31,8 +31,7 @@
 //   first_data_timeout_ms  probation window in ms; <= 0 disables probation
 //                          (the default for players, which never receive).
 //   idle_timeout_s         ordinary idle timeout in seconds; -1 = unlimited.
-inline bool sls_should_reap_role(int64_t now_ms, int64_t last_recv_data_ms,
-                                 int64_t last_activity_ms,
+inline bool sls_should_reap_role(int64_t now_ms, int64_t last_recv_data_ms, int64_t last_activity_ms,
                                  int first_data_timeout_ms, int idle_timeout_s)
 {
     if (first_data_timeout_ms > 0 && last_recv_data_ms == 0)

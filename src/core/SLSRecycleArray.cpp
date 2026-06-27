@@ -67,8 +67,8 @@ int CSLSRecycleArray::count()
     return (int)m_nDataCount.load(std::memory_order_relaxed);
 }
 
-//please call this function before get and put,
-//if not, the read data will be make confusion.
+// please call this function before get and put,
+// if not, the read data will be make confusion.
 void CSLSRecycleArray::setSize(int n)
 {
     // Write lock: setSize() reallocates the underlying buffer, so any
@@ -88,15 +88,14 @@ int CSLSRecycleArray::put(char *data, int len)
 {
     if (!data || len <= 0)
     {
-        spdlog::error("[{}] CSLSRecycleArray::put, failed, data={:p}, len={:d}.",
-                      fmt::ptr(this), data, len);
+        spdlog::error("[{}] CSLSRecycleArray::put, failed, data={:p}, len={:d}.", fmt::ptr(this), data, len);
         return SLS_ERROR;
     }
 
     if (len > m_nDataSize)
     {
-        spdlog::error("[{}] CSLSRecycleArray::put, failed, len={:d} is bigger than m_nDataSize={:d}.",
-                      fmt::ptr(this), len, m_nDataSize);
+        spdlog::error("[{}] CSLSRecycleArray::put, failed, len={:d} is bigger than m_nDataSize={:d}.", fmt::ptr(this),
+                      len, m_nDataSize);
         return SLS_ERROR;
     }
 
@@ -104,7 +103,7 @@ int CSLSRecycleArray::put(char *data, int len)
         CSLSLock lock(&m_rwclock, true);
         if (m_nDataSize - m_nWritePos >= len)
         {
-            //copy directly
+            // copy directly
             memcpy(m_arrayData + m_nWritePos, data, len);
             m_nWritePos += len;
         }
@@ -174,37 +173,36 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
     int64_t bytes_since_last_read = cur_data_count - read_id->nDataCount;
     if (bytes_since_last_read >= (int64_t)m_nDataSize)
     {
-        int64_t new_count =
-            m_overrun_count.fetch_add(1, std::memory_order_relaxed) + 1;
+        int64_t new_count = m_overrun_count.fetch_add(1, std::memory_order_relaxed) + 1;
         spdlog::warn("[{}] CSLSRecycleArray::get, reader overrun: writer advanced {:d}"
                      " bytes since last read, buffer size {:d}. Resyncing reader to"
                      " write head (overrun_count={:d}).",
-                     fmt::ptr(this), (int)bytes_since_last_read, m_nDataSize,
-                     (int)new_count);
+                     fmt::ptr(this), (int)bytes_since_last_read, m_nDataSize, (int)new_count);
         read_id->nReadPos = m_nWritePos;
         read_id->nDataCount = cur_data_count;
         return SLS_OK;
     }
 
-    SPDLOG_TRACE("[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
-                 fmt::ptr(this), read_id->nReadPos, m_nWritePos, cur_data_count, m_nDataSize);
+    SPDLOG_TRACE(
+        "[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
+        fmt::ptr(this), read_id->nReadPos, m_nWritePos, cur_data_count, m_nDataSize);
 
-    //update the last read time
+    // update the last read time
     m_last_read_time.store(sls_gettime_ms(), std::memory_order_release);
 
     int ready_data_len = 0;
     int copy_data_len = 0;
     if (read_id->nReadPos < m_nWritePos)
     {
-        //read pos is behind in the write pos
+        // read pos is behind in the write pos
         ready_data_len = m_nWritePos - read_id->nReadPos;
         copy_data_len = ready_data_len <= size ? ready_data_len : size;
         if (aligned > 0)
         {
             copy_data_len = copy_data_len / aligned * aligned;
         }
-        //sls_log(SLS_LOG_TRACE, "[%p]CSLSRecycleArray::get, read pos is behind in the write pos, copy_data_len=%d, ready_data_len=%d, size=%d.",
-        //		this, copy_data_len, ready_data_len, size);
+        // sls_log(SLS_LOG_TRACE, "[%p]CSLSRecycleArray::get, read pos is behind in the write pos, copy_data_len=%d,
+        // ready_data_len=%d, size=%d.", 		this, copy_data_len, ready_data_len, size);
         if (copy_data_len > 0)
         {
             memcpy(data, m_arrayData + read_id->nReadPos, copy_data_len);
@@ -219,21 +217,22 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         {
             copy_data_len = copy_data_len / aligned * aligned;
         }
-        //sls_log(SLS_LOG_TRACE, "[%p]CSLSRecycleArray::get, read pos is before of the write pos, copy_data_len=%d, ready_data_len=%d, size=%d.",
-        //		this, copy_data_len, ready_data_len, size);
+        // sls_log(SLS_LOG_TRACE, "[%p]CSLSRecycleArray::get, read pos is before of the write pos, copy_data_len=%d,
+        // ready_data_len=%d, size=%d.", 		this, copy_data_len, ready_data_len, size);
         if (copy_data_len > 0)
         {
             if (m_nDataSize - read_id->nReadPos >= copy_data_len)
             {
-                //no wrap round
+                // no wrap round
                 memcpy(data, m_arrayData + read_id->nReadPos, copy_data_len);
                 read_id->nReadPos += copy_data_len;
             }
             else
             {
                 memcpy(data, m_arrayData + read_id->nReadPos, m_nDataSize - read_id->nReadPos);
-                //wrap around
-                memcpy(data + (m_nDataSize - read_id->nReadPos), m_arrayData, copy_data_len - (m_nDataSize - read_id->nReadPos));
+                // wrap around
+                memcpy(data + (m_nDataSize - read_id->nReadPos), m_arrayData,
+                       copy_data_len - (m_nDataSize - read_id->nReadPos));
                 read_id->nReadPos = copy_data_len - (m_nDataSize - read_id->nReadPos);
             }
         }
@@ -248,13 +247,12 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
 
     if (read_id->nReadPos > m_nDataSize)
     {
-        spdlog::warn("[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, but m_nDataSize={:d}.",
-                     fmt::ptr(this), read_id->nReadPos, m_nDataSize);
+        spdlog::warn("[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, but m_nDataSize={:d}.", fmt::ptr(this),
+                     read_id->nReadPos, m_nDataSize);
         read_id->nReadPos = 0;
     }
     read_id->nDataCount = cur_data_count;
-    SPDLOG_TRACE("[{}] CSLSRecycleArray::get, copy_data_lens={:d}.",
-                 fmt::ptr(this), copy_data_len);
+    SPDLOG_TRACE("[{}] CSLSRecycleArray::get, copy_data_lens={:d}.", fmt::ptr(this), copy_data_len);
     return copy_data_len;
 }
 

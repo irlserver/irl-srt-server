@@ -99,7 +99,7 @@ public:
     int libsrt_close();
 
     int libsrt_listen(int backlog);
-    int libsrt_set_listen_callback(srt_listen_callback_fn * listen_callback_fn, void *opaque = nullptr);
+    int libsrt_set_listen_callback(srt_listen_callback_fn *listen_callback_fn, void *opaque = nullptr);
     int libsrt_accept();
 
     int libsrt_get_fd();
@@ -115,7 +115,7 @@ public:
     int libsrt_getsockopt(SRT_SOCKOPT optname, const char *optnamestr, void *optval, int *optlen);
     int libsrt_setsockopt(SRT_SOCKOPT optname, const char *optnamestr, const void *optval, int optlen);
 
-    std::map<std::string, std::string>  libsrt_parse_sid(char *sid);
+    std::map<std::string, std::string> libsrt_parse_sid(char *sid);
 
     int libsrt_add_to_epoll(int eid, bool write);
     // Arm/disarm SRT_EPOLL_OUT on an already-registered socket. Writable
@@ -131,7 +131,10 @@ public:
     int libsrt_getpeeraddr_raw(unsigned long &address, struct in6_addr &address6);
     // True once libsrt_getpeeraddr_raw has resolved an IPv6 peer. ACL code
     // uses this to know that peer_addr_raw is not meaningful for matching.
-    bool libsrt_is_ipv6_peer() const { return m_is_ipv6; }
+    bool libsrt_is_ipv6_peer() const
+    {
+        return m_is_ipv6;
+    }
     int libsrt_get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
 
     void libsrt_set_latency(int latency);
@@ -150,11 +153,11 @@ protected:
     SRTContext m_sc;
     char m_passphrase[80];
     int m_pbkeylen;
-    char m_peer_name[256]; //peer ip addr, such as 172.12.22.14
+    char m_peer_name[256]; // peer ip addr, such as 172.12.22.14
     int m_peer_port;
-    unsigned long m_peer_addr_raw;  //  Peer IP addr in unsigned long format
+    unsigned long m_peer_addr_raw;    //  Peer IP addr in unsigned long format
     struct in6_addr m_peer_addr6_raw; // IPv6 address
-    bool m_is_ipv6;                 // Flag to indicate if the address is IPv6
+    bool m_is_ipv6;                   // Flag to indicate if the address is IPv6
 
 private:
     static bool m_inited;

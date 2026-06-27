@@ -53,7 +53,7 @@ CSLSPusher::CSLSPusher()
 
 CSLSPusher::~CSLSPusher()
 {
-    //release
+    // release
 }
 
 int CSLSPusher::handler()

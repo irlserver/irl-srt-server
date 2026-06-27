@@ -46,7 +46,10 @@ public:
     {
         pthread_mutex_destroy(&m_mutex);
     }
-    pthread_mutex_t *get_mutex() { return &m_mutex; }
+    pthread_mutex_t *get_mutex()
+    {
+        return &m_mutex;
+    }
 
 private:
     pthread_mutex_t m_mutex;
@@ -135,7 +138,9 @@ public:
         }
         if (0 != ret)
         {
-            fprintf(stderr, "SLS Fatal: rwlock %s acquisition failed (ret=%d); aborting rather than running an unlocked critical section.\n",
+            fprintf(stderr,
+                    "SLS Fatal: rwlock %s acquisition failed (ret=%d); aborting rather than running an unlocked "
+                    "critical section.\n",
                     write ? "write" : "read", ret);
             abort();
         }
@@ -157,7 +162,10 @@ public:
                 // Same rule as the rwlock path: never run the critical section
                 // unlocked. A mutex-lock failure (EINVAL/EDEADLK) is a bug, so
                 // abort rather than corrupt the shared structure it guards.
-                fprintf(stderr, "SLS Fatal: pthread_mutex_lock failed (ret=%d); aborting rather than running an unlocked critical section.\n", ret);
+                fprintf(stderr,
+                        "SLS Fatal: pthread_mutex_lock failed (ret=%d); aborting rather than running an unlocked "
+                        "critical section.\n",
+                        ret);
                 abort();
             }
             m_locked = true;

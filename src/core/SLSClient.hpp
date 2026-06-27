@@ -60,7 +60,7 @@ protected:
     int m_out_file;
 
     int64_t m_data_count;
-    int64_t m_bit_rate; //kbit/s
+    int64_t m_bit_rate; // kbit/s
 
     CTSFileTimeReader *m_ts_file_time_reader;
     CSLSSyncClock m_sync_clock;

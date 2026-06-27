@@ -67,8 +67,8 @@ TEST_CASE("AuthRejectCache: cleanup() drops expired entries")
 TEST_CASE("AuthRejectCache: set_ttl ignores non-positive values")
 {
     AuthRejectCache c(30);
-    c.set_ttl(0);    // ignored
-    c.set_ttl(-1);   // ignored
+    c.set_ttl(0);  // ignored
+    c.set_ttl(-1); // ignored
     c.record_failure("p");
     // Still blocked under the original 30s TTL.
     CHECK(c.is_blocked("p"));
@@ -98,6 +98,6 @@ TEST_CASE("AuthRejectCache: re-recording refreshes the expiry")
     c.record_failure("p");
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
     CHECK_FALSE(c.is_blocked("p"));
-    c.record_failure("p");      // refresh
-    CHECK(c.is_blocked("p"));   // immediate, no sleep
+    c.record_failure("p");    // refresh
+    CHECK(c.is_blocked("p")); // immediate, no sleep
 }

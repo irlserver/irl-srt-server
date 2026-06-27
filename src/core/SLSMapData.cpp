@@ -35,9 +35,7 @@
  * CSLSMapData class implementation
  */
 
-CSLSMapData::CSLSMapData()
-{
-}
+CSLSMapData::CSLSMapData() {}
 CSLSMapData::~CSLSMapData()
 {
     clear();
@@ -56,8 +54,8 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
         CSLSRecycleArray *array_data = item->second;
         if (array_data)
         {
-            spdlog::info("[{}] CSLSMapData::add, failed, key={}, array_data={}, exist.",
-                         fmt::ptr(this), key, fmt::ptr(array_data));
+            spdlog::info("[{}] CSLSMapData::add, failed, key={}, array_data={}, exist.", fmt::ptr(this), key,
+                         fmt::ptr(array_data));
             // Idempotent re-add (e.g. the puller's connect-time add hitting an
             // already-allocated ring). Return OK WITHOUT touching the budget
             // counters — the ring was accounted for at its original allocation.
@@ -69,13 +67,11 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
     // Global stream-count cap. Checked before any allocation so a flood of
     // authorized publishers is rejected cheaply (no transient ring alloc).
     // 0 == unlimited.
-    if (m_max_streams > 0 &&
-        m_stream_count.load(std::memory_order_relaxed) >= m_max_streams)
+    if (m_max_streams > 0 && m_stream_count.load(std::memory_order_relaxed) >= m_max_streams)
     {
         spdlog::warn("[{}] CSLSMapData::add, refused key='{}': stream-count cap reached"
                      " ({:d}/{:d}).",
-                     fmt::ptr(this), key,
-                     m_stream_count.load(std::memory_order_relaxed), m_max_streams);
+                     fmt::ptr(this), key, m_stream_count.load(std::memory_order_relaxed), m_max_streams);
         return SLS_ERROR;
     }
 
@@ -118,14 +114,12 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
     // path frees only the small default allocation, never the grown ring.
     // 0 == unlimited.
     if (m_max_total_ring_bytes > 0 &&
-        m_total_ring_bytes.load(std::memory_order_relaxed) + intended_size >
-            m_max_total_ring_bytes)
+        m_total_ring_bytes.load(std::memory_order_relaxed) + intended_size > m_max_total_ring_bytes)
     {
         spdlog::warn("[{}] CSLSMapData::add, refused key='{}': total ring-memory cap"
                      " would be exceeded ({:d} + {:d} > {:d} bytes).",
-                     fmt::ptr(this), key,
-                     m_total_ring_bytes.load(std::memory_order_relaxed),
-                     intended_size, m_max_total_ring_bytes);
+                     fmt::ptr(this), key, m_total_ring_bytes.load(std::memory_order_relaxed), intended_size,
+                     m_max_total_ring_bytes);
         delete data_array;
         return SLS_ERROR;
     }
@@ -135,8 +129,7 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
         data_array->setSize((int)intended_size);
         spdlog::info("[{}] CSLSMapData::add, sized ring for key='{}' to {:d} bytes"
                      " ({:d} kbps * {:d} ms * 2).",
-                     fmt::ptr(this), key, (int)intended_size,
-                     max_bitrate_kbps, latency_ms);
+                     fmt::ptr(this), key, (int)intended_size, max_bitrate_kbps, latency_ms);
     }
 
     m_map_array[strKey] = data_array;
@@ -145,8 +138,7 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
     // real size. remove()/clear() decrement the same way when they free it, so
     // the counters stay alloc-balanced across idempotent re-adds.
     m_stream_count.fetch_add(1, std::memory_order_relaxed);
-    m_total_ring_bytes.fetch_add((int64_t)data_array->get_data_size(),
-                                 std::memory_order_relaxed);
+    m_total_ring_bytes.fetch_add((int64_t)data_array->get_data_size(), std::memory_order_relaxed);
 
     // Pre-allocate the ts_info entry so put() never mutates the map
     // structure on the hot path. Previously put() would lazy-create the
@@ -161,8 +153,7 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
     }
 
     spdlog::info("[{}] CSLSMapData::add ok, key='{}', ring_size={:d}, streams={:d}, total_ring_bytes={:d}.",
-                 fmt::ptr(this), key, data_array->get_data_size(),
-                 m_stream_count.load(std::memory_order_relaxed),
+                 fmt::ptr(this), key, data_array->get_data_size(), m_stream_count.load(std::memory_order_relaxed),
                  m_total_ring_bytes.load(std::memory_order_relaxed));
     return ret;
 }
@@ -171,8 +162,8 @@ void CSLSMapData::set_caps(int max_streams, int64_t max_total_ring_bytes)
 {
     m_max_streams = max_streams;
     m_max_total_ring_bytes = max_total_ring_bytes;
-    spdlog::info("[{}] CSLSMapData::set_caps, max_streams={:d}, max_total_ring_bytes={:d}.",
-                 fmt::ptr(this), max_streams, max_total_ring_bytes);
+    spdlog::info("[{}] CSLSMapData::set_caps, max_streams={:d}, max_total_ring_bytes={:d}.", fmt::ptr(this),
+                 max_streams, max_total_ring_bytes);
 }
 
 int64_t CSLSMapData::get_overrun_count(const char *key)
@@ -208,13 +199,12 @@ int CSLSMapData::remove(char *key)
     if (item != m_map_array.end())
     {
         CSLSRecycleArray *array_data = item->second;
-        spdlog::info("[{}] CSLSMapData::remove, key='{}' delete array_data={}.",
-                     fmt::ptr(this), key, fmt::ptr(array_data));
+        spdlog::info("[{}] CSLSMapData::remove, key='{}' delete array_data={}.", fmt::ptr(this), key,
+                     fmt::ptr(array_data));
         if (array_data)
         {
             m_stream_count.fetch_sub(1, std::memory_order_relaxed);
-            m_total_ring_bytes.fetch_sub((int64_t)array_data->get_data_size(),
-                                         std::memory_order_relaxed);
+            m_total_ring_bytes.fetch_sub((int64_t)array_data->get_data_size(), std::memory_order_relaxed);
             delete array_data;
         }
         m_map_array.erase(item);
@@ -234,20 +224,17 @@ bool CSLSMapData::is_exist(char *key)
         CSLSRecycleArray *array_data = item->second;
         if (array_data)
         {
-            spdlog::trace("[{}] CSLSMapData::is_exist, key={}, exist.",
-                          fmt::ptr(this), key);
+            spdlog::trace("[{}] CSLSMapData::is_exist, key={}, exist.", fmt::ptr(this), key);
             return true;
         }
         else
         {
-            spdlog::trace("[{}] CSLSMapData::is_exist, is_exist, key={}, data_array is null.",
-                          fmt::ptr(this), key);
+            spdlog::trace("[{}] CSLSMapData::is_exist, is_exist, key={}, data_array is null.", fmt::ptr(this), key);
         }
     }
     else
     {
-        spdlog::trace("[{}] CSLSMapData::add, is_exist, key={}, not exist.",
-                      fmt::ptr(this), key);
+        spdlog::trace("[{}] CSLSMapData::add, is_exist, key={}, not exist.", fmt::ptr(this), key);
     }
     return false;
 }
@@ -271,15 +258,13 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     auto item = m_map_array.find(keyView);
     if (item == m_map_array.end())
     {
-        spdlog::error("[{}] CSLSMapData::put, key={}, not found data array.",
-                      fmt::ptr(this), key);
+        spdlog::error("[{}] CSLSMapData::put, key={}, not found data array.", fmt::ptr(this), key);
         return SLS_ERROR;
     }
     CSLSRecycleArray *array_data = item->second;
     if (NULL == array_data)
     {
-        spdlog::error("[{}] CSLSMapData::get, key={}, array_data is NULL.",
-                      fmt::ptr(this), key);
+        spdlog::error("[{}] CSLSMapData::get, key={}, array_data is NULL.", fmt::ptr(this), key);
     }
 
     if (NULL != last_read_time)
@@ -294,16 +279,14 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     auto item_ti = m_map_ts_info.find(keyView);
     if (item_ti == m_map_ts_info.end() || item_ti->second == NULL)
     {
-        spdlog::error("[{}] CSLSMapData::put, key={}, ts_info not pre-allocated.",
-                      fmt::ptr(this), key);
+        spdlog::error("[{}] CSLSMapData::put, key={}, ts_info not pre-allocated.", fmt::ptr(this), key);
         return SLS_ERROR;
     }
     ti = item_ti->second;
 
     if (SLS_OK == check_ts_info(data, len, ti))
     {
-        spdlog::info("[{}] CSLSMapData::put, check_spspps ok, key={}.",
-                     fmt::ptr(this), key);
+        spdlog::info("[{}] CSLSMapData::put, check_spspps ok, key={}.", fmt::ptr(this), key);
     }
 
     // Audio gap filling: detect gaps and insert silence BEFORE the current data,
@@ -316,8 +299,8 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     ret = array_data->put(data, len);
     if (ret != len)
     {
-        spdlog::error("[{}] CSLSMapData::put, key={}, array_data->put failed, len={:d}, but ret={:d}.",
-                      fmt::ptr(this), key, len, ret);
+        spdlog::error("[{}] CSLSMapData::put, key={}, array_data->put failed, len={:d}, but ret={:d}.", fmt::ptr(this),
+                      key, len, ret);
     }
 
     return ret;
@@ -332,15 +315,13 @@ int CSLSMapData::get(char *key, char *data, int len, SLSRecycleArrayID *read_id,
     auto item = m_map_array.find(std::string_view{key});
     if (item == m_map_array.end())
     {
-        spdlog::trace("[{}] CSLSMapData::get, key={}, not found data array,",
-                      fmt::ptr(this), key);
+        spdlog::trace("[{}] CSLSMapData::get, key={}, not found data array,", fmt::ptr(this), key);
         return SLS_ERROR;
     }
     CSLSRecycleArray *array_data = item->second;
     if (NULL == array_data)
     {
-        spdlog::warn("[{}] CSLSMapData::get, key={}, array_data is NULL.",
-                     fmt::ptr(this), key);
+        spdlog::warn("[{}] CSLSMapData::get, key={}, array_data is NULL.", fmt::ptr(this), key);
         return SLS_ERROR;
     }
 
@@ -350,8 +331,7 @@ int CSLSMapData::get(char *key, char *data, int len, SLSRecycleArrayID *read_id,
     {
         // get sps and pps
         ret = get_ts_info(key, data, len);
-        spdlog::info("[{}] CSLSMapData::get, get sps pps ok, key={}, len={:d}.",
-                     fmt::ptr(this), key, ret);
+        spdlog::info("[{}] CSLSMapData::get, get sps pps ok, key={}, len={:d}.", fmt::ptr(this), key, ret);
     }
     return ret;
 }
@@ -382,8 +362,7 @@ void CSLSMapData::clear()
         if (array_data)
         {
             m_stream_count.fetch_sub(1, std::memory_order_relaxed);
-            m_total_ring_bytes.fetch_sub((int64_t)array_data->get_data_size(),
-                                         std::memory_order_relaxed);
+            m_total_ring_bytes.fetch_sub((int64_t)array_data->get_data_size(), std::memory_order_relaxed);
             delete array_data;
         }
         it++;
@@ -609,10 +588,8 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
 
         int64_t current_pts = 0;
         const uint8_t *pts_buf = pkt + pos + 9;
-        current_pts = ((int64_t)(pts_buf[0] & 0x0E) << 29) |
-                      ((int64_t)(pts_buf[1] & 0xFF) << 22) |
-                      ((int64_t)(pts_buf[2] & 0xFE) << 14) |
-                      ((int64_t)(pts_buf[3] & 0xFF) << 7) |
+        current_pts = ((int64_t)(pts_buf[0] & 0x0E) << 29) | ((int64_t)(pts_buf[1] & 0xFF) << 22) |
+                      ((int64_t)(pts_buf[2] & 0xFE) << 14) | ((int64_t)(pts_buf[3] & 0xFF) << 7) |
                       ((int64_t)(pts_buf[4] & 0xFE) >> 1);
 
         // Try to detect audio format from ES payload if not yet detected
@@ -622,8 +599,7 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
             int es_offset = pos + 9 + pes_header_len;
             if (es_offset < TS_PACK_LEN)
             {
-                SLSAudioGapFiller::detect_format(
-                    pkt + es_offset, TS_PACK_LEN - es_offset, track);
+                SLSAudioGapFiller::detect_format(pkt + es_offset, TS_PACK_LEN - es_offset, track);
             }
         }
 
@@ -632,8 +608,8 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
         {
             // Use expected_cc for gap fill so CCs are sequential with the rewritten stream
             uint8_t fill_cc = track->expected_cc;
-            std::vector<uint8_t> gap_packets = SLSAudioGapFiller::generate_gap_packets(
-                track, track->last_pts, current_pts, fill_cc);
+            std::vector<uint8_t> gap_packets =
+                SLSAudioGapFiller::generate_gap_packets(track, track->last_pts, current_pts, fill_cc);
 
             if (!gap_packets.empty())
             {
@@ -654,14 +630,15 @@ void CSLSMapData::check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleA
                 track->silent_frames_inserted += inserted_packets;
                 track->silent_packets_inserted += inserted_packets;
                 track->silent_bytes_inserted += gap_packets.size();
-                track->last_gap_pts_delta = current_pts >= track->last_pts ?
-                    (current_pts - track->last_pts) : (current_pts - track->last_pts + PTS_WRAP);
+                track->last_gap_pts_delta = current_pts >= track->last_pts ? (current_pts - track->last_pts)
+                                                                           : (current_pts - track->last_pts + PTS_WRAP);
                 track->last_gap_frames = (int)inserted_packets;
                 ti->gap_count++;
                 ti->silent_frames_inserted += inserted_packets;
                 ti->silent_packets_inserted += inserted_packets;
                 ti->silent_bytes_inserted += gap_packets.size();
-                spdlog::info("CSLSMapData::check_audio_gap: PID={} inserted {} silent packets ({} bytes), dropped {} partial PES packets",
+                spdlog::info("CSLSMapData::check_audio_gap: PID={} inserted {} silent packets ({} bytes), dropped {} "
+                             "partial PES packets",
                              track->pid, inserted_packets, gap_packets.size(),
                              track->partial_pes_dropped.load(std::memory_order_relaxed));
                 track->partial_pes_dropped.store(0, std::memory_order_relaxed);

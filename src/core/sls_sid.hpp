@@ -36,8 +36,7 @@ std::string sls_canonical_sid_key(const std::string &streamid);
 // AuthRejectCache* injected at registration and may be null (format gate
 // still applies). Returns 0 to accept, -1 to reject. Must stay non-blocking:
 // a parse plus one short locked cache lookup, no HTTP or long-held locks.
-int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
-                                  const struct sockaddr *peeraddr,
+int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion, const struct sockaddr *peeraddr,
                                   const char *streamid);
 
 // srt_listen_callback hook for the player listener. Rejects malformed
@@ -47,6 +46,5 @@ int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
 // Format-only: the post-accept handler still resolves the publisher and (for
 // player-key apps) authorizes the key. The opaque pointer is unused. Returns
 // 0 to accept, -1 to reject. Must stay non-blocking.
-int sls_player_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
-                               const struct sockaddr *peeraddr,
+int sls_player_listen_callback(void *opaque, SRTSOCKET ns, int hsversion, const struct sockaddr *peeraddr,
                                const char *streamid);

@@ -220,13 +220,11 @@ int sls_mkdir_p(const char *path)
     // explicitly. create_directories honours the process umask, which is
     // typically 022 (yielding 0755), but downstream HLS recording flows may
     // run under a tighter umask; pin the mode here so behaviour is stable.
-    std::filesystem::permissions(
-        path,
-        std::filesystem::perms::owner_all |
-            std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
-            std::filesystem::perms::others_read | std::filesystem::perms::others_exec,
-        std::filesystem::perm_options::replace,
-        ec);
+    std::filesystem::permissions(path,
+                                 std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+                                     std::filesystem::perms::group_exec | std::filesystem::perms::others_read |
+                                     std::filesystem::perms::others_exec,
+                                 std::filesystem::perm_options::replace, ec);
     if (ec)
         return -1;
 
@@ -272,8 +270,7 @@ bool sls_is_safe_name(const char *s)
         // and could appear in opaque identifiers the operator already
         // accepts; the injection vector is the query/fragment, not the
         // authority.
-        if (*p == '#' || *p == '&' ||
-            *p == '%' || *p == ' ')
+        if (*p == '#' || *p == '&' || *p == '%' || *p == ' ')
             return false;
         if (*p < 0x20 || *p == 0x7f)
             return false;
@@ -496,8 +493,8 @@ int sls_drop_privileges(const char *user, const char *group)
 
     if (geteuid() != 0)
     {
-        spdlog::warn("sls_drop_privileges: not running as root, ignoring user='{}' group='{}'.",
-                     user ? user : "", group ? group : "");
+        spdlog::warn("sls_drop_privileges: not running as root, ignoring user='{}' group='{}'.", user ? user : "",
+                     group ? group : "");
         return SLS_OK;
     }
 
@@ -525,22 +522,20 @@ int sls_drop_privileges(const char *user, const char *group)
 
     if (initgroups(user, target_gid) != 0)
     {
-        spdlog::critical("sls_drop_privileges: initgroups('{}', {}) failed: {}.",
-                         user, (int)target_gid, strerror(errno));
+        spdlog::critical("sls_drop_privileges: initgroups('{}', {}) failed: {}.", user, (int)target_gid,
+                         strerror(errno));
         return SLS_ERROR;
     }
 
     if (setgid(target_gid) != 0)
     {
-        spdlog::critical("sls_drop_privileges: setgid({}) failed: {}.",
-                         (int)target_gid, strerror(errno));
+        spdlog::critical("sls_drop_privileges: setgid({}) failed: {}.", (int)target_gid, strerror(errno));
         return SLS_ERROR;
     }
 
     if (setuid(target_uid) != 0)
     {
-        spdlog::critical("sls_drop_privileges: setuid({}) failed: {}.",
-                         (int)target_uid, strerror(errno));
+        spdlog::critical("sls_drop_privileges: setuid({}) failed: {}.", (int)target_uid, strerror(errno));
         return SLS_ERROR;
     }
 
@@ -551,8 +546,8 @@ int sls_drop_privileges(const char *user, const char *group)
         return SLS_ERROR;
     }
 
-    spdlog::info("sls_drop_privileges: dropped to uid={} gid={} (user='{}', group='{}').",
-                 (int)target_uid, (int)target_gid, user, want_group ? group : "(from passwd)");
+    spdlog::info("sls_drop_privileges: dropped to uid={} gid={} (user='{}', group='{}').", (int)target_uid,
+                 (int)target_gid, user, want_group ? group : "(from passwd)");
     return SLS_OK;
 }
 
@@ -663,9 +658,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
     {
         // avc nal
         // bool b_nal = false;
-        if (0x0 == es[pos] &&
-            0x0 == es[pos + 1] &&
-            0x0 == es[pos + 2] &&
+        if (0x0 == es[pos] && 0x0 == es[pos + 1] && 0x0 == es[pos + 2] &&
             (0x1 == es[pos + 3] || (0x0 == es[pos + 3] && 0x1 == es[pos + 4])))
         {
             if (p != NULL)
@@ -676,8 +669,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
                     int n = (int)(p_end - p);
                     if (n < 0 || n > (int)sizeof(ti->sps))
                     {
-                        spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.",
-                                     n, (int)sizeof(ti->sps));
+                        spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.", n, (int)sizeof(ti->sps));
                     }
                     else
                     {
@@ -690,8 +682,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
                     int n = (int)(p_end - p);
                     if (n < 0 || n > (int)sizeof(ti->pps))
                     {
-                        spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.",
-                                     n, (int)sizeof(ti->pps));
+                        spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.", n, (int)sizeof(ti->pps));
                     }
                     else
                     {
@@ -737,8 +728,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
             int n = (int)(p_end - p);
             if (n < 0 || n > (int)sizeof(ti->sps))
             {
-                spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.",
-                             n, (int)sizeof(ti->sps));
+                spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.", n, (int)sizeof(ti->sps));
             }
             else
             {
@@ -751,8 +741,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
             int n = (int)(p_end - p);
             if (n < 0 || n > (int)sizeof(ti->pps))
             {
-                spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.",
-                             n, (int)sizeof(ti->pps));
+                spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.", n, (int)sizeof(ti->pps));
             }
             else
             {
@@ -784,10 +773,7 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
 
     // Length-driven: each advance below is guarded against pes_end so a
     // truncated PES payload can never drive a read past the packet buffer.
-    if (pes_len < 3 ||
-        pes[0] != 0x00 ||
-        pes[1] != 0x00 ||
-        pes[2] != 0x01)
+    if (pes_len < 3 || pes[0] != 0x00 || pes[1] != 0x00 || pes[2] != 0x01)
     {
         return SLS_ERROR;
     }
@@ -952,7 +938,8 @@ static int sls_parse_pat(const uint8_t *pat_data, int len, ts_info *ti)
     int section_number = buffer[6];
     int last_section_number = buffer[7];
 
-    int CRC_32 = (buffer[len - 4] & 0x000000FF) << 24 | (buffer[len - 3] & 0x000000FF) << 16 | (buffer[len - 2] & 0x000000FF) << 8 | (buffer[len - 1] & 0x000000FF);
+    int CRC_32 = (buffer[len - 4] & 0x000000FF) << 24 | (buffer[len - 3] & 0x000000FF) << 16 |
+                 (buffer[len - 2] & 0x000000FF) << 8 | (buffer[len - 1] & 0x000000FF);
 
     // Each program entry is the 4 bytes buffer[8+n .. 11+n]. Clamp the loop to
     // the smaller of the declared section length and the actual buffer so a
@@ -1008,8 +995,7 @@ int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
         // 0x11 = AAC (LATM/LOAS)
         // 0x81 = AC-3 (Dolby Digital) - common in ATSC
         // 0x06 = Private data (may contain Opus, AC-3, or other codecs via descriptors)
-        if (stream_type == 0x0F || stream_type == 0x11 ||
-            stream_type == 0x03 || stream_type == 0x04 ||
+        if (stream_type == 0x0F || stream_type == 0x11 || stream_type == 0x03 || stream_type == 0x04 ||
             stream_type == 0x81)
         {
             is_audio = true;
@@ -1027,8 +1013,8 @@ int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
                 // 0x7F = Extension descriptor (check for Opus sub-descriptor 0x80)
                 if (desc_tag == 0x05 && desc_len >= 4 && desc_pos + 6 <= len)
                 {
-                    if (buffer[desc_pos + 2] == 'O' && buffer[desc_pos + 3] == 'p' &&
-                        buffer[desc_pos + 4] == 'u' && buffer[desc_pos + 5] == 's')
+                    if (buffer[desc_pos + 2] == 'O' && buffer[desc_pos + 3] == 'p' && buffer[desc_pos + 4] == 'u' &&
+                        buffer[desc_pos + 5] == 's')
                     {
                         is_audio = true;
                     }
@@ -1102,7 +1088,7 @@ int sls_parse_ts_info(const uint8_t *packet, int len, ts_info *ti)
                 int afc_pmt = (packet[3] >> 4) & 3;
                 if (afc_pmt & 2)
                     pmt_payload_offset += 1 + (packet[4] & 0xFF);
-                if (packet[1] & 0x40) // payload unit start
+                if (packet[1] & 0x40)     // payload unit start
                     pmt_payload_offset++; // skip pointer field
                 if (pmt_payload_offset < TS_PACK_LEN)
                     sls_parse_pmt_for_audio(packet + pmt_payload_offset, TS_PACK_LEN - pmt_payload_offset, ti);
@@ -1125,9 +1111,8 @@ int sls_parse_ts_info(const uint8_t *packet, int len, ts_info *ti)
         return SLS_ERROR;
     int has_adaptation = afc & 2;
     int has_payload = afc & 1;
-    bool is_discontinuity = (has_adaptation == 1) &&
-                            (packet[4] != 0) &&        /* with length > 0 */
-                            ((packet[5] & 0x80) != 0); /* and discontinuity indicated */
+    bool is_discontinuity = (has_adaptation == 1) && (packet[4] != 0) && /* with length > 0 */
+                            ((packet[5] & 0x80) != 0);                   /* and discontinuity indicated */
 
     if ((packet[1] & 0x80) != 0)
     {
@@ -1183,7 +1168,7 @@ void sls_init_audio_track(audio_track_info *at)
         at->cc = 0;
         at->expected_cc = 0;
         at->cc_initialized = false;
-        at->in_gap = true;  // drop orphaned continuations until first PES start
+        at->in_gap = true; // drop orphaned continuations until first PES start
         at->sample_rate = 0;
         at->channels = 0;
         at->sample_rate_index = 0;

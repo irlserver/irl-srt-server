@@ -36,8 +36,7 @@ void AuthRejectCache::record_failure(const std::string &streamid)
     // Enforce the entry cap only when inserting a NEW key (refreshing an
     // existing one never grows the map). When full, evict the entry closest to
     // expiring so the freshest blocks survive — mirrors the player-key cache.
-    if (m_blocked.find(streamid) == m_blocked.end() &&
-        m_blocked.size() >= MAX_AUTH_REJECT_ENTRIES)
+    if (m_blocked.find(streamid) == m_blocked.end() && m_blocked.size() >= MAX_AUTH_REJECT_ENTRIES)
     {
         auto victim = m_blocked.begin();
         for (auto it = std::next(m_blocked.begin()); it != m_blocked.end(); ++it)

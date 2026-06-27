@@ -15,9 +15,9 @@ namespace
 // Stream type IDs used by MPEG-TS PMT for audio elementary streams.
 constexpr int STREAM_TYPE_AAC_ADTS = 0x0F;
 constexpr int STREAM_TYPE_AAC_LATM = 0x11;
-constexpr int STREAM_TYPE_MP3_V1   = 0x03;
-constexpr int STREAM_TYPE_MP3_V2   = 0x04;
-constexpr int STREAM_TYPE_OPUS     = STREAM_TYPE_PRIVATE_DATA; // 0x06
+constexpr int STREAM_TYPE_MP3_V1 = 0x03;
+constexpr int STREAM_TYPE_MP3_V2 = 0x04;
+constexpr int STREAM_TYPE_OPUS = STREAM_TYPE_PRIVATE_DATA; // 0x06
 
 // audio_track_info holds std::atomic members so it is neither copyable nor
 // movable. Configure in place via an out parameter.
@@ -31,7 +31,7 @@ void init_track(audio_track_info &t, int stream_type, int sample_rate)
     t.channel_config = 2;
     t.format_detected = true;
 }
-}
+} // namespace
 
 TEST_CASE("SLSAudioGapFiller::is_supported_audio classifies AAC/MP3/Opus and rejects others")
 {
@@ -62,8 +62,7 @@ TEST_CASE("SLSAudioGapFiller::frame_pts_duration: MP3 at 44.1 kHz -> 2351 PTS ti
 TEST_CASE("SLSAudioGapFiller::frame_pts_duration: Opus at 48 kHz -> 1800 PTS ticks")
 {
     // 960 samples / 48000 Hz * 90000 = 1800.
-    CHECK(SLSAudioGapFiller::frame_pts_duration(OPUS_DEFAULT_SAMPLE_RATE,
-                                                STREAM_TYPE_OPUS) == 1800);
+    CHECK(SLSAudioGapFiller::frame_pts_duration(OPUS_DEFAULT_SAMPLE_RATE, STREAM_TYPE_OPUS) == 1800);
 }
 
 TEST_CASE("SLSAudioGapFiller::frame_pts_duration: rejects nonsensical sample rate")
@@ -74,7 +73,8 @@ TEST_CASE("SLSAudioGapFiller::frame_pts_duration: rejects nonsensical sample rat
 
 TEST_CASE("SLSAudioGapFiller::generate_gap_packets: returns empty for invalid PTS")
 {
-    audio_track_info t; init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
+    audio_track_info t;
+    init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
     uint8_t cc = 0;
     auto r1 = SLSAudioGapFiller::generate_gap_packets(&t, INVALID_DTS_PTS, 90000, cc);
     CHECK(r1.empty());
@@ -84,7 +84,8 @@ TEST_CASE("SLSAudioGapFiller::generate_gap_packets: returns empty for invalid PT
 
 TEST_CASE("SLSAudioGapFiller::generate_gap_packets: returns empty when format not detected")
 {
-    audio_track_info t; init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
+    audio_track_info t;
+    init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
     t.format_detected = false;
     uint8_t cc = 0;
     auto r = SLSAudioGapFiller::generate_gap_packets(&t, 0, 90000, cc);
@@ -93,7 +94,8 @@ TEST_CASE("SLSAudioGapFiller::generate_gap_packets: returns empty when format no
 
 TEST_CASE("SLSAudioGapFiller::generate_gap_packets: gap larger than MAX_PTS_GAP is rejected")
 {
-    audio_track_info t; init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
+    audio_track_info t;
+    init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
     uint8_t cc = 0;
     // current - last > MAX_PTS_GAP (5 * 90000 = 450000). Use a clean +1s
     // over the limit so PTS wrap arithmetic isn't a factor.
@@ -103,7 +105,8 @@ TEST_CASE("SLSAudioGapFiller::generate_gap_packets: gap larger than MAX_PTS_GAP 
 
 TEST_CASE("SLSAudioGapFiller::generate_gap_packets: gap of one frame is not filled")
 {
-    audio_track_info t; init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
+    audio_track_info t;
+    init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
     uint8_t cc = 0;
     // pts_delta == frame_duration -> nothing to fill (gap of zero frames).
     auto r = SLSAudioGapFiller::generate_gap_packets(&t, 0, 1920, cc);
@@ -112,12 +115,13 @@ TEST_CASE("SLSAudioGapFiller::generate_gap_packets: gap of one frame is not fill
 
 TEST_CASE("SLSAudioGapFiller::generate_gap_packets: PTS wrap at 2^33 is handled")
 {
-    audio_track_info t; init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
+    audio_track_info t;
+    init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
     uint8_t cc = 0;
     // Last PTS just below wrap, current PTS just after wrap. Naive subtraction
     // would be negative; the filler must treat this as a small positive delta.
     int64_t last = PTS_WRAP - 1920; // one frame from the wrap
-    int64_t current = 1920;          // one frame past the wrap == 2 frames gap
+    int64_t current = 1920;         // one frame past the wrap == 2 frames gap
     auto r = SLSAudioGapFiller::generate_gap_packets(&t, last, current, cc);
     // pts_delta after wrap fix == 3840 ticks, one frame is 1920 -> insert 1 frame.
     CHECK(r.size() == (size_t)TS_PACK_LEN);
@@ -125,7 +129,8 @@ TEST_CASE("SLSAudioGapFiller::generate_gap_packets: PTS wrap at 2^33 is handled"
 
 TEST_CASE("SLSAudioGapFiller::generate_gap_packets: emits one TS packet per filled frame, capped at MAX_GAP_FRAMES")
 {
-    audio_track_info t; init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
+    audio_track_info t;
+    init_track(t, STREAM_TYPE_AAC_ADTS, 48000);
     uint8_t cc = 0;
     // A 4-frame gap (delta = 5 * frame_duration -> 4 fill frames).
     auto r4 = SLSAudioGapFiller::generate_gap_packets(&t, 0, 5 * 1920, cc);
@@ -134,7 +139,8 @@ TEST_CASE("SLSAudioGapFiller::generate_gap_packets: emits one TS packet per fill
     // A gap just under MAX_PTS_GAP — at a high sample rate the frame
     // duration is small enough that the gap would otherwise produce more
     // than MAX_GAP_FRAMES, so the clamp must kick in.
-    audio_track_info t2; init_track(t2, STREAM_TYPE_AAC_ADTS, 96000);
+    audio_track_info t2;
+    init_track(t2, STREAM_TYPE_AAC_ADTS, 96000);
     uint8_t cc2 = 0;
     auto rbig = SLSAudioGapFiller::generate_gap_packets(&t2, 0, MAX_PTS_GAP - 1, cc2);
     CHECK(rbig.size() == (size_t)(MAX_GAP_FRAMES * TS_PACK_LEN));
