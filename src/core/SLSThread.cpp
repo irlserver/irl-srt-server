@@ -35,72 +35,76 @@
 
 CSLSThread::CSLSThread()
 {
-	m_exit = 0;
-	m_th_id = 0;
+    // Constructor runs before start() spawns the worker, so no other thread
+    // can observe m_exit yet — relaxed is sufficient for the initial value.
+    m_exit.store(false, std::memory_order_relaxed);
+    m_th_id = 0;
 }
 CSLSThread::~CSLSThread()
 {
-	stop();
+    stop();
 }
 
 int CSLSThread::start()
 {
-	int ret = 0;
-	int err;
-	pthread_t th_id;
+    int ret = 0;
+    int err;
+    pthread_t th_id;
 
-	err = pthread_create(&th_id, NULL, thread_func, (void *)this);
-	if (err != 0)
-	{
-		spdlog::error("[{}] CSLSThread::start, can't create thread, error: {}", fmt::ptr(this), strerror(err));
-		return -1;
-	}
-	m_th_id = th_id;
-	spdlog::info("[{}] CSLSThread::start, pthread_create ok, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
+    err = pthread_create(&th_id, nullptr, thread_func, (void *)this);
+    if (err != 0)
+    {
+        spdlog::error("[{}] CSLSThread::start, can't create thread, error: {}", fmt::ptr(this), strerror(err));
+        return -1;
+    }
+    m_th_id = th_id;
+    spdlog::info("[{}] CSLSThread::start, pthread_create ok, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
 
-	return ret;
+    return ret;
 }
 int CSLSThread::stop()
 {
-	int ret = 0;
-	if (0 == m_th_id)
-	{
-		return ret;
-	}
-	spdlog::info("[{}] CSLSThread::stop, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
+    int ret = 0;
+    if (0 == m_th_id)
+    {
+        return ret;
+    }
+    spdlog::info("[{}] CSLSThread::stop, m_th_id={:d}.", fmt::ptr(this), sls_tid(m_th_id));
 
-	m_exit = 1;
-	pthread_join(m_th_id, NULL);
-	m_th_id = 0;
-	clear();
+    // Release: publish the exit request so the worker's acquire-load in its
+    // loop predicate (and is_exit()) is guaranteed to observe it.
+    m_exit.store(true, std::memory_order_release);
+    pthread_join(m_th_id, nullptr);
+    m_th_id = 0;
+    clear();
 
-	return ret;
+    return ret;
 }
 
-void CSLSThread::clear()
-{
-}
+void CSLSThread::clear() {}
 
 bool CSLSThread::is_exit()
 {
-	return m_exit == 1;
+    // Acquire: pairs with the release store in stop()/CSLSGroup::handler().
+    return m_exit.load(std::memory_order_acquire);
 }
 
 void *CSLSThread::thread_func(void *arg)
 {
-	CSLSThread *pThis = (CSLSThread *)arg;
-	if (!pThis)
-	{
-		spdlog::error("CSLSThread::thread_func, thread arg is null.");
-	}
+    CSLSThread *pThis = (CSLSThread *)arg;
+    if (!pThis)
+    {
+        spdlog::error("CSLSThread::thread_func, thread arg is null.");
+        return nullptr;
+    }
 
-	pThis->work();
-	return NULL;
+    pThis->work();
+    return nullptr;
 }
 
 int CSLSThread::work()
 {
-	int ret = 0;
+    int ret = 0;
 
-	return ret;
+    return ret;
 }

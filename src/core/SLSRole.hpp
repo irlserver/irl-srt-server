@@ -27,6 +27,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <sys/socket.h>
 
 #include "SLSRole.hpp"
 #include "SLSSrt.hpp"
@@ -38,6 +39,7 @@
 #include <future>
 #include <memory>
 #include <atomic>
+#include <thread>
 #include "SLSBitrateLimit.hpp"
 
 class AuthRejectCache;
@@ -94,7 +96,10 @@ public:
 
     int get_fd();
     int set_eid(int eid);
-    bool is_write() { return m_is_write; };
+    bool is_write()
+    {
+        return m_is_write;
+    };
 
     int set_srt(CSLSSrt *srt);
     int invalid_srt();
@@ -113,6 +118,12 @@ public:
     int get_state(int64_t cur_time_microsec = 0);
     int get_sock_state();
     char *get_role_name();
+    // Creation timestamp (ms), stamped once at construction and never updated.
+    // Used to reap roles that sit un-adopted in the worker handoff list.
+    int64_t get_stat_start_time()
+    {
+        return m_stat_start_time;
+    }
 
     // Ask the owning worker to tear this role down on its next state check.
     // Safe to call from another thread (the listener uses it for publisher
@@ -125,7 +136,27 @@ public:
     void set_map_data(const char *map_key, CSLSMapData *map_data);
 
     void set_idle_streams_timeout(int timeout);
+    // Probation deadline (ms) for a receiving role that has not yet delivered
+    // any media. 0 disables it. Set by the listener only on accept-path
+    // publishers; players/pullers never receive on the ingest socket, so they
+    // are left at 0.
+    void set_first_data_timeout(int timeout_ms);
     bool check_idle_streams_duration(int64_t cur_time_ms = 0);
+
+    // True if this role has read media within `within_ms` of `now_ms`. The
+    // listener calls this cross-thread at takeover to tell a live incumbent
+    // publisher (keep it) from a flapped/zombie one (evict it). Reads an
+    // atomic; never blocks and never touches the socket.
+    bool has_recent_recv_data(int64_t now_ms, int64_t within_ms) const;
+
+    // Whether an actively-delivering incumbent of this role type should be
+    // shielded from publisher takeover. Only a real external broadcaster
+    // (CSLSPublisher) is: a puller/relay incumbent must stay evictable so a
+    // local publisher can take over a pulled stream (origin/edge promotion).
+    virtual bool is_takeover_protected() const
+    {
+        return false;
+    }
 
     char *get_streamid();
     // Override the cached streamid so that webhook / stats reporting can see
@@ -152,12 +183,21 @@ public:
     // Push destinations harvested from the publish-auth webhook response.
     // Populated by check_http_passed; consumed by the listener handler to
     // spin up a dynamic CSLSPusherManager per publisher.
-    const std::vector<std::string> &get_push_urls() const { return m_push_urls; }
+    const std::vector<std::string> &get_push_urls() const
+    {
+        return m_push_urls;
+    }
     int get_statistics(SRT_TRACEBSTATS *currentStats, int clear);
     int get_bitrate();
     int get_uptime();
-    int get_latency() { return m_latency; }
-    void set_latency(int latency) { m_latency = latency; }
+    int get_latency()
+    {
+        return m_latency;
+    }
+    void set_latency(int latency)
+    {
+        m_latency = latency;
+    }
     bool get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear = 0) const;
     // Cumulative overrun count for this publisher's ring buffer. Each
     // overrun means a subscriber fell so far behind the writer that the
@@ -187,39 +227,94 @@ public:
 
 protected:
     CSLSSrt *m_srt;
-    bool m_is_write;                //listener: 0, publisher: 0, player: 1
-    int64_t      m_stat_start_time;
+    bool m_is_write; // listener: 0, publisher: 0, player: 1
+    int64_t m_stat_start_time;
     int64_t m_invalid_begin_tm;     //
     int64_t m_stat_bitrate_last_tm; //
-    int m_stat_bitrate_interval;    //ms
-    int m_stat_bitrate_datacount;
-    int m_kbitrate;             //kb
-    int m_idle_streams_timeout; //unit: s, -1: unlimited
-    int m_latency;              //ms
+    int m_stat_bitrate_interval;    // ms
+    int64_t m_stat_bitrate_datacount;
+    int m_kbitrate;             // kb
+    int m_idle_streams_timeout; // unit: s, -1: unlimited
+    // Probation window (ms) before a publisher that has never delivered media
+    // is reaped. 0 = disabled. Only set on accept-path publishers.
+    int m_first_data_timeout_ms{0};
+    // Wall clock (sls_gettime_ms) of the most recent successful media read, or
+    // 0 if this role has never received data. Written on the owning worker in
+    // handler_read_data; read cross-thread by the listener at takeover, hence
+    // atomic. Relaxed ordering is sufficient: we only need a recent-enough
+    // snapshot to tell a delivering publisher from a silent one, not a
+    // happens-before against any other state.
+    std::atomic<int64_t> m_last_recv_data_tm{0};
+    int m_latency; // ms
 
     int m_state;
     // Cross-thread teardown request set by request_kick(). Observed by
     // get_state() on the owning worker. Atomic so the listener thread can
     // signal a takeover without locking the socket hot path.
     std::atomic<bool> m_kick_requested{false};
-    int m_back_log; //maximum number of connections at the same time
+
+#ifndef NDEBUG
+    // Single-owner teardown tripwire (Todo 19 — verify, don't blanket-lock).
+    // Roles are owned by a std::shared_ptr<CSLSRole> (see CSLSRoleList) and their
+    // SRT socket is torn down by exactly one thread at a time: the owning worker
+    // serialises handler()/get_state()/invalid_srt() in its single-threaded loop;
+    // a cross-thread kick only flips m_kick_requested (release/acquire) and the
+    // owner performs the actual invalid_srt() in get_state(); and at shutdown the
+    // worker threads are joined before the main thread drains the rest, so
+    // ownership transfers but the teardown never overlaps. This atomic records
+    // which thread (if any) is currently inside invalid_srt()'s delete path for
+    // this role; a second thread entering concurrently fails the assert there —
+    // the exact double-free of m_srt a broken single-owner model would cause.
+    // The complementary read/write-vs-delete race is covered by the task-19 TSan
+    // storm. Wholly compiled out in release (NDEBUG) — zero production footprint.
+    std::atomic<std::thread::id> m_invalidating_tid{std::thread::id{}};
+#endif
+    int m_back_log; // maximum number of connections at the same time
     int m_port;
     char m_peer_ip[IP_MAX_LEN];
     int m_peer_port;
     char m_role_name[STR_MAX_LEN];
     char m_streamid[URL_MAX_LEN];
     char m_http_url[URL_MAX_LEN];
-    bool m_http_passed;
+    // Auth gate written by set_http_url() (false) on the listener-owning
+    // worker and by check_http_passed() (true) / read by on_close() on the
+    // role-owning worker — a different OS thread in multi-worker mode. Atomic
+    // (release/acquire) makes the transition well-defined without a lock on
+    // the handler_read/write_data hot path.
+    std::atomic<bool> m_http_passed{true};
 
     sls_conf_base_t *m_conf;
     CSLSMapData *m_map_data;
     char m_map_data_key[URL_MAX_LEN];
     SLSRecycleArrayID m_map_data_id;
+    // Set once when this role's publisher ring is allocated in m_map_data.
+    // Publishers allocate lazily on the first authorized data packet (see
+    // handler_read_data) rather than at accept, so an unauthenticated or
+    // never-sending connection cannot pin a multi-megabyte ring (pre-auth
+    // OOM). Relays add their ring eagerly at connect; for them the lazy add
+    // is an idempotent no-op that simply flips this flag.
+    //
+    // Flipped in handler_read_data() and read in on_map_data_set(), both on
+    // the role-owning worker; also read on the listener-owning worker via the
+    // accept-time on_map_data_set(). Atomic (release/acquire) keeps the lazy
+    // flag well-defined across that worker boundary without a lock; the
+    // lazy-allocation behaviour is unchanged.
+    std::atomic<bool> m_ring_added{false};
 
     char m_data[DATA_BUFF_SIZE];
+    // Worker-confined egress cursor: written and read only by the owning
+    // worker (handler_write_data / update_egress_arming), never by the
+    // stats/HTTP thread. Plain int — no cross-thread access to race, and
+    // keeping it off the atomic path avoids cost on the write hot loop.
     int m_data_len;
     int m_data_pos;
-    bool m_need_reconnect;
+    // Relay reconnect flag. Set once at construction on the building thread
+    // (listener/manager or a worker), read on the owning worker via
+    // is_reconnect() in CSLSGroup::check_invalid_sock — writer and reader are
+    // distinct threads. Atomic (relaxed; advisory, set before publication) to
+    // keep that cross-thread access explicit and TSan-clean, matching the
+    // file's other relay flags (m_kick_requested, m_relay_manager).
+    std::atomic<bool> m_need_reconnect{false};
 
     // Incremented every time srt_sendmsg returns EASYNCSND on this
     // role's egress write. Read concurrently by the stats HTTP server,
@@ -279,6 +374,9 @@ protected:
 
     // Push destinations from publish-auth webhook (publisher roles only).
     std::vector<std::string> m_push_urls;
+    // Vetted destination address per m_push_urls entry, index-aligned. The
+    // pusher dials this checked IP rather than re-resolving (DNS-rebinding SSRF).
+    std::vector<sockaddr_storage> m_push_vetted_addrs;
 
     // Shared negative-auth cache (publisher roles only; null otherwise).
     std::shared_ptr<AuthRejectCache> m_auth_reject_cache;

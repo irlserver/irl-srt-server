@@ -40,6 +40,10 @@ public:
     // is exposed for an explicit periodic call if one is ever wired in.
     void cleanup();
 
+    // Current number of cached entries (including any not-yet-swept expired
+    // ones). Used by tests to assert the entry cap holds under a flood.
+    size_t size() const;
+
 private:
     mutable std::mutex m_mtx;
     std::unordered_map<std::string, time_t> m_blocked; // streamid -> expiry (epoch seconds)

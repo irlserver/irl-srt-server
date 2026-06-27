@@ -137,7 +137,10 @@ int sls_gethostbyname(const char *hostname, char *ip)
     char *ptr;
     // char **pptr;
     struct hostent *hptr;
-    char str[32];
+    // Must hold an IPv6 literal (up to 45 chars + NUL): a 32-byte buffer made
+    // inet_ntop fail (NULL) for long IPv6 addresses, which then crashed the
+    // strcpy below. ip must be >= INET6_ADDRSTRLEN; all callers pass IP_MAX_LEN.
+    char str[INET6_ADDRSTRLEN];
     ptr = (char *)hostname;
     int ret = SLS_ERROR;
 
@@ -157,21 +160,50 @@ int sls_gethostbyname(const char *hostname, char *ip)
     {
     case AF_INET:
     case AF_INET6:
-        // pptr=hptr->h_addr_list;
-        // for(; *pptr!=NULL; pptr++)
-        //     printf(" address:%s\n",
-        //            inet_ntop(hptr->h_addrtype, *pptr, str, sizeof(str)));
-
-        // copy the 1st ip
-        strcpy(ip, inet_ntop(hptr->h_addrtype, hptr->h_addr, str, sizeof(str)));
+    {
+        // copy the 1st ip. inet_ntop returns NULL on failure (e.g. buffer too
+        // small) — copying that with strcpy crashed, so guard it and bound the
+        // copy to the destination contract (>= INET6_ADDRSTRLEN).
+        const char *res = inet_ntop(hptr->h_addrtype, hptr->h_addr, str, sizeof(str));
+        if (res == NULL)
+        {
+            spdlog::warn("sls_gethostbyname: inet_ntop failed for host: {0}", ptr);
+            break;
+        }
+        strlcpy(ip, res, INET6_ADDRSTRLEN);
         ret = SLS_OK;
         break;
+    }
     default:
         spdlog::warn("sls_gethostbyname: unknown address type");
         break;
     }
 
     return ret;
+}
+
+int sls_derive_rcv_buf_mb()
+{
+    const sls_conf_srt_t *root = (const sls_conf_srt_t *)sls_conf_get_root_conf();
+    // Explicit override always wins.
+    if (root && root->rcv_buf_mb > 0)
+        return root->rcv_buf_mb;
+
+    int max_kbps = (root && root->rcv_sizing_max_bitrate_kbps > 0) ? root->rcv_sizing_max_bitrate_kbps : 20000;
+    int max_lat_ms = (root && root->rcv_sizing_max_latency_ms > 0) ? root->rcv_sizing_max_latency_ms : 8000;
+
+    // required bytes = (kbps * 1000 / 8) bytes/s * (ms / 1000) s * 2.5 headroom
+    //               = kbps * 125 * ms * 25 / 10000   (integer, no precision loss)
+    // The 2.5x headroom covers the SRT retransmission window on top of the raw
+    // latency buffer. Mirrors how the application ring is sized from bitrate x
+    // latency, applied here to the SRT transport buffer.
+    int64_t bytes = (int64_t)max_kbps * 125 * max_lat_ms * 25 / 10000;
+    int mb = (int)((bytes + (1 << 20) - 1) >> 20); // ceil to whole MB
+    if (mb < 8)
+        mb = 8; // floor: keep low-latency streams from under-buffering
+    if (mb > 100)
+        mb = 100; // ceiling: bound pre-auth memory (global cap + rate limit bound the rest)
+    return mb;
 }
 
 int sls_mkdir_p(const char *path)
@@ -188,13 +220,11 @@ int sls_mkdir_p(const char *path)
     // explicitly. create_directories honours the process umask, which is
     // typically 022 (yielding 0755), but downstream HLS recording flows may
     // run under a tighter umask; pin the mode here so behaviour is stable.
-    std::filesystem::permissions(
-        path,
-        std::filesystem::perms::owner_all |
-            std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
-            std::filesystem::perms::others_read | std::filesystem::perms::others_exec,
-        std::filesystem::perm_options::replace,
-        ec);
+    std::filesystem::permissions(path,
+                                 std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+                                     std::filesystem::perms::group_exec | std::filesystem::perms::others_read |
+                                     std::filesystem::perms::others_exec,
+                                 std::filesystem::perm_options::replace, ec);
     if (ec)
         return -1;
 
@@ -240,8 +270,7 @@ bool sls_is_safe_name(const char *s)
         // and could appear in opaque identifiers the operator already
         // accepts; the injection vector is the query/fragment, not the
         // authority.
-        if (*p == '?' || *p == '#' || *p == '&' || *p == '=' ||
-            *p == '%' || *p == ' ')
+        if (*p == '#' || *p == '&' || *p == '%' || *p == ' ')
             return false;
         if (*p < 0x20 || *p == 0x7f)
             return false;
@@ -260,7 +289,7 @@ int sls_read_pid()
     }
 
     int fd = open(pid_file_name, O_RDONLY);
-    if (0 == fd)
+    if (fd < 0)
     {
         spdlog::error("open file='{0}' failed.", pid_file_name);
         return 0;
@@ -363,8 +392,12 @@ int sls_write_pid(int pid)
         return SLS_ERROR;
     }
 
-    int fd = open(pid_file_name, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
-    if (0 == fd)
+    // O_EXCL closes the check-then-open race against the is_regular_file probe
+    // above and refuses to follow a symlink pre-planted at this path (the PID
+    // dir lives in shared /tmp). Mode 0644 drops the group-write bit so a peer
+    // process cannot rewrite our PID. fd 0 is a valid descriptor, so test fd<0.
+    int fd = open(pid_file_name, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    if (fd < 0)
     {
         spdlog::error("open file='{0}' failed, '{1}'.", pid_file_name, strerror(errno));
         return SLS_ERROR;
@@ -460,8 +493,8 @@ int sls_drop_privileges(const char *user, const char *group)
 
     if (geteuid() != 0)
     {
-        spdlog::warn("sls_drop_privileges: not running as root, ignoring user='{}' group='{}'.",
-                     user ? user : "", group ? group : "");
+        spdlog::warn("sls_drop_privileges: not running as root, ignoring user='{}' group='{}'.", user ? user : "",
+                     group ? group : "");
         return SLS_OK;
     }
 
@@ -489,22 +522,20 @@ int sls_drop_privileges(const char *user, const char *group)
 
     if (initgroups(user, target_gid) != 0)
     {
-        spdlog::critical("sls_drop_privileges: initgroups('{}', {}) failed: {}.",
-                         user, (int)target_gid, strerror(errno));
+        spdlog::critical("sls_drop_privileges: initgroups('{}', {}) failed: {}.", user, (int)target_gid,
+                         strerror(errno));
         return SLS_ERROR;
     }
 
     if (setgid(target_gid) != 0)
     {
-        spdlog::critical("sls_drop_privileges: setgid({}) failed: {}.",
-                         (int)target_gid, strerror(errno));
+        spdlog::critical("sls_drop_privileges: setgid({}) failed: {}.", (int)target_gid, strerror(errno));
         return SLS_ERROR;
     }
 
     if (setuid(target_uid) != 0)
     {
-        spdlog::critical("sls_drop_privileges: setuid({}) failed: {}.",
-                         (int)target_uid, strerror(errno));
+        spdlog::critical("sls_drop_privileges: setuid({}) failed: {}.", (int)target_uid, strerror(errno));
         return SLS_ERROR;
     }
 
@@ -515,8 +546,8 @@ int sls_drop_privileges(const char *user, const char *group)
         return SLS_ERROR;
     }
 
-    spdlog::info("sls_drop_privileges: dropped to uid={} gid={} (user='{}', group='{}').",
-                 (int)target_uid, (int)target_gid, user, want_group ? group : "(from passwd)");
+    spdlog::info("sls_drop_privileges: dropped to uid={} gid={} (user='{}', group='{}').", (int)target_uid,
+                 (int)target_gid, user, want_group ? group : "(from passwd)");
     return SLS_OK;
 }
 
@@ -598,8 +629,11 @@ enum
     H264_NAL_AUD = 9,
 };
 
-static int64_t ff_parse_pes_pts(const uint8_t *buf)
+static int64_t ff_parse_pes_pts(const uint8_t *buf, int len)
 {
+    // Length-driven: the 5-byte PTS/DTS field must fit in the buffer.
+    if (len < 5)
+        return INVALID_DTS_PTS;
 
     int64_t pts = 0;
     int64_t tmp = (int64_t)((buf[0] & 0x0e) << 29);
@@ -618,13 +652,13 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
     uint8_t *p = NULL;
     uint8_t *p_end = NULL;
     uint8_t nal_type = 0;
-    while (pos < es_len - 4)
+    // pos + 4 < es_len keeps es[pos+3]/es[pos+4] in bounds without the signed
+    // underflow the (pos < es_len - 4) form has when es_len is small.
+    while (pos + 4 < es_len)
     {
         // avc nal
         // bool b_nal = false;
-        if (0x0 == es[pos] &&
-            0x0 == es[pos + 1] &&
-            0x0 == es[pos + 2] &&
+        if (0x0 == es[pos] && 0x0 == es[pos + 1] && 0x0 == es[pos + 2] &&
             (0x1 == es[pos + 3] || (0x0 == es[pos + 3] && 0x1 == es[pos + 4])))
         {
             if (p != NULL)
@@ -635,8 +669,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
                     int n = (int)(p_end - p);
                     if (n < 0 || n > (int)sizeof(ti->sps))
                     {
-                        spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.",
-                                     n, (int)sizeof(ti->sps));
+                        spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.", n, (int)sizeof(ti->sps));
                     }
                     else
                     {
@@ -649,8 +682,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
                     int n = (int)(p_end - p);
                     if (n < 0 || n > (int)sizeof(ti->pps))
                     {
-                        spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.",
-                                     n, (int)sizeof(ti->pps));
+                        spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.", n, (int)sizeof(ti->pps));
                     }
                     else
                     {
@@ -671,6 +703,8 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
                 }
             }
             int nal_pos = pos + (es[pos + 3] ? 4 : 5);
+            if (nal_pos >= es_len)
+                break;
             nal_type = es[nal_pos] & 0x1f;
             if (H264_NAL_SPS == nal_type || H264_NAL_PPS == nal_type)
             {
@@ -694,8 +728,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
             int n = (int)(p_end - p);
             if (n < 0 || n > (int)sizeof(ti->sps))
             {
-                spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.",
-                             n, (int)sizeof(ti->sps));
+                spdlog::warn("parse_spspps: SPS len {} exceeds buffer {}, dropping.", n, (int)sizeof(ti->sps));
             }
             else
             {
@@ -708,8 +741,7 @@ static int sls_parse_spspps(const uint8_t *es, int es_len, ts_info *ti)
             int n = (int)(p_end - p);
             if (n < 0 || n > (int)sizeof(ti->pps))
             {
-                spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.",
-                             n, (int)sizeof(ti->pps));
+                spdlog::warn("parse_spspps: PPS len {} exceeds buffer {}, dropping.", n, (int)sizeof(ti->pps));
             }
             else
             {
@@ -739,17 +771,17 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
     uint8_t *pes = (uint8_t *)pes_frame;
     uint8_t *pes_end = (uint8_t *)pes_frame + pes_len;
 
-    if (pes[0] != 0x00 ||
-        pes[1] != 0x00 ||
-        pes[2] != 0x01)
+    // Length-driven: each advance below is guarded against pes_end so a
+    // truncated PES payload can never drive a read past the packet buffer.
+    if (pes_len < 3 || pes[0] != 0x00 || pes[1] != 0x00 || pes[2] != 0x01)
     {
-        // printf("pes2es: pid=%d, wrong pes header, pes=0x%x-0x%x-0x%x.\n",
-        //         ti->es_pid, pes[0], pes[1], pes[2]);
         return SLS_ERROR;
     }
     pes += 3;
 
     /* it must be an MPEG-2 PES stream */
+    if (pes >= pes_end)
+        return SLS_ERROR;
     int stream_id = (pes[0] & 0xFF);
     if (stream_id != 0xE0 && stream_id != 0xC0)
     {
@@ -758,12 +790,18 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
     }
     pes++;
 
+    if (pes + 2 > pes_end)
+        return SLS_ERROR;
     int total_size = ((int)(pes[0] << 8)) | pes[1];
     pes += 2;
     /* NOTE: a zero total size means the PES size is
      * unbounded */
     if (0 == total_size)
         total_size = MAX_PES_PAYLOAD;
+
+    // two PES header flag bytes + PES_header_data_length
+    if (pes + 3 > pes_end)
+        return SLS_ERROR;
     int flags = 0;
     /*
     '10'                        :2,
@@ -794,23 +832,27 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
     ti->pts = INVALID_DTS_PTS;
     if ((flags & 0xc0) == 0x80)
     {
-        ti->dts = ti->pts = ff_parse_pes_pts(pes);
+        if (pes + 5 > pes_end)
+            return SLS_ERROR;
+        ti->dts = ti->pts = ff_parse_pes_pts(pes, (int)(pes_end - pes));
         pes += 5;
     }
     else if ((flags & 0xc0) == 0xc0)
     {
-        ti->pts = ff_parse_pes_pts(pes);
+        if (pes + 10 > pes_end)
+            return SLS_ERROR;
+        ti->pts = ff_parse_pes_pts(pes, (int)(pes_end - pes));
         pes += 5;
-        ti->dts = ff_parse_pes_pts(pes);
+        ti->dts = ff_parse_pes_pts(pes, (int)(pes_end - pes));
         pes += 5;
     }
 
     int ret = SLS_OK;
     // parse sps and pps
-    if (ti->need_spspps)
+    if (ti->need_spspps && pes < pes_end)
     {
-        ret = sls_parse_spspps(pes, pes_end - pes, ti);
-        if (ti->sps_len > 0 && ti->pps_len > 0 && ti->pat_len > 0 && ti->pat_len > 0)
+        ret = sls_parse_spspps(pes, (int)(pes_end - pes), ti);
+        if (ti->sps_len > 0 && ti->pps_len > 0 && ti->pat_len > 0 && ti->pmt_len > 0)
         {
             uint8_t *p = ti->ts_data;
             int pos = 0;
@@ -878,6 +920,11 @@ static int sls_pes2es(const uint8_t *pes_frame, int pes_len, ts_info *ti, int pi
 
 static int sls_parse_pat(const uint8_t *pat_data, int len, ts_info *ti)
 {
+    // Need the 8-byte section header; this also guarantees the buffer[len-4..]
+    // CRC read below stays in bounds (len >= 8 > 4).
+    if (len < 8)
+        return SLS_ERROR;
+
     uint8_t *buffer = (uint8_t *)pat_data;
     int table_id = buffer[0];
     int section_syntax_indicator = buffer[1] >> 7;
@@ -891,10 +938,17 @@ static int sls_parse_pat(const uint8_t *pat_data, int len, ts_info *ti)
     int section_number = buffer[6];
     int last_section_number = buffer[7];
 
-    int CRC_32 = (buffer[len - 4] & 0x000000FF) << 24 | (buffer[len - 3] & 0x000000FF) << 16 | (buffer[len - 2] & 0x000000FF) << 8 | (buffer[len - 1] & 0x000000FF);
+    int CRC_32 = (buffer[len - 4] & 0x000000FF) << 24 | (buffer[len - 3] & 0x000000FF) << 16 |
+                 (buffer[len - 2] & 0x000000FF) << 8 | (buffer[len - 1] & 0x000000FF);
 
+    // Each program entry is the 4 bytes buffer[8+n .. 11+n]. Clamp the loop to
+    // the smaller of the declared section length and the actual buffer so a
+    // crafted section_length (e.g. 0xFFF) can never read past len.
+    int prog_end = section_length - 12;
+    if (prog_end > len - 11)
+        prog_end = len - 11; // last read buffer[11+n] needs 11+n <= len-1
     int n = 0;
-    for (n = 0; n < section_length - 12; n += 4)
+    for (n = 0; n < prog_end; n += 4)
     {
         unsigned program_num = buffer[8 + n] << 8 | buffer[9 + n];
         int reserved_3 = buffer[10 + n] >> 5;
@@ -941,8 +995,7 @@ int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
         // 0x11 = AAC (LATM/LOAS)
         // 0x81 = AC-3 (Dolby Digital) - common in ATSC
         // 0x06 = Private data (may contain Opus, AC-3, or other codecs via descriptors)
-        if (stream_type == 0x0F || stream_type == 0x11 ||
-            stream_type == 0x03 || stream_type == 0x04 ||
+        if (stream_type == 0x0F || stream_type == 0x11 || stream_type == 0x03 || stream_type == 0x04 ||
             stream_type == 0x81)
         {
             is_audio = true;
@@ -960,8 +1013,8 @@ int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
                 // 0x7F = Extension descriptor (check for Opus sub-descriptor 0x80)
                 if (desc_tag == 0x05 && desc_len >= 4 && desc_pos + 6 <= len)
                 {
-                    if (buffer[desc_pos + 2] == 'O' && buffer[desc_pos + 3] == 'p' &&
-                        buffer[desc_pos + 4] == 'u' && buffer[desc_pos + 5] == 's')
+                    if (buffer[desc_pos + 2] == 'O' && buffer[desc_pos + 3] == 'p' && buffer[desc_pos + 4] == 'u' &&
+                        buffer[desc_pos + 5] == 's')
                     {
                         is_audio = true;
                     }
@@ -995,8 +1048,12 @@ int sls_parse_pmt_for_audio(const uint8_t *pmt_data, int len, ts_info *ti)
     return SLS_ERROR;
 }
 
-int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
+int sls_parse_ts_info(const uint8_t *packet, int len, ts_info *ti)
 {
+    // Every read below indexes within a single 188-byte TS packet, so require a
+    // full packet up front; partial tails are rejected rather than parsed OOB.
+    if (NULL == packet || len < TS_PACK_LEN)
+        return SLS_ERROR;
 
     if (packet[0] != TS_SYNC_BYTE)
     {
@@ -1031,7 +1088,7 @@ int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
                 int afc_pmt = (packet[3] >> 4) & 3;
                 if (afc_pmt & 2)
                     pmt_payload_offset += 1 + (packet[4] & 0xFF);
-                if (packet[1] & 0x40) // payload unit start
+                if (packet[1] & 0x40)     // payload unit start
                     pmt_payload_offset++; // skip pointer field
                 if (pmt_payload_offset < TS_PACK_LEN)
                     sls_parse_pmt_for_audio(packet + pmt_payload_offset, TS_PACK_LEN - pmt_payload_offset, ti);
@@ -1054,9 +1111,8 @@ int sls_parse_ts_info(const uint8_t *packet, ts_info *ti)
         return SLS_ERROR;
     int has_adaptation = afc & 2;
     int has_payload = afc & 1;
-    bool is_discontinuity = (has_adaptation == 1) &&
-                            (packet[4] != 0) &&        /* with length > 0 */
-                            ((packet[5] & 0x80) != 0); /* and discontinuity indicated */
+    bool is_discontinuity = (has_adaptation == 1) && (packet[4] != 0) && /* with length > 0 */
+                            ((packet[5] & 0x80) != 0);                   /* and discontinuity indicated */
 
     if ((packet[1] & 0x80) != 0)
     {
@@ -1112,7 +1168,7 @@ void sls_init_audio_track(audio_track_info *at)
         at->cc = 0;
         at->expected_cc = 0;
         at->cc_initialized = false;
-        at->in_gap = true;  // drop orphaned continuations until first PES start
+        at->in_gap = true; // drop orphaned continuations until first PES start
         at->sample_rate = 0;
         at->channels = 0;
         at->sample_rate_index = 0;

@@ -29,11 +29,11 @@
 
 /**
  * Session ID tracker for logging
- * 
+ *
  * Generates unique, short session IDs for connection tracking.
  * Format: {timestamp_ms}-{counter}
  * Example: "1734437445123-a3f2" or just "a3f2" (short form)
- * 
+ *
  * Session IDs allow correlating log messages across a connection's lifecycle.
  */
 class CSLSSessionTracker

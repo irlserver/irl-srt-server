@@ -24,6 +24,9 @@
 
 #pragma once
 
+#include <atomic>
+#include <sys/socket.h>
+
 #include "SLSRole.hpp"
 #include "SLSMapPublisher.hpp"
 
@@ -31,37 +34,38 @@
  * SRT URL options parsed from query parameters
  * All values of -1 indicate "use default" (not specified in URL)
  */
-struct SRTUrlOptions {
+struct SRTUrlOptions
+{
     // Stream identification (required)
     char streamid[URL_MAX_LEN] = {0};
 
     // Timing options
-    int latency = -1;           // SRTO_LATENCY: latency in ms (0-10000, default 120)
-    int connect_timeout = -1;   // SRTO_CONNTIMEO: connect timeout in ms (0-30000)
+    int latency = -1;         // SRTO_LATENCY: latency in ms (0-10000, default 120)
+    int connect_timeout = -1; // SRTO_CONNTIMEO: connect timeout in ms (0-30000)
 
     // Encryption options
-    char passphrase[80] = {0};  // SRTO_PASSPHRASE: max 79 chars + null
-    int pbkeylen = -1;          // SRTO_PBKEYLEN: 0 (disabled), 16, 24, or 32
+    char passphrase[80] = {0}; // SRTO_PASSPHRASE: max 79 chars + null
+    int pbkeylen = -1;         // SRTO_PBKEYLEN: 0 (disabled), 16, 24, or 32
 
     // Bandwidth options
-    int64_t maxbw = -1;         // SRTO_MAXBW: max bandwidth bytes/sec (0=infinite, -1=auto)
-    int64_t inputbw = -1;       // SRTO_INPUTBW: input bandwidth estimate bytes/sec
-    int oheadbw = -1;           // SRTO_OHEADBW: overhead bandwidth % (5-100)
+    int64_t maxbw = -1;   // SRTO_MAXBW: max bandwidth bytes/sec (0=infinite, -1=auto)
+    int64_t inputbw = -1; // SRTO_INPUTBW: input bandwidth estimate bytes/sec
+    int oheadbw = -1;     // SRTO_OHEADBW: overhead bandwidth % (5-100)
 
     // Buffer options
-    int rcvbuf = -1;            // SRTO_RCVBUF: receive buffer size bytes
-    int sndbuf = -1;            // SRTO_SNDBUF: send buffer size bytes
-    int fc = -1;                // SRTO_FC: flight flag size (flow control window)
+    int rcvbuf = -1; // SRTO_RCVBUF: receive buffer size bytes
+    int sndbuf = -1; // SRTO_SNDBUF: send buffer size bytes
+    int fc = -1;     // SRTO_FC: flight flag size (flow control window)
 
     // Network options
-    int mss = -1;               // SRTO_MSS: max segment size (76-1500)
-    int lossmaxttl = -1;        // SRTO_LOSSMAXTTL: packet reorder tolerance (0-1000)
-    int ipttl = -1;             // SRTO_IPTTL: IP time-to-live (1-255)
-    int iptos = -1;             // SRTO_IPTOS: IP type of service (0-255)
+    int mss = -1;        // SRTO_MSS: max segment size (76-1500)
+    int lossmaxttl = -1; // SRTO_LOSSMAXTTL: packet reorder tolerance (0-1000)
+    int ipttl = -1;      // SRTO_IPTTL: IP time-to-live (1-255)
+    int iptos = -1;      // SRTO_IPTOS: IP type of service (0-255)
 
     // Reliability options
-    int tlpktdrop = -1;         // SRTO_TLPKTDROP: too-late packet drop (0 or 1)
-    int nakreport = -1;         // SRTO_NAKREPORT: periodic NAK reports (0 or 1)
+    int tlpktdrop = -1; // SRTO_TLPKTDROP: too-late packet drop (0 or 1)
+    int nakreport = -1; // SRTO_NAKREPORT: periodic NAK reports (0 or 1)
 };
 
 /**
@@ -81,17 +85,17 @@ SLS_CONF_DYNAMIC_DECLARE_END
  */
 
 SLS_CONF_CMD_DYNAMIC_DECLARE_BEGIN(relay)
-SLS_SET_CONF(relay, string, type, "pull, push", 1, 31),
-    SLS_SET_CONF(relay, string, mode, "relay mode.", 1, 31),
-    SLS_SET_CONF(relay, string, upstreams, "upstreams", 1, 1023),
+SLS_SET_CONF(relay, string, type, "pull, push", 1, 31), SLS_SET_CONF(relay, string, mode, "relay mode.", 1, 31),
+    SLS_SET_CONF(relay, upstreams, upstreams, "upstreams", 1, 1023),
     SLS_SET_CONF(relay, int, reconnect_interval, "reconnect interval, unit s", 1, 3600),
     SLS_SET_CONF(relay, int, idle_streams_timeout, "idle streams timeout, unit s", -1, 3600),
 
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
-    enum SLS_PULL_MODE { SLS_PM_LOOP = 0,
-                         SLS_PM_HASH = 1,
-                         SLS_PM_ALL = 2,
+    enum SLS_PULL_MODE {
+        SLS_PM_LOOP = 0,
+        SLS_PM_HASH = 1,
+        SLS_PM_ALL = 2,
     };
 
 /**
@@ -101,18 +105,26 @@ class CSLSRelay : public CSLSRole
 {
 public:
     CSLSRelay();
-    virtual ~CSLSRelay();
+    virtual ~CSLSRelay() override;
 
-    virtual int uninit();
+    virtual int uninit() override;
 
     void set_map_publisher(CSLSMapPublisher *publisher);
     void set_relay_manager(void *relay_manager);
     void *get_relay_manager();
     char *get_url();
 
+    // Pin the destination address that validate_push_url already vetted so
+    // open() dials it directly instead of resolving the host a second time
+    // (DNS-rebinding SSRF TOCTOU). Ignored for AF_UNSPEC; pullers never call it
+    // and keep the legacy sls_gethostbyname path.
+    void set_vetted_addr(const sockaddr_storage &addr);
+
     int open(const char *url);
+    // close()/get_stat_base() are NEW virtuals introduced here (base CSLSRole::close
+    // is non-virtual and has no get_stat_base), so they carry no `override`.
     virtual int close();
-    virtual int get_peer_info(char *peer_name, int &peer_port);
+    virtual int get_peer_info(char *peer_name, int &peer_port) override;
     virtual int get_stat_base(char *stat_base);
 
 protected:
@@ -121,8 +133,18 @@ protected:
     char m_server_ip[IP_MAX_LEN];
     int m_server_port;
 
+    bool m_has_vetted_addr;
+    sockaddr_storage m_vetted_addr;
+
     CSLSMapPublisher *m_map_publisher;
-    void *m_relay_manager;
+    // Back-pointer to the CSLSRelayManager that spawned this relay. Atomic
+    // because a publisher tearing down its dynamic CSLSPusherManager detaches
+    // its child pushers (set_relay_manager(NULL)) from a DIFFERENT thread than
+    // the worker that owns the pusher socket and reads this pointer in
+    // uninit()/check_invalid_sock. A plain pointer would be a data race; the
+    // atomic publishes the NULL store before the relay's owning worker tears
+    // it down, so the reconnect path never derefs a freed manager (UAF).
+    std::atomic<void *> m_relay_manager;
 
     int parse_url(char *url, char *host_name, size_t host_name_size, int &port, SRTUrlOptions &options);
 };

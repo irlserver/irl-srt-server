@@ -68,8 +68,8 @@ int CTCPRole::write(const char *buf, int size)
     len = send(m_fd, buf, size, MSG_NOSIGNAL);
     if (len <= 0)
     {
-        spdlog::error("[{}] CTCPRole::write, len={:d}, errno={:d}, err='{}'",
-                      fmt::ptr(this), len, errno, strerror(errno));
+        spdlog::error("[{}] CTCPRole::write, len={:d}, errno={:d}, err='{}'", fmt::ptr(this), len, errno,
+                      strerror(errno));
     }
     return len;
 }
@@ -80,8 +80,8 @@ int CTCPRole::read(char *buf, int size)
     len = recv(m_fd, buf, size, 0);
     if (len <= 0)
     {
-        spdlog::trace("[{}] CTCPRole::read, len={:d}, errno={:d}, err='{}'.",
-                      fmt::ptr(this), len, errno, strerror(errno));
+        spdlog::trace("[{}] CTCPRole::read, len={:d}, errno={:d}, err='{}'.", fmt::ptr(this), len, errno,
+                      strerror(errno));
         if (errno != EAGAIN)
         {
             // TODO
@@ -112,7 +112,8 @@ int CTCPRole::connect(char *host, int port)
 {
     if (m_fd <= 0)
     {
-        spdlog::error("[{}] CTCPRole::connect, m_fd={:d}, cant't setup, host='{}', port={:d}.", fmt::ptr(this), m_fd, host, port);
+        spdlog::error("[{}] CTCPRole::connect, m_fd={:d}, cant't setup, host='{}', port={:d}.", fmt::ptr(this), m_fd,
+                      host, port);
         return SLS_ERROR;
     }
     int ret = SLS_ERROR;
@@ -137,7 +138,8 @@ int CTCPRole::connect(char *host, int port)
     {
         if (errno != EINPROGRESS)
         {
-            spdlog::error("[{}] CTCPRole::connect, failure, m_fd={:d}, host={}, port={:d}, errno={:d}.", fmt::ptr(this), m_fd, host, port, errno);
+            spdlog::error("[{}] CTCPRole::connect, failure, m_fd={:d}, host={}, port={:d}, errno={:d}.", fmt::ptr(this),
+                          m_fd, host, port, errno);
             ::close(m_fd);
             m_fd = 0;
             return SLS_ERROR;
@@ -183,9 +185,7 @@ int CTCPRole::setup()
     spdlog::info("[{}] CTCPRole::setup, create sock ok, m_fd={:d}.", fmt::ptr(this), m_fd);
 
     int yes = 1;
-    int ret = setsockopt(m_fd,
-                         SOL_SOCKET, SO_REUSEADDR,
-                         (void *)&yes, sizeof(yes));
+    int ret = setsockopt(m_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&yes, sizeof(yes));
     if (ret != 0)
     {
         spdlog::error("[{}] CTCPRole::setup, setsockopt reused failure, m_fd={:d}.", fmt::ptr(this), m_fd);

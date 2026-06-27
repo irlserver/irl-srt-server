@@ -25,6 +25,8 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <errno.h>
+#include <sys/resource.h>
 #include <httplib.h>
 #include "spdlog/spdlog.h"
 
@@ -103,12 +105,15 @@ static sls_conf_cmd_t conf_cmd_opt[] = {
     //  SLS_SET_OPT(int, x, xxx,          "", 1, 100),//example
 };
 
-void httpWorker(int bindPort)
+// bindAddr is taken by value: this worker thread is detached, so it must own a
+// copy rather than reference the launcher's local string.
+void httpWorker(std::string bindAddr, int bindPort)
 {
-    svr.listen("::", bindPort);
+    svr.listen(bindAddr.c_str(), bindPort);
 }
 
-bool file_exists(const char *path) {
+bool file_exists(const char *path)
+{
     return access(path, R_OK) == 0;
 }
 
@@ -130,6 +135,7 @@ int main(int argc, char *argv[])
 
     int ret = SLS_OK;
     int httpPort = 8181;
+    std::string httpBindAddr = "::"; // all interfaces by default (historical behavior)
     char cors_header[URL_MAX_LEN] = "*";
     sls_conf_srt_t *conf_srt = NULL;
 
@@ -182,23 +188,22 @@ int main(int argc, char *argv[])
     // parse conf file
     if (strlen(sls_opt.conf_file_name) == 0)
     {
-        const char *search_paths[] = {
-            "/etc/sls/sls.conf",
-            "/usr/local/etc/sls/sls.conf",
-            "/usr/etc/sls/sls.conf",
-            "./sls.conf"
-        };
+        const char *search_paths[] = {"/etc/sls/sls.conf", "/usr/local/etc/sls/sls.conf", "/usr/etc/sls/sls.conf",
+                                      "./sls.conf"};
 
         bool found = false;
-        for (auto &path : search_paths) {
-            if (file_exists(path)) {
+        for (auto &path : search_paths)
+        {
+            if (file_exists(path))
+            {
                 snprintf(sls_opt.conf_file_name, sizeof(sls_opt.conf_file_name), "%s", path);
                 found = true;
                 break;
             }
         }
 
-        if (!found) {
+        if (!found)
+        {
             spdlog::critical("No configuration file found in standard paths.");
             goto EXIT_PROC;
         }
@@ -208,6 +213,43 @@ int main(int argc, char *argv[])
     {
         spdlog::critical("Could not read configuration file, exiting.");
         goto EXIT_PROC;
+    }
+
+    // Raise the open-file-descriptor ceiling before binding listeners. A busy
+    // server holds an fd per SRT socket, relay and epoll instance, so the
+    // distro default soft limit can be exhausted under load. Best-effort and
+    // never fatal; bounded by the hard limit when unprivileged.
+    {
+        sls_conf_srt_t *nofile_conf = (sls_conf_srt_t *)sls_conf_get_root_conf();
+        rlim_t desired = (nofile_conf && nofile_conf->nofile_limit > 0) ? (rlim_t)nofile_conf->nofile_limit : 65536;
+        struct rlimit rl;
+        if (getrlimit(RLIMIT_NOFILE, &rl) != 0)
+        {
+            spdlog::warn("getrlimit(RLIMIT_NOFILE) failed (errno={}); leaving fd limit unchanged.", errno);
+        }
+        else
+        {
+            rlim_t target = desired;
+            if (rl.rlim_max != RLIM_INFINITY && target > rl.rlim_max)
+                target = rl.rlim_max;
+            if (rl.rlim_cur >= target)
+            {
+                spdlog::info("RLIMIT_NOFILE soft limit already {} (>= requested {}).", (unsigned long long)rl.rlim_cur,
+                             (unsigned long long)desired);
+            }
+            else
+            {
+                rlim_t previous = rl.rlim_cur;
+                rl.rlim_cur = target;
+                if (setrlimit(RLIMIT_NOFILE, &rl) == 0)
+                    spdlog::info("RLIMIT_NOFILE soft limit raised {} -> {} (requested {}, hard {}).",
+                                 (unsigned long long)previous, (unsigned long long)target, (unsigned long long)desired,
+                                 (unsigned long long)rl.rlim_max);
+                else
+                    spdlog::warn("Could not raise RLIMIT_NOFILE to {} (errno={}); staying at {}.",
+                                 (unsigned long long)target, errno, (unsigned long long)previous);
+            }
+        }
     }
 
     sls_load_pid_filename();
@@ -250,7 +292,8 @@ int main(int argc, char *argv[])
         last_stat_post_time = sls_gettime_ms();
     }
 
-    if (strlen(conf_srt->cors_header) > 0) {
+    if (strlen(conf_srt->cors_header) > 0)
+    {
         strcpy(cors_header, conf_srt->cors_header);
     }
 
@@ -260,138 +303,173 @@ int main(int argc, char *argv[])
     // target this endpoint to avoid blocking the publisher map_data write
     // lock every probe interval, which manifests as periodic msRcvBuf
     // spikes on healthy streams.
-    svr.Get("/healthz", [&](const Request& req, Response& res) {
-        (void)req;
-        res.status = 200;
-        res.set_header("Cache-Control", "no-cache");
-        res.set_content("{\"status\":\"ok\"}", "application/json");
-    });
+    svr.Get("/healthz",
+            [&](const Request &req, Response &res)
+            {
+                (void)req;
+                res.status = 200;
+                res.set_header("Cache-Control", "no-cache");
+                res.set_content("{\"status\":\"ok\"}", "application/json");
+            });
 
-    svr.Get("/stats", [&](const Request& req, Response& res) {
-        json ret;
-        sls_conf_srt_t *conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf(); // Get config
+    svr.Get("/stats",
+            [&](const Request &req, Response &res)
+            {
+                json ret;
+                sls_conf_srt_t *conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf(); // Get config
 
-        if (!sls_manager || !conf_srt) { // Check config ptr too
-            ret["status"]  = "error";
-            ret["message"] = "Internal server error: manager or config not available";
-            res.status = 500;
-            res.set_header("Access-Control-Allow-Origin", cors_header);
-            res.set_content(ret.dump(), "application/json");
-            return;
-        }
-
-        int clear = req.has_param("reset") ? 1 : 0;
-        auto is_authorized = [&]() -> bool {
-            if (conf_srt->api_keys.empty() || !req.has_header("Authorization")) {
-                return false;
-            }
-            std::string auth_header = req.get_header_value("Authorization");
-            for (const auto& key : conf_srt->api_keys) {
-                if (sls_ct_equal(key, auth_header)) {
-                    return true;
+                if (!sls_manager || !conf_srt)
+                { // Check config ptr too
+                    ret["status"] = "error";
+                    ret["message"] = "Internal server error: manager or config not available";
+                    res.status = 500;
+                    res.set_header("Access-Control-Allow-Origin", cors_header);
+                    res.set_content(ret.dump(), "application/json");
+                    return;
                 }
-            }
-            return false;
-        };
 
-        if (clear && !is_authorized()) {
-            ret["status"] = "error";
-            ret["message"] = "Unauthorized: API key required or invalid for reset.";
-            res.status = 401;
-            res.set_header("Access-Control-Allow-Origin", cors_header);
-            res.set_content(ret.dump(), "application/json");
-            return;
-        }
+                int clear = req.has_param("reset") ? 1 : 0;
+                auto is_authorized = [&]() -> bool
+                {
+                    if (conf_srt->api_keys.empty() || !req.has_header("Authorization"))
+                    {
+                        return false;
+                    }
+                    std::string auth_header = req.get_header_value("Authorization");
+                    for (const auto &key : conf_srt->api_keys)
+                    {
+                        if (sls_ct_equal(key, auth_header))
+                        {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
 
-        // If publisher param exists, use old logic
-        if (req.has_param("publisher")) {
-            ret = sls_manager->generate_json_for_publisher(req.get_param_value("publisher"), clear);
-            if (ret["status"] == "error") {
-                res.status = 404; // Not Found
-            }
-        } else {
-            // Publisher param missing: List all publishers if API key is configured
-            if (is_authorized()) {
-                ret = sls_manager->generate_json_for_all_publishers(clear);
-                // Status should already be 'ok' from generate_json_for_all_publishers
-                // No need to set 404 here, as we are listing all (even if empty)
-            } else {
-                ret["status"] = "error";
-                ret["message"] = "Unauthorized: API key required or invalid.";
-                res.status = 401; // Unauthorized
-            }
-        }
+                if (clear && !is_authorized())
+                {
+                    ret["status"] = "error";
+                    ret["message"] = "Unauthorized: API key required or invalid for reset.";
+                    res.status = 401;
+                    res.set_header("Access-Control-Allow-Origin", cors_header);
+                    res.set_content(ret.dump(), "application/json");
+                    return;
+                }
 
-        res.set_header("Access-Control-Allow-Origin", cors_header);
-        res.set_content(ret.dump(), "application/json");
-    });
-
-    svr.Post("/disconnect", [&](const Request& req, Response& res) {
-        json ret;
-        sls_conf_srt_t *conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf();
-
-        if (!sls_manager || !conf_srt) {
-            ret["status"]  = "error";
-            ret["message"] = "Internal server error: manager or config not available";
-            res.status = 500;
-            res.set_header("Access-Control-Allow-Origin", cors_header);
-            res.set_content(ret.dump(), "application/json");
-            return;
-        }
-
-        // Check if stream parameter is provided
-        if (!req.has_param("stream")) {
-            ret["status"] = "error";
-            ret["message"] = "Missing 'stream' parameter";
-            res.status = 400; // Bad Request
-            res.set_header("Access-Control-Allow-Origin", cors_header);
-            res.set_content(ret.dump(), "application/json");
-            return;
-        }
-
-        // Check authorization with API key
-        bool authorized = false;
-        if (conf_srt->api_keys.empty()) {
-            // No API keys configured, disallow access
-            authorized = false;
-        } else {
-            // API keys configured, check Authorization header
-            if (req.has_header("Authorization")) {
-                std::string auth_header = req.get_header_value("Authorization");
-                for (const auto& key : conf_srt->api_keys) {
-                    if (sls_ct_equal(key, auth_header)) {
-                        authorized = true;
-                        break;
+                // If publisher param exists, use old logic
+                if (req.has_param("publisher"))
+                {
+                    ret = sls_manager->generate_json_for_publisher(req.get_param_value("publisher"), clear);
+                    if (ret["status"] == "error")
+                    {
+                        res.status = 404; // Not Found
                     }
                 }
-            }
-        }
+                else
+                {
+                    // Publisher param missing: List all publishers if API key is configured
+                    if (is_authorized())
+                    {
+                        ret = sls_manager->generate_json_for_all_publishers(clear);
+                        // Status should already be 'ok' from generate_json_for_all_publishers
+                        // No need to set 404 here, as we are listing all (even if empty)
+                    }
+                    else
+                    {
+                        ret["status"] = "error";
+                        ret["message"] = "Unauthorized: API key required or invalid.";
+                        res.status = 401; // Unauthorized
+                    }
+                }
 
-        if (!authorized) {
-            ret["status"] = "error";
-            ret["message"] = "Unauthorized: API key required or invalid.";
-            res.status = 401; // Unauthorized
-            res.set_header("Access-Control-Allow-Origin", cors_header);
-            res.set_content(ret.dump(), "application/json");
-            return;
-        }
+                res.set_header("Access-Control-Allow-Origin", cors_header);
+                res.set_content(ret.dump(), "application/json");
+            });
 
-        // Disconnect the stream
-        std::string stream_name = req.get_param_value("stream");
-        ret = sls_manager->disconnect_stream(stream_name);
-        
-        if (ret["status"] == "error") {
-            res.status = 404; // Not Found
-        }
+    svr.Post("/disconnect",
+             [&](const Request &req, Response &res)
+             {
+                 json ret;
+                 sls_conf_srt_t *conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf();
 
-        res.set_header("Access-Control-Allow-Origin", cors_header);
-        res.set_content(ret.dump(), "application/json");
-    });
-    
-    if (conf_srt->http_port) {
+                 if (!sls_manager || !conf_srt)
+                 {
+                     ret["status"] = "error";
+                     ret["message"] = "Internal server error: manager or config not available";
+                     res.status = 500;
+                     res.set_header("Access-Control-Allow-Origin", cors_header);
+                     res.set_content(ret.dump(), "application/json");
+                     return;
+                 }
+
+                 // Check if stream parameter is provided
+                 if (!req.has_param("stream"))
+                 {
+                     ret["status"] = "error";
+                     ret["message"] = "Missing 'stream' parameter";
+                     res.status = 400; // Bad Request
+                     res.set_header("Access-Control-Allow-Origin", cors_header);
+                     res.set_content(ret.dump(), "application/json");
+                     return;
+                 }
+
+                 // Check authorization with API key
+                 bool authorized = false;
+                 if (conf_srt->api_keys.empty())
+                 {
+                     // No API keys configured, disallow access
+                     authorized = false;
+                 }
+                 else
+                 {
+                     // API keys configured, check Authorization header
+                     if (req.has_header("Authorization"))
+                     {
+                         std::string auth_header = req.get_header_value("Authorization");
+                         for (const auto &key : conf_srt->api_keys)
+                         {
+                             if (sls_ct_equal(key, auth_header))
+                             {
+                                 authorized = true;
+                                 break;
+                             }
+                         }
+                     }
+                 }
+
+                 if (!authorized)
+                 {
+                     ret["status"] = "error";
+                     ret["message"] = "Unauthorized: API key required or invalid.";
+                     res.status = 401; // Unauthorized
+                     res.set_header("Access-Control-Allow-Origin", cors_header);
+                     res.set_content(ret.dump(), "application/json");
+                     return;
+                 }
+
+                 // Disconnect the stream
+                 std::string stream_name = req.get_param_value("stream");
+                 ret = sls_manager->disconnect_stream(stream_name);
+
+                 if (ret["status"] == "error")
+                 {
+                     res.status = 404; // Not Found
+                 }
+
+                 res.set_header("Access-Control-Allow-Origin", cors_header);
+                 res.set_content(ret.dump(), "application/json");
+             });
+
+    if (conf_srt->http_port)
+    {
         httpPort = conf_srt->http_port;
     }
-    std::thread(httpWorker, std::ref(httpPort)).detach();
+    if (strlen(conf_srt->http_bind_addr) > 0)
+    {
+        httpBindAddr = conf_srt->http_bind_addr;
+    }
+    spdlog::info("HTTP control plane listening on {}:{}", httpBindAddr, httpPort);
+    std::thread(httpWorker, httpBindAddr, httpPort).detach();
 
     while (!b_exit)
     {
@@ -401,13 +479,12 @@ int main(int argc, char *argv[])
         {
             ret = sls_manager->single_thread_handler();
         }
-        
+
         // Check if we should log summary
         if (sls_get_log_config().summary_enabled)
         {
             std::string summary_msg;
-            if (sls_get_summary_logger().should_log_summary(
-                    sls_get_log_config().summary_interval_sec, summary_msg))
+            if (sls_get_summary_logger().should_log_summary(sls_get_log_config().summary_interval_sec, summary_msg))
             {
                 spdlog::info(summary_msg);
             }
@@ -447,7 +524,7 @@ int main(int argc, char *argv[])
         // returned next-iterator and only advance when nothing was removed;
         // the old `it++` after erase() was UB whenever ≥2 managers retired in
         // one pass.
-        for (auto it = reload_manager_list.begin(); it != reload_manager_list.end(); )
+        for (auto it = reload_manager_list.begin(); it != reload_manager_list.end();)
         {
             CSLSManager *manager = *it;
             if (nullptr != manager && SLS_OK == manager->check_invalid())
@@ -478,7 +555,14 @@ int main(int argc, char *argv[])
             sls_manager = NULL;
             spdlog::info("Pushing old sls_manager to list.");
 
-            sls_conf_close();
+            // Do NOT free the old config tree here. The manager just retired is
+            // still draining and its roles/listeners/relays still hold raw
+            // sls_conf_* pointers into the current generation. The tree is
+            // reference-counted and owned by each CSLSManager (see
+            // CSLSManager::start / m_conf_generation): sls_conf_open() below
+            // publishes a NEW generation while the old one stays alive until the
+            // retiring manager is destroyed by the check_invalid() sweep above.
+            // Calling sls_conf_close() here was the SIGHUP-reload use-after-free.
             ret = sls_conf_open(sls_opt.conf_file_name);
             if (ret != SLS_OK)
             {
@@ -486,6 +570,9 @@ int main(int argc, char *argv[])
                 break;
             }
             spdlog::info("Successfuly reloaded config file.");
+            // Re-point the cached root conf at the new generation; the old tree
+            // it referenced is now owned solely by the retiring manager.
+            conf_srt = (sls_conf_srt_t *)sls_conf_get_root_conf();
 
             spdlog::info("Reloading PID file location (if needed)");
             if (sls_reload_pid() != SLS_OK)

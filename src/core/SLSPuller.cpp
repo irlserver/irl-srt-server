@@ -49,60 +49,59 @@ const char SLS_RELAY_STAT_INFO_BASE[] = "\
 
 CSLSPuller::CSLSPuller()
 {
-	m_is_write = 0;
-	sprintf(m_role_name, "puller");
+    m_is_write = 0;
+    snprintf(m_role_name, sizeof(m_role_name), "puller");
 }
 
 int CSLSPuller::uninit()
 {
-	int ret = SLS_ERROR;
-	if (NULL != m_map_publisher)
-	{
-		ret = m_map_publisher->remove(this);
-		spdlog::info("[{}] CSLSPuller::uninit, removed relay from m_map_publisher, ret={:d}.",
-					 fmt::ptr(this), ret);
-	}
-	if (m_map_data)
-	{
-		ret = m_map_data->remove(m_map_data_key);
-		spdlog::info("[{}] CSLSPuller::uninit, removed relay from m_map_data, ret={:d}.",
-					 fmt::ptr(this), ret);
-	}
-	return CSLSRelay::uninit();
+    int ret = SLS_ERROR;
+    if (NULL != m_map_publisher)
+    {
+        ret = m_map_publisher->remove(this);
+        spdlog::info("[{}] CSLSPuller::uninit, removed relay from m_map_publisher, ret={:d}.", fmt::ptr(this), ret);
+    }
+    if (m_map_data)
+    {
+        ret = m_map_data->remove(m_map_data_key);
+        spdlog::info("[{}] CSLSPuller::uninit, removed relay from m_map_data, ret={:d}.", fmt::ptr(this), ret);
+    }
+    return CSLSRelay::uninit();
 }
 
 CSLSPuller::~CSLSPuller()
 {
-	//release
+    // release
 }
 
 int CSLSPuller::handler()
 {
-	int64_t last_read_time = 0;
-	int ret = handler_read_data(&last_read_time);
-	if (ret >= 0)
-	{
-		//*check if there is any player?
-		if (-1 == m_idle_streams_timeout)
-		{
-			return ret;
-		}
-		int64_t cur_time = sls_gettime_ms();
-		if (cur_time - last_read_time >= (m_idle_streams_timeout * 1000))
-		{
-			spdlog::info("[{}] CSLSPuller::handler, no any reader for m_idle_streams_timeout={:d}s, last_read_time={:d}, close puller.",
-						 fmt::ptr(this), m_idle_streams_timeout, last_read_time);
-			m_state = SLS_RS_INVALID;
-			invalid_srt();
-			return SLS_ERROR;
-		}
-		//*/
-	}
-	return ret;
+    int64_t last_read_time = 0;
+    int ret = handler_read_data(&last_read_time);
+    if (ret >= 0)
+    {
+        //*check if there is any player?
+        if (-1 == m_idle_streams_timeout)
+        {
+            return ret;
+        }
+        int64_t cur_time = sls_gettime_ms();
+        if (cur_time - last_read_time >= (m_idle_streams_timeout * 1000))
+        {
+            spdlog::info("[{}] CSLSPuller::handler, no any reader for m_idle_streams_timeout={:d}s, "
+                         "last_read_time={:d}, close puller.",
+                         fmt::ptr(this), m_idle_streams_timeout, last_read_time);
+            m_state = SLS_RS_INVALID;
+            invalid_srt();
+            return SLS_ERROR;
+        }
+        //*/
+    }
+    return ret;
 }
 
 int CSLSPuller::get_stat_base(char *stat_base)
 {
-	strcpy(stat_base, SLS_RELAY_STAT_INFO_BASE);
-	return SLS_OK;
+    strcpy(stat_base, SLS_RELAY_STAT_INFO_BASE);
+    return SLS_OK;
 }

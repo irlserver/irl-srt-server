@@ -32,9 +32,7 @@
  * CSLSMapPublisher class implementation
  */
 
-CSLSMapPublisher::CSLSMapPublisher()
-{
-}
+CSLSMapPublisher::CSLSMapPublisher() {}
 CSLSMapPublisher::~CSLSMapPublisher()
 {
     clear();
@@ -64,25 +62,29 @@ int CSLSMapPublisher::set_live_2_uplive(std::string strLive, std::string strUpli
     return SLS_OK;
 }
 
-int CSLSMapPublisher::set_push_2_publisher(std::string app_streamname, CSLSRole *role)
+int CSLSMapPublisher::set_push_2_publisher(std::string app_streamname, std::shared_ptr<CSLSRole> role)
 {
     CSLSLock lock(&m_rwclock, true);
-    std::map<std::string, CSLSRole *>::iterator it;
+    std::map<std::string, std::shared_ptr<CSLSRole>>::iterator it;
     it = m_map_push_2_publisher.find(app_streamname);
     if (it != m_map_push_2_publisher.end())
     {
-        CSLSRole *cur_role = it->second;
+        const std::shared_ptr<CSLSRole> &cur_role = it->second;
         if (NULL != cur_role)
         {
-            spdlog::error("[{}] CSLSMapPublisher::set_push_2_publisher, failed, cur_role={}, exist, app_streamname={}, m_map_push_2_publisher.size()={:d}.",
-                          fmt::ptr(this), fmt::ptr(cur_role), app_streamname.c_str(), m_map_push_2_publisher.size());
+            spdlog::error("[{}] CSLSMapPublisher::set_push_2_publisher, failed, cur_role={}, exist, app_streamname={}, "
+                          "m_map_push_2_publisher.size()={:d}.",
+                          fmt::ptr(this), fmt::ptr(cur_role.get()), app_streamname.c_str(),
+                          m_map_push_2_publisher.size());
             return SLS_ERROR;
         }
     }
 
-    m_map_push_2_publisher[app_streamname] = role;
-    spdlog::info("[{}] CSLSMapPublisher::set_push_2_publisher, ok, {}={}, app_streamname={}, m_map_push_2_publisher.size()={:d}.",
-                 fmt::ptr(this), role->get_role_name(), fmt::ptr(role), app_streamname.c_str(), m_map_push_2_publisher.size());
+    spdlog::info("[{}] CSLSMapPublisher::set_push_2_publisher, ok, {}={}, app_streamname={}, "
+                 "m_map_push_2_publisher.size()={:d}.",
+                 fmt::ptr(this), role->get_role_name(), fmt::ptr(role.get()), app_streamname.c_str(),
+                 m_map_push_2_publisher.size() + 1);
+    m_map_push_2_publisher[app_streamname] = std::move(role);
     return SLS_OK;
 }
 
@@ -113,12 +115,15 @@ sls_conf_base_t *CSLSMapPublisher::get_ca(std::string key_app)
     return ca;
 }
 
-CSLSRole *CSLSMapPublisher::get_publisher(std::string strAppStreamName)
+std::shared_ptr<CSLSRole> CSLSMapPublisher::get_publisher(std::string strAppStreamName)
 {
     CSLSLock lock(&m_rwclock, false);
 
-    CSLSRole *publisher = NULL;
-    std::map<std::string, CSLSRole *>::iterator item;
+    // Copy the shared_ptr under the read lock so the caller holds a reference
+    // that keeps the role alive even if the worker thread erases the map entry
+    // (and drops its own reference) immediately after we return.
+    std::shared_ptr<CSLSRole> publisher;
+    std::map<std::string, std::shared_ptr<CSLSRole>>::iterator item;
     item = m_map_push_2_publisher.find(strAppStreamName);
     if (item != m_map_push_2_publisher.end())
     {
@@ -127,20 +132,26 @@ CSLSRole *CSLSMapPublisher::get_publisher(std::string strAppStreamName)
     return publisher;
 }
 
-std::vector<std::string> CSLSMapPublisher::get_publisher_names() {
+std::vector<std::string> CSLSMapPublisher::get_publisher_names()
+{
+    // Read lock: the worker thread mutates m_map_push_2_publisher concurrently
+    // (set_push_2_publisher / remove), so iterating it unlocked is a data race.
+    CSLSLock lock(&m_rwclock, false);
     std::vector<std::string> ret;
-    for (auto val : m_map_push_2_publisher) {
-        std::string streamName = val.first;
-        ret.push_back(streamName);
+    for (const auto &val : m_map_push_2_publisher)
+    {
+        ret.push_back(val.first);
     }
     return ret;
 }
 
-std::map<std::string, CSLSRole *> CSLSMapPublisher::get_publishers()
+std::map<std::string, std::shared_ptr<CSLSRole>> CSLSMapPublisher::get_publishers()
 {
     CSLSLock lock(&m_rwclock, false); // Read lock
-    // Return a copy of the map to avoid issues with concurrent modification
-    // if the caller iterates while another thread modifies the original map.
+    // Return a copy of the map under the read lock. Copying bumps every
+    // role's refcount, so each publisher stays alive for as long as the
+    // caller holds the returned map — no role can be freed mid-iteration
+    // even if the worker thread removes it concurrently.
     return m_map_push_2_publisher;
 }
 
@@ -152,10 +163,10 @@ int CSLSMapPublisher::remove(CSLSRole *role)
 
     for (auto it = m_map_push_2_publisher.begin(); it != m_map_push_2_publisher.end(); ++it)
     {
-        if (role == it->second)
+        if (role == it->second.get())
         {
-            spdlog::info("[{}] CSLSMapPublisher::remove, {}={}, live_key={}.",
-                         fmt::ptr(this), it->second->get_role_name(), fmt::ptr(it->second), it->first.c_str());
+            spdlog::info("[{}] CSLSMapPublisher::remove, {}={}, live_key={}.", fmt::ptr(this),
+                         it->second->get_role_name(), fmt::ptr(it->second.get()), it->first.c_str());
             m_map_push_2_publisher.erase(it);
             ret = SLS_OK;
             break;

@@ -33,8 +33,7 @@ TEST_CASE("CSLSBitrateLimit: zero max_bitrate disables limiting, always OK")
     int64_t t = 0;
     for (int i = 0; i < 10; i++)
     {
-        CHECK(lim.check_data_bitrate(10 * 1024 * 1024 / 10, t) ==
-              CSLSBitrateLimit::BITRATE_OK);
+        CHECK(lim.check_data_bitrate(10 * 1024 * 1024 / 10, t) == CSLSBitrateLimit::BITRATE_OK);
         t += 100;
     }
 }

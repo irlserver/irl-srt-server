@@ -103,17 +103,24 @@ TEST_CASE("sls_canonical_sid_key: unparseable input falls back to the raw stream
     CHECK(sls_canonical_sid_key("").empty());
 }
 
-TEST_CASE("sls_validate_sid_format: url-significant characters in any component are rejected")
+TEST_CASE("sls_validate_sid_format: structural url characters in any component are rejected")
 {
-    // ?, #, &, =, %, and space all carry meaning in the outbound srt:// URL
-    // built by SLSPullerManager. A streamid component containing any of them
-    // could splice query parameters into the relay leg's upstream URL.
-    CHECK_FALSE(sls_validate_sid_format("#!::h=example.com,sls_app=live,r=feed1?evil=1"));
-    CHECK_FALSE(sls_validate_sid_format("example.com/live/feed1?evil=1"));
+    // &, #, %, and space have no legitimate place in a streamid and would let a
+    // component open a *new* query parameter or fragment in the outbound srt://
+    // relay URL. These stay rejected at the format gate.
     CHECK_FALSE(sls_validate_sid_format("example.com/live/feed&1"));
     CHECK_FALSE(sls_validate_sid_format("example.com/live/feed#1"));
     CHECK_FALSE(sls_validate_sid_format("example.com/live/feed%201"));
     CHECK_FALSE(sls_validate_sid_format("example.com/live/feed 1"));
+}
+
+TEST_CASE("sls_validate_sid_format: a legacy '?key=value' auth token is accepted")
+{
+    // Streamids may carry a trailing query token (a legacy parameter passed
+    // through to auth). '?' and '=' are therefore allowed in a component; the
+    // relay URL builders percent-encode the stream name at the sink, so the
+    // token cannot inject relay socket options. See test_push_url.cpp.
+    CHECK(sls_validate_sid_format("example.com/live/feed1?token=abc"));
 }
 
 TEST_CASE("sls_validate_sid_format: ordinary alphanumeric and . _ - names still accepted")

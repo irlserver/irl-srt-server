@@ -48,12 +48,12 @@ const char SLS_RELAY_STAT_INFO_BASE[] = "\
 CSLSPusher::CSLSPusher()
 {
     m_is_write = 1;
-    sprintf(m_role_name, "pusher");
+    snprintf(m_role_name, sizeof(m_role_name), "pusher");
 }
 
 CSLSPusher::~CSLSPusher()
 {
-    //release
+    // release
 }
 
 int CSLSPusher::handler()

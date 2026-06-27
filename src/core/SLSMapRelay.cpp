@@ -37,9 +37,7 @@
  * CSLSMapRelay class implementation
  */
 
-CSLSMapRelay::CSLSMapRelay()
-{
-}
+CSLSMapRelay::CSLSMapRelay() {}
 
 CSLSMapRelay::~CSLSMapRelay()
 {
@@ -48,7 +46,7 @@ CSLSMapRelay::~CSLSMapRelay()
 
 CSLSRelayManager *CSLSMapRelay::add_relay_manager(const char *app_uplive, const char *stream_name)
 {
-    //find conf info
+    // find conf info
     SLS_RELAY_INFO *sri = get_relay_conf(std::string(app_uplive));
     if (NULL == sri)
     {
@@ -131,8 +129,8 @@ int CSLSMapRelay::add_relay_conf(std::string app_uplive, sls_conf_relay_t *cr)
     SLS_RELAY_INFO *sri = get_relay_conf(app_uplive);
     if (NULL != sri)
     {
-        spdlog::error("[{}] CSLSMapRelay::add_app_conf, failed, sri exists, app_uplive={}.",
-                      fmt::ptr(this), app_uplive.c_str());
+        spdlog::error("[{}] CSLSMapRelay::add_app_conf, failed, sri exists, app_uplive={}.", fmt::ptr(this),
+                      app_uplive.c_str());
         return SLS_ERROR;
     }
     sri = new SLS_RELAY_INFO;
@@ -155,15 +153,18 @@ int CSLSMapRelay::add_relay_conf(std::string app_uplive, sls_conf_relay_t *cr)
     else
     {
         sri->m_mode = SLS_PM_HASH;
-        spdlog::info("[{}] CSLSMapRelay::add_app_conf, wrong mode='{}', using default SLS_PM_LOOP.",
-                     fmt::ptr(this), cr->mode);
+        spdlog::info("[{}] CSLSMapRelay::add_app_conf, wrong mode='{}', using default SLS_PM_LOOP.", fmt::ptr(this),
+                     cr->mode);
     }
 
-    //parse upstreams
+    // parse upstreams
     sri->m_upstreams = sls_conf_string_split(cr->upstreams, " ");
     if (sri->m_upstreams.size() == 0)
     {
-        spdlog::warn("[{}] CSLSMapRelay::add_app_conf, wrong upstreams='{}'.", fmt::ptr(this), cr->upstreams);
+        spdlog::error("[{}] CSLSMapRelay::add_app_conf, no upstreams configured, upstreams='{}'.", fmt::ptr(this),
+                      cr->upstreams);
+        delete sri;
+        return SLS_ERROR;
     }
     m_map_relay_info[app_uplive] = sri;
     return SLS_OK;

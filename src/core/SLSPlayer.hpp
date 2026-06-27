@@ -29,13 +29,13 @@
 /**
  * CSLSPlayer
  */
-class CSLSPlayer : public CSLSRole
+class CSLSPlayer final : public CSLSRole
 {
 public:
-	CSLSPlayer();
-	~CSLSPlayer();
+    CSLSPlayer();
+    ~CSLSPlayer() override;
 
-	virtual int handler();
+    virtual int handler() override;
 
 private:
 };

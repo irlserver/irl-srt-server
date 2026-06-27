@@ -24,8 +24,10 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 #include <string>
+#include <sys/socket.h>
 
 #include "SLSRelay.hpp"
 #include "SLSMapPublisher.hpp"
@@ -35,10 +37,14 @@
 struct SLS_RELAY_INFO
 {
     std::vector<std::string> m_upstreams;
+    // Addresses pre-vetted by validate_push_url, index-aligned with
+    // m_upstreams. Empty for static-config relays and pullers, which never run
+    // the push-URL validator and keep the legacy resolve-at-open path.
+    std::vector<sockaddr_storage> m_vetted_addrs;
     char m_type[32];
     int m_mode;
-    int m_reconnect_interval;   //unit: s
-    int m_idle_streams_timeout; //unit: s
+    int m_reconnect_interval;   // unit: s
+    int m_idle_streams_timeout; // unit: s
 };
 
 /**
@@ -68,17 +74,17 @@ protected:
     CSLSMapData *m_map_data;
     CSLSRoleList *m_role_list;
     SLS_RELAY_INFO *m_sri;
-    int64_t m_reconnect_begin_tm; //unit: ms
+    int64_t m_reconnect_begin_tm; // unit: ms
     int m_listen_port;
 
     char m_app_uplive[1024];
     char m_stream_name[1024];
 
-    int connect(const char *url);
+    int connect(const char *url, const sockaddr_storage *vetted_addr = nullptr);
     int connect_hash();
 
     virtual CSLSRelay *create_relay() = 0;
     std::string get_hash_url();
 
-    virtual int set_relay_param(CSLSRelay *relay) = 0;
+    virtual int set_relay_param(std::shared_ptr<CSLSRelay> relay) = 0;
 };

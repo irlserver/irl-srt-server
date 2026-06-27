@@ -54,6 +54,74 @@ cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DSLS_BUILD_TESTS=ON -DSLS_TSA
 cmake --build build-tsan -j && ctest --test-dir build-tsan --output-on-failure
 ```
 
+### Fuzzing the parsers
+
+Three libFuzzer targets exercise the network- and operator-boundary input parsers
+under AddressSanitizer + UndefinedBehaviorSanitizer:
+
+| Target | Drives | Seed corpus |
+|--------|--------|-------------|
+| `fuzz_ts_parser` | the length-driven MPEG-TS / PAT / PMT / PES parser | `tests/fuzz/corpus/ts/` |
+| `fuzz_streamid` | the SRT `streamid` parse + handshake-time safety gate | `tests/fuzz/corpus/streamid/` |
+| `fuzz_conf` | the `sls.conf` port-list / tokenizer / value setters | `tests/fuzz/corpus/conf/` |
+
+Fuzzing is a dedicated, **clang-only** build flavor (libFuzzer is a Clang feature).
+`SLS_FUZZ` is mutually exclusive with `SLS_SANITIZE` / `SLS_TSAN`, so use a separate
+build directory. Build all three targets once:
+
+```bash
+cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=Release -DSLS_FUZZ=ON \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build-fuzz --target fuzz_ts_parser fuzz_streamid fuzz_conf -j
+```
+
+**Local 60-second smoke run (mirrors CI).** This is the exact invocation the `fuzz`
+CI job runs on every push / PR — a fixed 60 s budget per target against the committed
+seed corpus, failing on any crash. A writable work directory is passed **first** so
+the committed corpus stays pristine and any `crash-*` unit lands there; `-close_fd_mask=1`
+silences the parser's own stdout logging so libFuzzer's progress stays readable; the
+UBSan suppressions file mutes one benign, documented signed-shift finding without
+affecting crash detection.
+
+```bash
+for t in ts_parser:ts streamid:streamid conf:conf; do
+  tgt="fuzz_${t%%:*}"; corpus="tests/fuzz/corpus/${t##*:}"
+  work="$(mktemp -d)"
+  UBSAN_OPTIONS=suppressions=tests/fuzz/ubsan_suppressions.txt \
+    ./build-fuzz/bin/"$tgt" -max_total_time=60 -close_fd_mask=1 "$work" "$corpus"
+done
+```
+
+**Extended / nightly campaign.** For a deeper, longer-running campaign, raise the time
+budget and let libFuzzer grow the corpus in a writable directory. Seed it from the
+committed corpus and keep the new finds. Set `-max_total_time` to one hour below, or
+drop the flag entirely for an unbounded run that stops only on a crash:
+
+```bash
+mkdir -p fuzz-runs/ts && cp tests/fuzz/corpus/ts/* fuzz-runs/ts/
+UBSAN_OPTIONS=suppressions=tests/fuzz/ubsan_suppressions.txt \
+  ./build-fuzz/bin/fuzz_ts_parser \
+    -max_total_time=3600 -print_final_stats=1 \
+    -jobs=$(nproc) -workers=$(nproc) \
+    fuzz-runs/ts tests/fuzz/corpus/ts
+```
+
+`-jobs` / `-workers` fan the campaign across cores; libFuzzer writes any new coverage
+units into the first directory (`fuzz-runs/ts`). Promote genuinely useful new inputs
+back into `tests/fuzz/corpus/ts/` to strengthen the committed seed set.
+
+**Reproduce a crash.** When a run finds a bug, libFuzzer writes the offending bytes to
+a `crash-<sha1>` file in the writable work directory (and the CI job uploads it as the
+`fuzz-findings` artifact). Replay it deterministically by passing that single file:
+
+```bash
+UBSAN_OPTIONS=suppressions=tests/fuzz/ubsan_suppressions.txt \
+  ./build-fuzz/bin/fuzz_ts_parser crash-<sha1>
+```
+
+The target runs that one input once and prints the ASan / UBSan report; minimize it
+further with `-minimize_crash=1 -runs=100000 crash-<sha1>`.
+
 ## Usage
 
 `cd build`

@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <map>
 #include <string>
 
@@ -75,6 +77,24 @@ public:
     int remove(char *key);
     void clear();
 
+    // Global, pre-allocation guardrails against ring-buffer memory exhaustion.
+    // add() refuses to create a new ring once either the live stream count or
+    // the cumulative ring-byte total would exceed these caps. A value of 0
+    // means "unlimited" for that dimension. Both are set once at startup from
+    // the srt-block config (max_streams / max_total_ring_mb) before any
+    // listener accepts a connection, so no locking is required to publish them.
+    void set_caps(int max_streams, int64_t max_total_ring_bytes);
+    // Live count of allocated rings (one per active publisher/relay stream).
+    int get_stream_count() const
+    {
+        return m_stream_count.load(std::memory_order_relaxed);
+    }
+    // Cumulative bytes committed across all allocated rings.
+    int64_t get_total_ring_bytes() const
+    {
+        return m_total_ring_bytes.load(std::memory_order_relaxed);
+    }
+
     // Cumulative overrun count across the publisher's ring buffer
     // (writer lapped the reader). Returns -1 if `key` is unknown.
     int64_t get_overrun_count(const char *key);
@@ -92,9 +112,22 @@ private:
     // Transparent comparator (std::less<>) lets hot lookups (put/get) use
     // std::string_view{key} without constructing a temporary std::string —
     // saves a per-packet heap allocation per direction.
-    std::map<std::string, CSLSRecycleArray *, std::less<>> m_map_array; //uplive_key_stream:data'
-    std::map<std::string, ts_info *, std::less<>> m_map_ts_info;        //uplive_key_stream:ts_info'
+    std::map<std::string, CSLSRecycleArray *, std::less<>> m_map_array; // uplive_key_stream:data'
+    std::map<std::string, ts_info *, std::less<>> m_map_ts_info;        // uplive_key_stream:ts_info'
     CSLSRWLock m_rwclock;
+
+    // Global ring-budget accounting. Mutated only under m_rwclock's write lock
+    // (in add/remove/clear, exactly at the new/delete of a CSLSRecycleArray) so
+    // the check-then-allocate in add() is atomic against concurrent add/remove
+    // on the same map. Kept atomic so /stats and other readers can sample them
+    // without taking the write lock. m_stream_count tracks live rings;
+    // m_total_ring_bytes tracks the summed get_data_size() of those rings.
+    std::atomic<int> m_stream_count{0};
+    std::atomic<int64_t> m_total_ring_bytes{0};
+    // Caps applied before allocation (0 == unlimited). Set once at startup via
+    // set_caps(); read-only thereafter, hence plain (non-atomic) members.
+    int m_max_streams{0};
+    int64_t m_max_total_ring_bytes{0};
 
     int check_ts_info(char *data, int len, ts_info *ti);
     void check_audio_gap(char *data, int len, ts_info *ti, CSLSRecycleArray *array_data);

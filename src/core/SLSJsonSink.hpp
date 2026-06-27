@@ -36,7 +36,7 @@ using json = nlohmann::json;
 
 /**
  * JSON file sink for spdlog using nlohmann/json
- * 
+ *
  * Formats log messages as JSON objects with structured fields:
  * - timestamp: ISO 8601 format
  * - level: log level string
@@ -45,12 +45,10 @@ using json = nlohmann::json;
  * - category: extracted from [category:session] or [category] tags
  * - session: extracted from [category:session] tags
  */
-template<typename Mutex>
-class json_file_sink : public spdlog::sinks::base_sink<Mutex>
+template <typename Mutex> class json_file_sink : public spdlog::sinks::base_sink<Mutex>
 {
 public:
-    explicit json_file_sink(const std::string& filename)
-        : file_(filename, std::ios::app)
+    explicit json_file_sink(const std::string &filename) : file_(filename, std::ios::app)
     {
         if (!file_.is_open())
         {
@@ -59,35 +57,34 @@ public:
     }
 
 protected:
-    void sink_it_(const spdlog::details::log_msg& msg) override
+    void sink_it_(const spdlog::details::log_msg &msg) override
     {
         json log_entry;
-        
+
         // Timestamp in ISO 8601 format
         auto time_t = std::chrono::system_clock::to_time_t(msg.time);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            msg.time.time_since_epoch()) % 1000;
-        
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(msg.time.time_since_epoch()) % 1000;
+
         std::tm tm;
         gmtime_r(&time_t, &tm);
-        
+
         std::ostringstream timestamp;
-        timestamp << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S")
-                 << "." << std::setfill('0') << std::setw(3) << ms.count() << "Z";
-        
+        timestamp << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S") << "." << std::setfill('0') << std::setw(3) << ms.count()
+                  << "Z";
+
         log_entry["timestamp"] = timestamp.str();
-        
+
         // Log level
         auto level_sv = spdlog::level::to_string_view(msg.level);
         log_entry["level"] = std::string(level_sv.data(), level_sv.size());
-        
+
         // Logger name
         log_entry["logger"] = std::string(msg.logger_name.begin(), msg.logger_name.end());
-        
+
         // Message
         std::string message(msg.payload.begin(), msg.payload.end());
         log_entry["message"] = message;
-        
+
         // Parse category and session from message if present
         // Format: [category:session] or [category]
         if (message.length() > 2 && message[0] == '[')
@@ -108,7 +105,7 @@ protected:
                 }
             }
         }
-        
+
         // Write JSON to file
         file_ << log_entry.dump() << std::endl;
     }

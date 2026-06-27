@@ -25,6 +25,7 @@
 #pragma once
 
 #include <vector>
+#include <memory>
 
 #include "SLSRole.hpp"
 #include "SLSRoleList.hpp"
@@ -60,43 +61,62 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(app, string, app_publisher, "uplive", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(app, int, publisher_exit_delay, "delay exit time, unit second.", 1, 300),
     SLS_SET_CONF(app, int, max_input_bitrate_kbps, "Maximum input bitrate in kbps (0=unlimited)", 0, 1000000),
-    SLS_SET_CONF(app, int, max_input_bitrate_violation_timeout, "Timeout in seconds before disconnecting violating streams", 1, 300),
-    SLS_SET_CONF(app, int, max_input_bitrate_spike_tolerance, "Spike tolerance as percentage above limit before violation starts (e.g. 120 = 1.2x)", 100, 500),
+    SLS_SET_CONF(app, int, max_input_bitrate_violation_timeout,
+                 "Timeout in seconds before disconnecting violating streams", 1, 300),
+    SLS_SET_CONF(app, int, max_input_bitrate_spike_tolerance,
+                 "Spike tolerance as percentage above limit before violation starts (e.g. 120 = 1.2x)", 100, 500),
     SLS_SET_CONF(app, int, max_players_per_stream, "maximum number of players per stream", -1, 10000),
     SLS_SET_CONF2(app, ipset, ip_actions, allow, "allow address(es) to play/publish a stream", 1, 256),
     SLS_SET_CONF2(app, ipset, ip_actions, deny, "deny address(es) from playing/publishing a stream", 1, 256),
     SLS_SET_CONF(app, bool, audio_gap_fill, "fill audio gaps with silence to prevent OBS audio breaking", 0, 0),
     SLS_SET_CONF(app, int, push_destination_max, "max push destinations per stream from webhook (0=disabled)", 0, 16),
-    SLS_SET_CONF(app, bool, push_destination_allow_internal, "allow push destinations resolving to loopback/RFC1918/link-local/ULA (default: deny)", 0, 0),
-    SLS_SET_CONF(app, bool, push_destination_allow_self, "allow push destinations resolving to this server's bind addresses (default: deny)", 0, 0),
-    SLS_SET_CONF(app, string, push_destination_allow_schemes, "whitespace-separated allowed URI schemes for push destinations (default: srt)", 0, STR_MAX_LEN - 1),
-    SLS_SET_CONF(app, int, push_destination_max_url_len, "maximum length of a push destination URL (0=default 1024)", 0, 4096),
+    SLS_SET_CONF(app, bool, push_destination_allow_internal,
+                 "allow push destinations resolving to loopback/RFC1918/link-local/ULA (default: deny)", 0, 0),
+    SLS_SET_CONF(app, bool, push_destination_allow_self,
+                 "allow push destinations resolving to this server's bind addresses (default: deny)", 0, 0),
+    SLS_SET_CONF(app, string, push_destination_allow_schemes,
+                 "whitespace-separated allowed URI schemes for push destinations (default: srt)", 0, STR_MAX_LEN - 1),
+    SLS_SET_CONF(app, int, push_destination_max_url_len, "maximum length of a push destination URL (0=default 1024)", 0,
+                 4096),
     SLS_CONF_CMD_DYNAMIC_DECLARE_END
 
     /**
- * CSLSPublisher
- */
+     * CSLSPublisher
+     */
     class CSLSPusherManager;
+struct SLS_RELAY_INFO;
 
-class CSLSPublisher : public CSLSRole
+class CSLSPublisher final : public CSLSRole
 {
 public:
     CSLSPublisher();
-    virtual ~CSLSPublisher();
+    virtual ~CSLSPublisher() override;
 
     void set_map_publisher(CSLSMapPublisher *publisher);
 
     // Listener handler wires these so the publisher can spin up its own
     // CSLSPusherManager once the publish auth webhook returns push URLs.
-    void set_role_list(CSLSRoleList *list) { m_role_list = list; }
-    void set_listen_port(int port) { m_listen_port = port; }
+    void set_role_list(CSLSRoleList *list)
+    {
+        m_role_list = list;
+    }
+    void set_listen_port(int port)
+    {
+        m_listen_port = port;
+    }
 
-    virtual int init();
-    virtual int uninit();
+    virtual int init() override;
+    virtual int uninit() override;
 
-    virtual int handler();
+    virtual int handler() override;
     virtual void on_map_data_set() override;
     virtual bool is_audio_gap_fill_enabled() const override;
+    // A live external broadcaster is shielded from takeover by a not-yet-proven
+    // newcomer; see CSLSRole::is_takeover_protected and the listener handler.
+    bool is_takeover_protected() const override
+    {
+        return true;
+    }
 
 private:
     // Spawns a CSLSPusherManager carrying the URLs in m_push_urls. Called
@@ -106,6 +126,9 @@ private:
     CSLSMapPublisher *m_map_publisher;
     CSLSRoleList *m_role_list = nullptr;
     int m_listen_port = 0;
-    CSLSPusherManager *m_dynamic_pusher_manager = nullptr;
-    struct SLS_RELAY_INFO *m_dynamic_pusher_sri = nullptr;
+    // Declaration order is load-bearing: the manager reads the SRI during its
+    // teardown, so the SRI must outlive it. Declared after the manager, the SRI
+    // destroys second (reverse declaration order). uninit() mirrors this.
+    std::unique_ptr<CSLSPusherManager> m_dynamic_pusher_manager;
+    std::unique_ptr<SLS_RELAY_INFO> m_dynamic_pusher_sri;
 };

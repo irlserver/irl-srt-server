@@ -32,7 +32,7 @@ std::atomic<uint32_t> CSLSSessionTracker::s_counter(0);
 std::string CSLSSessionTracker::generate_session_id(bool short_form)
 {
     uint32_t counter = s_counter.fetch_add(1, std::memory_order_relaxed);
-    
+
     if (short_form)
     {
         // Generate short session ID (just hex counter)
@@ -47,8 +47,7 @@ std::string CSLSSessionTracker::generate_session_id(bool short_form)
         // Format: "1734437445123-a3f2"
         int64_t timestamp_ms = sls_gettime_ms();
         std::ostringstream oss;
-        oss << timestamp_ms << "-" 
-            << std::hex << std::setw(4) << std::setfill('0') << (counter & 0xFFFF);
+        oss << timestamp_ms << "-" << std::hex << std::setw(4) << std::setfill('0') << (counter & 0xFFFF);
         return oss.str();
     }
 }

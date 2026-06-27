@@ -66,13 +66,11 @@ bool sls_validate_sid_format(const char *sid)
     if (h == kv.end() || a == kv.end() || r == kv.end())
         return false;
 
-    return sls_is_safe_name(h->second.c_str()) &&
-           sls_is_safe_name(a->second.c_str()) &&
+    return sls_is_safe_name(h->second.c_str()) && sls_is_safe_name(a->second.c_str()) &&
            sls_is_safe_name(r->second.c_str());
 }
 
-int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
-                                  const struct sockaddr *peeraddr,
+int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion, const struct sockaddr *peeraddr,
                                   const char *streamid)
 {
     (void)hsversion;
@@ -97,8 +95,7 @@ int sls_publisher_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
     return 0; // accept; the post-accept webhook still authorizes the key
 }
 
-int sls_player_listen_callback(void *opaque, SRTSOCKET ns, int hsversion,
-                               const struct sockaddr *peeraddr,
+int sls_player_listen_callback(void *opaque, SRTSOCKET ns, int hsversion, const struct sockaddr *peeraddr,
                                const char *streamid)
 {
     (void)opaque;

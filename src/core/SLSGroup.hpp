@@ -24,22 +24,23 @@
 
 #pragma once
 
+#include <list>
 #include <map>
+#include <memory>
 
 #include "SLSEpollThread.hpp"
 #include "SLSRoleList.hpp"
 #include "SLSRole.hpp"
 #include "SLSMapRelay.hpp"
 
-
 /**
  * CSLSGroup , group of players, publishers and listener
  */
-class CSLSGroup : public CSLSEpollThread
+class CSLSGroup final : public CSLSEpollThread
 {
 public:
     CSLSGroup();
-    ~CSLSGroup();
+    ~CSLSGroup() override;
 
     int start();
     int stop();
@@ -49,18 +50,18 @@ public:
     void set_worker_connections(unsigned int n);
     void set_worker_number(int n);
 
-    virtual int handler();
+    virtual int handler() override;
 
     void set_stat_post_interval(int interval);
     void get_stat_info(vector<stat_info_t> &info);
 
 protected:
-    virtual void clear();
+    virtual void clear() override;
 
 private:
     CSLSRoleList *m_list_role;
-    std::list<CSLSRole *> m_list_wait_http_role;
-    std::map<int, CSLSRole *> m_map_role;
+    std::list<std::shared_ptr<CSLSRole>> m_list_wait_http_role;
+    std::map<int, std::shared_ptr<CSLSRole>> m_map_role;
     std::list<CSLSRelayManager *> m_list_reconnect_relay_manager;
 
     void idle_check();
@@ -71,6 +72,7 @@ private:
     void check_reconnect_relay();
     void check_invalid_sock();
     void check_new_role();
+    void reap_unadopted_backlog();
     void check_wait_http_role();
 
     unsigned int m_worker_connections;

@@ -28,16 +28,14 @@
 #include "SLSAudioGapFiller.hpp"
 
 // Minimal silent AAC payload - single channel element with all-zero spectral data
-static const uint8_t SILENT_AAC_PAYLOAD[] = {
-    0x21, 0x10, 0x05, 0x00, 0xA0, 0x19
-};
+static const uint8_t SILENT_AAC_PAYLOAD[] = {0x21, 0x10, 0x05, 0x00, 0xA0, 0x19};
 static const int SILENT_AAC_PAYLOAD_LEN = sizeof(SILENT_AAC_PAYLOAD);
 
 bool SLSAudioGapFiller::is_supported_audio(int stream_type)
 {
     return stream_type == 0x0F || stream_type == 0x11 || // AAC
            stream_type == 0x03 || stream_type == 0x04 || // MP3
-           stream_type == STREAM_TYPE_PRIVATE_DATA;       // Opus (via descriptor)
+           stream_type == STREAM_TYPE_PRIVATE_DATA;      // Opus (via descriptor)
 }
 
 bool SLSAudioGapFiller::is_opus_audio(const audio_track_info *track)
@@ -105,10 +103,10 @@ bool SLSAudioGapFiller::detect_mp3_format(const uint8_t *es_data, int es_len, au
 
     // Parse MPEG audio header
     int mpeg_version = (es_data[1] >> 3) & 0x03; // 00=2.5, 01=reserved, 10=2, 11=1
-    int layer = (es_data[1] >> 1) & 0x03;         // 01=Layer III, 10=Layer II, 11=Layer I
+    int layer = (es_data[1] >> 1) & 0x03;        // 01=Layer III, 10=Layer II, 11=Layer I
     int bitrate_index = (es_data[2] >> 4) & 0x0F;
     int sr_index = (es_data[2] >> 2) & 0x03;
-    int channel_mode = (es_data[3] >> 6) & 0x03;  // 00=stereo, 01=joint, 10=dual, 11=mono
+    int channel_mode = (es_data[3] >> 6) & 0x03; // 00=stereo, 01=joint, 10=dual, 11=mono
 
     if (mpeg_version == 1 || layer == 0 || sr_index == 3 || bitrate_index == 0 || bitrate_index == 15)
         return false; // reserved/invalid values
@@ -132,8 +130,9 @@ bool SLSAudioGapFiller::detect_mp3_format(const uint8_t *es_data, int es_len, au
     at->bitrate_index = bitrate_index;
     at->format_detected = true;
 
-    spdlog::info("SLSAudioGapFiller: detected MP3 format on PID={} - mpeg_ver={}, layer={}, sample_rate={}Hz, channels={}",
-                 at->pid, mpeg_version, layer, at->sample_rate, at->channels);
+    spdlog::info(
+        "SLSAudioGapFiller: detected MP3 format on PID={} - mpeg_ver={}, layer={}, sample_rate={}Hz, channels={}",
+        at->pid, mpeg_version, layer, at->sample_rate, at->channels);
     return true;
 }
 
@@ -153,8 +152,8 @@ bool SLSAudioGapFiller::detect_opus_format(const uint8_t *es_data, int es_len, a
     at->channels = 2; // stereo is most common; the actual channel count doesn't affect silence generation
     at->format_detected = true;
 
-    spdlog::info("SLSAudioGapFiller: detected Opus format on PID={} - sample_rate={}Hz, channels={}",
-                 at->pid, at->sample_rate, at->channels);
+    spdlog::info("SLSAudioGapFiller: detected Opus format on PID={} - sample_rate={}Hz, channels={}", at->pid,
+                 at->sample_rate, at->channels);
     return true;
 }
 
@@ -169,11 +168,7 @@ bool SLSAudioGapFiller::detect_format(const uint8_t *es_data, int es_len, audio_
     return false;
 }
 
-int SLSAudioGapFiller::build_silent_adts_frame(
-    uint8_t *out_buf,
-    int profile,
-    int sample_rate_index,
-    int channel_config)
+int SLSAudioGapFiller::build_silent_adts_frame(uint8_t *out_buf, int profile, int sample_rate_index, int channel_config)
 {
     int frame_len = 7 + SILENT_AAC_PAYLOAD_LEN;
 
@@ -190,9 +185,7 @@ int SLSAudioGapFiller::build_silent_adts_frame(
     return frame_len;
 }
 
-int SLSAudioGapFiller::build_silent_mp3_frame(
-    uint8_t *out_buf,
-    const audio_track_info *track)
+int SLSAudioGapFiller::build_silent_mp3_frame(uint8_t *out_buf, const audio_track_info *track)
 {
     // Build a valid MP3 frame header with zero audio data (silence)
     // MPEG-1 Layer III frame structure:
@@ -239,9 +232,7 @@ int SLSAudioGapFiller::build_silent_mp3_frame(
     return frame_size;
 }
 
-int SLSAudioGapFiller::build_silent_opus_frame(
-    uint8_t *out_buf,
-    const audio_track_info *track)
+int SLSAudioGapFiller::build_silent_opus_frame(uint8_t *out_buf, const audio_track_info *track)
 {
     // Opus silent frame: a single-byte Opus control header for MPEG-TS,
     // followed by a minimal Opus silence packet.
@@ -279,11 +270,8 @@ void SLSAudioGapFiller::write_pes_pts(uint8_t *buf, int64_t pts, int marker_bits
     buf[4] = (((pts) & 0x7F) << 1) | 1;
 }
 
-void SLSAudioGapFiller::build_silent_ts_packet(
-    uint8_t *out_packet,
-    const audio_track_info *track,
-    int64_t pts,
-    uint8_t &cc)
+void SLSAudioGapFiller::build_silent_ts_packet(uint8_t *out_packet, const audio_track_info *track, int64_t pts,
+                                               uint8_t &cc)
 {
     memset(out_packet, 0xFF, TS_PACK_LEN);
 
@@ -293,8 +281,8 @@ void SLSAudioGapFiller::build_silent_ts_packet(
 
     if (track->stream_type == 0x0F || track->stream_type == 0x11)
     {
-        audio_frame_len = build_silent_adts_frame(
-            audio_frame, track->profile, track->sample_rate_index, track->channel_config);
+        audio_frame_len =
+            build_silent_adts_frame(audio_frame, track->profile, track->sample_rate_index, track->channel_config);
     }
     else if (track->stream_type == 0x03 || track->stream_type == 0x04)
     {
@@ -363,11 +351,8 @@ void SLSAudioGapFiller::build_silent_ts_packet(
     memcpy(out_packet + pos, audio_frame, audio_frame_len);
 }
 
-std::vector<uint8_t> SLSAudioGapFiller::generate_gap_packets(
-    const audio_track_info *track,
-    int64_t last_pts,
-    int64_t current_pts,
-    uint8_t &cc)
+std::vector<uint8_t> SLSAudioGapFiller::generate_gap_packets(const audio_track_info *track, int64_t last_pts,
+                                                             int64_t current_pts, uint8_t &cc)
 {
     std::vector<uint8_t> result;
 
@@ -397,8 +382,8 @@ std::vector<uint8_t> SLSAudioGapFiller::generate_gap_packets(
     if (num_gap_frames > MAX_GAP_FRAMES)
         num_gap_frames = MAX_GAP_FRAMES;
 
-    spdlog::debug("SLSAudioGapFiller: PID={} filling {} silent frames ({}Hz, type={:#x}), pts_delta={}",
-                  track->pid, num_gap_frames, track->sample_rate, track->stream_type, pts_delta);
+    spdlog::debug("SLSAudioGapFiller: PID={} filling {} silent frames ({}Hz, type={:#x}), pts_delta={}", track->pid,
+                  num_gap_frames, track->sample_rate, track->stream_type, pts_delta);
 
     result.resize(num_gap_frames * TS_PACK_LEN);
 

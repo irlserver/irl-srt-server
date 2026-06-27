@@ -23,6 +23,7 @@ set(sls_core_files
 	SLSEpollThread.hpp
 	SLSGroup.cpp
 	SLSGroup.hpp
+	SLSHandle.hpp
 	SLSListenerCore.cpp
 	SLSListenerAuth.cpp
 	SLSListenerConfig.cpp

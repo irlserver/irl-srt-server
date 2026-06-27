@@ -25,6 +25,7 @@
 #pragma once
 
 #include <pthread.h>
+#include <atomic>
 
 /**
  * CSLSThread , the base thread class
@@ -43,7 +44,14 @@ public:
     virtual int work();
 
 protected:
-    bool m_exit;
+    // Worker-loop exit flag. Written by stop() (release) on the controlling
+    // thread and by CSLSGroup::handler() (release) on the worker itself;
+    // read by is_exit() (acquire) from the manager thread and by the worker
+    // loop predicate (acquire). Atomic because the write and the read happen
+    // on different threads — a plain bool here is a data race (TSan-flagged)
+    // with no happens-before edge guaranteeing the worker ever observes the
+    // stop request. release/acquire publishes the request without a lock.
+    std::atomic<bool> m_exit{false};
     pthread_t m_th_id;
 
     virtual void clear();

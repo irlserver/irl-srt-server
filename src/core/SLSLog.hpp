@@ -49,7 +49,7 @@ struct sls_log_config_t
     int summary_interval_sec;
     bool session_ids_enabled;
     bool json_format;
-    
+
     // Per-category log levels (nullptr means use global level)
     spdlog::level::level_enum category_levels[static_cast<int>(SLSLogCategory::COUNT)];
     bool category_level_set[static_cast<int>(SLSLogCategory::COUNT)];
@@ -78,17 +78,17 @@ int sls_set_category_log_level(SLSLogCategory category, const char *log_level);
 /**
  * Get current log configuration
  */
-sls_log_config_t& sls_get_log_config();
+sls_log_config_t &sls_get_log_config();
 
 /**
  * Get global rate limiter
  */
-CSLSLogRateLimiter& sls_get_rate_limiter();
+CSLSLogRateLimiter &sls_get_rate_limiter();
 
 /**
  * Get global summary logger
  */
-CSLSSummaryLogger& sls_get_summary_logger();
+CSLSSummaryLogger &sls_get_summary_logger();
 
 /**
  * Check if category should be logged at given level

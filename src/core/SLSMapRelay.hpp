@@ -44,7 +44,7 @@ public:
 
 private:
     CSLSRWLock m_rwclock;
-    std::map<std::string, CSLSRelayManager *> m_map_relay_manager; //stream_name: relay_manager
+    std::map<std::string, CSLSRelayManager *> m_map_relay_manager; // stream_name: relay_manager
 
-    std::map<std::string, SLS_RELAY_INFO *> m_map_relay_info; //uplive: relay_conf_info
+    std::map<std::string, SLS_RELAY_INFO *> m_map_relay_info; // uplive: relay_conf_info
 };
