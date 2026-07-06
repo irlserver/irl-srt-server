@@ -1,0 +1,19 @@
+tools/sls-diag-scrape.sh
+  s_8f426a2b8ec122::t_051ed5fba8021c 1-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "943dbb2c38e2ddc2cf7a0c3c6192d01c5784ef82",
+  "prompts": {},
+  "sessions": {
+    "s_8f426a2b8ec122": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d64d31f-5b9b-446b-802c-a4ddeef054c9",
+        "model": "unknown"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
