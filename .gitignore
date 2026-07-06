@@ -18,3 +18,4 @@ fuzzing/
 .vscode/
 /.claude
 /build-linux
+/build-*
