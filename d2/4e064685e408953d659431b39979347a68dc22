@@ -1,0 +1,44 @@
+ChangeLog.md
+  s_8f426a2b8ec122::t_6acea57a4f256c 40-42
+  s_8f426a2b8ec122::t_ac928f04cd8f9a 72
+src/core/SLSRole.cpp
+  s_8f426a2b8ec122::t_c26f2f818cf1b0 693-702
+  s_8f426a2b8ec122::t_f1629207d2867e 185-186,207-209,675-680,989-1002
+src/core/SLSMapData.cpp
+  s_8f426a2b8ec122::t_148546a3d1a33c 83-93,100-101
+  s_8f426a2b8ec122::t_44ac448e117be5 186-218
+src/core/SLSPublisher.cpp
+  s_8f426a2b8ec122::t_0607b5f5a5f1b3 121-123
+  s_8f426a2b8ec122::t_e88c792e8eb169 118-120
+  s_8f426a2b8ec122::t_d92c1f58f9f6d4 114-117
+src/core/SLSRole.hpp
+  s_8f426a2b8ec122::t_9b195f44011d2b 386
+  s_8f426a2b8ec122::t_ec45442154b795 69-79
+  s_8f426a2b8ec122::t_f6f3d69251dcca 214-225
+src/core/SLSGroup.cpp
+  s_8f426a2b8ec122::t_fdaf0165a0cac8 452,454-455,498-500
+src/core/SLSMapData.hpp
+  s_8f426a2b8ec122::t_fa75923cad576c 102-109
+src/core/SLSRecycleArray.cpp
+  s_8f426a2b8ec122::t_b837f06f1b613a 42-52,59-60,199-205,283-313
+src/core/SLSRecycleArray.hpp
+  s_8f426a2b8ec122::t_cdb6e1ce65a672 73-96,118-123
+tests/test_recycle_array.cpp
+  s_8f426a2b8ec122::t_7873880c9e90f4 106-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d24e064685e408953d659431b39979347a68dc22",
+  "prompts": {},
+  "sessions": {
+    "s_8f426a2b8ec122": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d64d31f-5b9b-446b-802c-a4ddeef054c9",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
