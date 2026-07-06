@@ -449,10 +449,10 @@ void CSLSGroup::check_invalid_sock()
         int state = role->get_state(cur_time_ms);
         if (SLS_RS_INVALID == state || SLS_RS_UNINIT == state)
         {
-            spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, invalid sock={:d}, "
+            spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={} stream={}, invalid sock={:d}, "
                          "state={:d}, role_map.size={:d}.",
-                         fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()), role->get_fd(),
-                         state, m_map_role.size());
+                         fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()),
+                         role->get_map_data_key(), role->get_fd(), state, m_map_role.size());
             // check relay
             if (role->is_reconnect())
             {
@@ -495,8 +495,9 @@ void CSLSGroup::check_invalid_sock()
             }
             else
             {
-                spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={}, delete.", fmt::ptr(this),
-                             m_worker_number, role->get_role_name(), fmt::ptr(role.get()));
+                spdlog::info("[{}] CSLSGroup::check_invalid_sock, worker_number={:d}, {}={} stream={}, delete.",
+                             fmt::ptr(this), m_worker_number, role->get_role_name(), fmt::ptr(role.get()),
+                             role->get_map_data_key());
             }
             m_map_role.erase(it_erase);
             continue;

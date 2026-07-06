@@ -103,6 +103,52 @@ TEST_CASE("CSLSRecycleArray: reader that fell behind by > ring size is resynced 
     CHECK(ring.get_overrun_count() >= 1);
 }
 
+TEST_CASE("CSLSRecycleArray: reader backlog and high-water track how far a reader is behind")
+{
+    CSLSRecycleArray ring;
+    ring.setSize(4096);
+
+    SLSRecycleArrayID id = fresh_reader();
+    // A reader that has not anchored reports no backlog (avoids a bogus huge
+    // value from the uninitialised nDataCount before the first snapshot).
+    CHECK(ring.get_reader_backlog(&id) == 0);
+    anchor(ring, id);
+    CHECK(ring.get_reader_backlog(&id) == 0);
+
+    char chunk[100];
+    std::memset(chunk, 'Q', sizeof(chunk));
+    CHECK(ring.put(chunk, sizeof(chunk)) == (int)sizeof(chunk));
+
+    // Writer is now 100 bytes ahead of this reader: that is its backlog.
+    CHECK(ring.get_reader_backlog(&id) == 100);
+
+    char out[256];
+    CHECK(ring.get(out, sizeof(out), &id, 0) == 100);
+
+    // Drained: caught up to the write head, backlog back to 0, but the
+    // high-water remembers the peak for /stats.
+    CHECK(ring.get_reader_backlog(&id) == 0);
+    CHECK(ring.get_max_reader_backlog(false) >= 100);
+
+    // clear=true returns the peak and resets, so the next interval starts fresh.
+    CHECK(ring.get_max_reader_backlog(true) >= 100);
+    CHECK(ring.get_max_reader_backlog(false) == 0);
+}
+
+TEST_CASE("CSLSRecycleArray: viewer backpressure events accumulate and clear")
+{
+    CSLSRecycleArray ring;
+    ring.setSize(1024);
+
+    CHECK(ring.get_viewer_backpressure_events(false) == 0);
+    ring.report_viewer_backpressure();
+    ring.report_viewer_backpressure();
+    CHECK(ring.get_viewer_backpressure_events(false) == 2);
+    // clear=true drains the counter so /stats can report a per-interval delta.
+    CHECK(ring.get_viewer_backpressure_events(true) == 2);
+    CHECK(ring.get_viewer_backpressure_events(false) == 0);
+}
+
 TEST_CASE("CSLSRecycleArray: zero-length put is rejected")
 {
     CSLSRecycleArray ring;

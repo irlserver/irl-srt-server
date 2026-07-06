@@ -80,19 +80,25 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
     // Decide the ring size up front (without resizing yet) so the memory cap
     // can be enforced before we commit the (potentially large) allocation.
     // The CSLSRecycleArray default (get_data_size()) is the floor; a bitrate +
-    // latency hint grows it so a subscriber falling up to one full SRT latency
-    // window behind is still safe from overruns. We multiply by 2 to give a
-    // viewer's effective lag headroom against publisher-side jitter. Skip the
-    // growth if the caller passed no hint — the default is enough for typical
-    // bitrates.
+    // latency hint grows it so a subscriber falling up to one SRT latency window
+    // behind is still safe from overruns. Sized at 1x the latency window (was
+    // 2x): the ring is a hand-off buffer, NOT the jitter buffer — the viewer's
+    // own SRT socket holds its latency window and drops late packets via
+    // TLPKTDROP. Oversizing the ring only lets a slow viewer bank multiple
+    // seconds of stale data that then replays as a rewind. One latency window is
+    // enough to ride out publisher-side jitter without overrun; anything beyond
+    // it should be skipped forward at the socket, not stored. Skip the growth if
+    // the caller passed no hint — the default is enough for typical bitrates.
+    // Watch /stats ringOverruns after changing this: 0 means the ring is still
+    // large enough; sustained growth means it was cut too small for the bitrate.
     int64_t intended_size = (int64_t)data_array->get_data_size();
     if (max_bitrate_kbps > 0 && latency_ms > 0)
     {
         // bytes_per_sec is bounded by ~max_bitrate_kbps (config caps in
         // SLSPublisher.hpp limit it to 1_000_000 kbps = 125 MB/s).
         int64_t bytes_per_sec = (int64_t)max_bitrate_kbps * 1000 / 8;
-        // 2x the latency window in seconds, clamped to a minimum of 1s.
-        int64_t window_secs = (int64_t)latency_ms * 2 / 1000;
+        // 1x the latency window in seconds, clamped to a minimum of 1s.
+        int64_t window_secs = (int64_t)latency_ms / 1000;
         if (window_secs < 1)
             window_secs = 1;
         int64_t target_bytes = bytes_per_sec * window_secs;
@@ -175,6 +181,39 @@ int64_t CSLSMapData::get_overrun_count(const char *key)
     if (it == m_map_array.end() || it->second == NULL)
         return -1;
     return it->second->get_overrun_count();
+}
+
+int64_t CSLSMapData::get_max_reader_backlog(const char *key, bool clear)
+{
+    if (!key)
+        return -1;
+    CSLSLock lock(&m_rwclock, false);
+    auto it = m_map_array.find(std::string_view{key});
+    if (it == m_map_array.end() || it->second == NULL)
+        return -1;
+    return it->second->get_max_reader_backlog(clear);
+}
+
+void CSLSMapData::report_viewer_backpressure(const char *key)
+{
+    if (!key)
+        return;
+    CSLSLock lock(&m_rwclock, false);
+    auto it = m_map_array.find(std::string_view{key});
+    if (it == m_map_array.end() || it->second == NULL)
+        return;
+    it->second->report_viewer_backpressure();
+}
+
+int64_t CSLSMapData::get_viewer_backpressure_events(const char *key, bool clear)
+{
+    if (!key)
+        return -1;
+    CSLSLock lock(&m_rwclock, false);
+    auto it = m_map_array.find(std::string_view{key});
+    if (it == m_map_array.end() || it->second == NULL)
+        return -1;
+    return it->second->get_viewer_backpressure_events(clear);
 }
 
 int CSLSMapData::remove(char *key)

@@ -37,6 +37,9 @@ The entries below cover work done in the IRL fork on top of the upstream `rstula
 - `api_keys` directive supports comma separated keys with constant time comparison.
 - Atomic stats counters and a read locked `put()` so `/stats` no longer stalls the data path.
 - Replaced the blocking HTTP client with an `AsyncHttpClient` (thread pool backed) for stats posting, player key validation, and `on_event_url` callbacks.
+- New per stream `/stats` diagnostics for the jump/replay class of viewer issue: `maxReaderBacklogBytes` and `maxReaderBacklogMs` (furthest any viewer fell behind the ring write head, the size of a potential catch up burst) alongside the existing `ringOverruns`.
+- Fixed `sendBackpressure`, which was read off the publisher role (which never runs the egress write path) and so was structurally always zero. It is now aggregated across a stream's viewers via the shared ring, so it reflects real viewer backpressure.
+- Teardown log lines (`check_invalid_sock`, `get_state`) now carry `stream=<name>` for grep based correlation across many concurrent streams, and a flight recorder line at publisher teardown records the session's peak backlog, overruns, and viewer backpressure before the ring is freed (survives publisher reconnect).
 
 **Logging redesign**
 
@@ -66,6 +69,7 @@ The entries below cover work done in the IRL fork on top of the upstream `rstula
 - Player latency clamped via `SRTO_PEERLATENCY`; bumped UDP buffers; explicit `SRTO_TLPKTDROP`.
 - Disconnect viewers stuck in continuous backpressure; handle `EASYNCSND` backpressure without disconnecting healthy viewers.
 - Race free `m_nDataCount`, write locked `setSize` on the publisher ring; size publisher ring per bitrate with reader overrun detection.
+- Egress tuned to stop live viewers replaying stale video. The publisher ring is sized at 1x the latency window instead of 2x, and `MAX_EGRESS_BATCHES` is reduced from 8 to 2, so a viewer that falls behind is skipped forward per packet by SRT `TLPKTDROP` at the socket rather than catching up in a large burst of old frames (which a viewer perceives as a jump back then skip forward). The ring is treated as a small hand off buffer, not a jitter buffer; the SRT socket holds each viewer's latency window.
 - Compile out per packet `SPDLOG_TRACE` / `SPDLOG_DEBUG` on the data path; drop per packet string allocations.
 - Race and leak fixes on the accept path (close socket and free `addrinfo` on `libsrt_setup` errors; stop leaking `stat_info_t` per accepted role; null check `strdup(sid)`; kick publisher via atomic flag in `disconnect_stream`).
 - Removed HLS recording.

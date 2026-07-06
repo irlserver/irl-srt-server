@@ -99,6 +99,14 @@ public:
     // (writer lapped the reader). Returns -1 if `key` is unknown.
     int64_t get_overrun_count(const char *key);
 
+    // Diagnostic gauges for the stream `key`, forwarded to its ring. See the
+    // matching CSLSRecycleArray accessors. Return -1 (getters) / no-op
+    // (reporter) if `key` is unknown. `clear` resets the high-water so /stats
+    // can report a per-poll-interval peak.
+    int64_t get_max_reader_backlog(const char *key, bool clear = false);
+    void report_viewer_backpressure(const char *key);
+    int64_t get_viewer_backpressure_events(const char *key, bool clear = false);
+
     int put(char *key, char *data, int len, int64_t *last_read_time = NULL);
     void set_audio_gap_fill(const char *key, bool enabled);
     bool get_audio_gap_stats(const char *key, AudioGapStreamStats &stats, int clear = 0);

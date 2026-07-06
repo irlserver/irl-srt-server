@@ -445,15 +445,30 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear)
     // subscriber's read position was forcibly resynced to the write head
     // to avoid handing back corrupted wrapped-around data.
     ret["ringOverruns"] = role->get_ring_overrun_count();
-    // Egress send-buffer backpressure events. Counts how often
-    // srt_sendmsg to this role returned EASYNCSND (SRT send buffer
-    // full). Each event means the viewer's link could not absorb a
-    // write burst and SLS deferred the remainder to the next epoll
-    // wake instead of disconnecting the viewer. Steady growth on a
-    // player role indicates that viewer's link is under-provisioned
-    // for the stream bitrate or that the player negotiated too small
-    // a latency window.
-    ret["sendBackpressure"] = role->get_send_backpressure_count();
+    // Egress send-buffer backpressure events, aggregated across every viewer of
+    // this stream. Counts how often srt_sendmsg to a viewer returned EASYNCSND
+    // (SRT send buffer full) — the viewer's link could not absorb a write burst,
+    // so SLS deferred the remainder to the next epoll wake instead of dropping
+    // the viewer. Sourced from the shared publisher ring, NOT the publisher
+    // role's own per-role counter: /stats enumerates only publishers, and a
+    // publisher never runs the egress write path, so that counter was always 0.
+    // Steady growth means viewers are falling behind — under-provisioned links
+    // for the stream bitrate, or a viewer latency window that is too small.
+    ret["sendBackpressure"] = role->get_viewer_backpressure_events(clear);
+    // Furthest any viewer of this stream fell behind the publisher ring write
+    // head (bytes) since the last clear. This is the catch-up burst a viewer
+    // will drain when it recovers, which the viewer perceives as a time-skip /
+    // "replay". Divide by the stream bitrate for a millisecond figure
+    // (maxReaderBacklogMs below). 0 on a healthy stream where every viewer keeps
+    // up with the write head.
+    int64_t max_backlog_bytes = role->get_max_reader_backlog(clear);
+    ret["maxReaderBacklogBytes"] = max_backlog_bytes;
+    // Same figure expressed as playout time, so operators do not have to do the
+    // bitrate math. ms = bytes * 8 / kbps. Only meaningful once a bitrate is
+    // known; reported as 0 otherwise.
+    int bitrate_kbps = role->get_bitrate();
+    ret["maxReaderBacklogMs"] =
+        (max_backlog_bytes > 0 && bitrate_kbps > 0) ? (int64_t)(max_backlog_bytes * 8 / bitrate_kbps) : 0;
 
     ret["audioGapFill"] = json::object();
     ret["audioGapFill"]["enabled"] = audio_gap_stats.enabled;

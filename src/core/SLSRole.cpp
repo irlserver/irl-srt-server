@@ -182,8 +182,8 @@ int CSLSRole::get_state(int64_t cur_time_ms)
     // Acquire pairs with the release store in request_kick().
     if (m_kick_requested.load(std::memory_order_acquire))
     {
-        spdlog::info("[{}] CSLSRole::get_state, kick requested for {}, fd={:d}, call invalid_srt.", fmt::ptr(this),
-                     m_role_name, get_fd());
+        spdlog::info("[{}] CSLSRole::get_state, kick requested for {} stream={}, fd={:d}, call invalid_srt.",
+                     fmt::ptr(this), m_role_name, m_map_data_key, get_fd());
         m_state = SLS_RS_INVALID;
         invalid_srt();
         return m_state;
@@ -204,7 +204,9 @@ int CSLSRole::get_state(int64_t cur_time_ms)
     int ret = get_sock_state();
     if (SLS_ERROR == ret || SRTS_BROKEN == ret || SRTS_CLOSED == ret || SRTS_NONEXIST == ret)
     {
-        spdlog::info("[{}] CSLSRole::get_state, get_sock_state, ret={:d}, call invalid_srt.", fmt::ptr(this), ret);
+        spdlog::info("[{}] CSLSRole::get_state, {} stream={}, get_sock_state ret={:d} "
+                     "(2=broken/peer-closed, 3=closed, 4=nonexist), call invalid_srt.",
+                     fmt::ptr(this), m_role_name, m_map_data_key, ret);
         if (SRTS_BROKEN == ret || SRTS_CLOSED == ret || SRTS_NONEXIST == ret)
         {
             CSLSSrt::libsrt_neterrno();
@@ -670,6 +672,12 @@ int CSLSRole::handler_write_data()
                     if (err_no == SRT_EASYNCSND)
                     {
                         m_send_backpressure_count.fetch_add(1, std::memory_order_relaxed);
+                        // Also aggregate onto the shared publisher ring so
+                        // /stats (which enumerates only publishers) surfaces
+                        // real viewer backpressure instead of the publisher
+                        // role's structurally-zero per-role counter.
+                        if (m_map_data != NULL && strlen(m_map_data_key) != 0)
+                            m_map_data->report_viewer_backpressure(m_map_data_key);
 
                         // Stuck-viewer detection. The per-packet success
                         // path above has already reset m_backpressure_stuck_since_ms
@@ -682,6 +690,16 @@ int CSLSRole::handler_write_data()
                         // means the viewer's link cannot sustain the stream
                         // and they would otherwise hold a publisher-ring
                         // read position open indefinitely.
+                        // Sustained zero-progress backpressure means the viewer's
+                        // link cannot carry the stream. We do NOT drop or re-anchor
+                        // here: late packets are dropped at the SRT socket by
+                        // TLPKTDROP (a clean, per-packet skip-forward), and the
+                        // small hand-off ring keeps the reader near the live head
+                        // so there is no multi-second backlog to replay. This
+                        // timer only guards the pathological case — a viewer that
+                        // makes no progress at all for 3x its latency window — by
+                        // disconnecting it so it cannot pin a ring read position
+                        // open forever.
                         int64_t stuck_timeout_ms = backpressure_stuck_timeout_ms();
                         if (m_backpressure_stuck_since_ms == 0)
                         {
@@ -966,6 +984,20 @@ int64_t CSLSRole::get_ring_overrun_count() const
     if (m_map_data == NULL || strlen(m_map_data_key) == 0)
         return -1;
     return m_map_data->get_overrun_count(m_map_data_key);
+}
+
+int64_t CSLSRole::get_max_reader_backlog(bool clear) const
+{
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
+        return -1;
+    return m_map_data->get_max_reader_backlog(m_map_data_key, clear);
+}
+
+int64_t CSLSRole::get_viewer_backpressure_events(bool clear) const
+{
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
+        return -1;
+    return m_map_data->get_viewer_backpressure_events(m_map_data_key, clear);
 }
 
 int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds, float spike_tolerance)
