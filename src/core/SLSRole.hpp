@@ -66,12 +66,17 @@ const int UNLIMITED_TIMEOUT = -1;
 
 // Max publisher-ring batches drained per handler_write_data() call.
 // Egress is driven by the worker's periodic pass (players are no longer
-// permanently armed for SRT_EPOLL_OUT), so without an inner drain loop
-// throughput would be capped at one DATA_BUFF_SIZE per worker wakeup.
-// 8 * DATA_BUFF_SIZE (~168 KB) per call lets a catching-up viewer pull a
-// large backlog quickly while still bounding how long one role holds the
-// worker before it yields to the publisher read and the other roles.
-const int MAX_EGRESS_BATCHES = 8;
+// permanently armed for SRT_EPOLL_OUT), so a small inner drain loop keeps
+// throughput from being capped at one DATA_BUFF_SIZE per worker wakeup at
+// high bitrate. Deliberately small (2 * ~21 KB = ~42 KB per call, ~2x
+// realtime headroom at 20 Mbps): a LIVE viewer must not "catch up" by
+// bursting a large backlog out — that is exactly what a viewer perceives as
+// a replay/rewind. When a viewer falls behind, we want it to stay behind and
+// let the SRT socket's TLPKTDROP skip it forward per-packet, not to fire a
+// ~20x burst of stale frames (the old value of 8 = ~168 KB/call did this).
+// If high-bitrate viewers under-drain (ring backlog grows in /stats without
+// a slow-link cause), nudge this up; do not raise it to "help" a slow viewer.
+const int MAX_EGRESS_BATCHES = 2;
 /**
  * CSLSRole , the base of player, publisher and listener
  */
@@ -205,6 +210,18 @@ public:
     // "fixes itself" on subscriber reconnect. Returns -1 if not bound to
     // a map_data key.
     int64_t get_ring_overrun_count() const;
+
+    // Diagnostic gauges forwarded to this role's publisher ring. Meaningful on
+    // the publisher role (which owns the ring); every viewer of the stream
+    // updates the same underlying counters, so publisher /stats reflects the
+    // whole stream. Return -1 if not bound to a ring. get_max_reader_backlog is
+    // the bytes the furthest-behind viewer fell behind the write head (convert
+    // to ms with the stream bitrate); get_viewer_backpressure_events is the
+    // aggregate EASYNCSND count across viewers (the per-role counter below is
+    // never surfaced because /stats enumerates only publishers). `clear` resets
+    // the gauge so /stats can report a per-interval peak/delta.
+    int64_t get_max_reader_backlog(bool clear = false) const;
+    int64_t get_viewer_backpressure_events(bool clear = false) const;
 
     // Count of times handler_write_data() hit SRT send-buffer
     // backpressure (errno EASYNCSND) on this role. Each event means a
@@ -366,6 +383,7 @@ protected:
         int64_t scaled = (int64_t)m_latency * kBackpressureStuckLatencyMultiple;
         return scaled > kBackpressureStuckFloorMs ? scaled : kBackpressureStuckFloorMs;
     }
+
     stat_info_t m_stat_info_base;
     std::shared_ptr<std::shared_future<AsyncHttpResponse>> m_http_future;
 

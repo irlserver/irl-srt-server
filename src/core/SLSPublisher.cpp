@@ -111,6 +111,16 @@ int CSLSPublisher::uninit()
 
     if (m_map_data)
     {
+        // Flight recorder: the diagnostic gauges live on the ring we are about
+        // to free, so publisher takeover / reconnect would otherwise erase the
+        // one session's data an operator most wants (the streamer got fed up and
+        // reconnected). Flush the ring's final peaks to a single greppable line
+        // (stream=<name>) before remove() drops it. One line per session end, so
+        // it stays quiet even with many concurrent streams.
+        spdlog::info("[{}] CSLSPublisher::uninit, session end stream={}, peakReaderBacklogBytes={}, "
+                     "ringOverruns={}, viewerBackpressure={}.",
+                     fmt::ptr(this), m_map_data_key, get_max_reader_backlog(false), get_ring_overrun_count(),
+                     get_viewer_backpressure_events(false));
         ret = m_map_data->remove(m_map_data_key);
         spdlog::info("[{}] CSLSPublisher::uninit, removed publisher from m_map_data, ret={:d}.", fmt::ptr(this), ret);
     }

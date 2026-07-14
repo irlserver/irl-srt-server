@@ -39,12 +39,25 @@
 // fit (see CSLSMapData::add overload).
 const int DEFAULT_MAX_DATA_SIZE = 8 * 1024 * 1024;
 
+// Monotonic-max update of an atomic without a lock. Used off the read path to
+// keep a high-water gauge; relaxed ordering is fine (the value is diagnostic and
+// has no happens-before relationship with the data it describes).
+static void atomic_store_max(std::atomic<int64_t> &slot, int64_t candidate)
+{
+    int64_t prev = slot.load(std::memory_order_relaxed);
+    while (candidate > prev && !slot.compare_exchange_weak(prev, candidate, std::memory_order_relaxed))
+    {
+    }
+}
+
 CSLSRecycleArray::CSLSRecycleArray()
 {
     m_nDataSize = DEFAULT_MAX_DATA_SIZE;
     m_nWritePos = 0;
     m_nDataCount.store(0, std::memory_order_relaxed);
     m_overrun_count.store(0, std::memory_order_relaxed);
+    m_max_reader_backlog.store(0, std::memory_order_relaxed);
+    m_viewer_backpressure_events.store(0, std::memory_order_relaxed);
 
     m_last_read_time.store(sls_gettime_ms(), std::memory_order_relaxed);
 
@@ -183,6 +196,13 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         return SLS_OK;
     }
 
+    // Diagnostic high-water: how far behind the write head this reader was on
+    // entry (i.e. the backlog it is about to drain). A large value means the
+    // reader's next drains will burst out a catch-up, which a viewer perceives
+    // as a time-skip. Non-overrun path only — the overrun case is capped at the
+    // buffer size and already has its own counter. See get_max_reader_backlog.
+    atomic_store_max(m_max_reader_backlog, bytes_since_last_read);
+
     SPDLOG_TRACE(
         "[{}] CSLSRecycleArray::get, read_id->nReadPos={:d}, m_nWritePos={:d}, m_nDataCount={:d}, m_nDataSize={:d}.",
         fmt::ptr(this), read_id->nReadPos, m_nWritePos, cur_data_count, m_nDataSize);
@@ -259,4 +279,35 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
 int64_t CSLSRecycleArray::get_last_read_time()
 {
     return m_last_read_time.load(std::memory_order_acquire);
+}
+
+int64_t CSLSRecycleArray::get_reader_backlog(const SLSRecycleArrayID *read_id) const
+{
+    if (NULL == read_id || read_id->bFirst)
+        return 0;
+    int64_t behind = m_nDataCount.load(std::memory_order_relaxed) - read_id->nDataCount;
+    if (behind < 0)
+        behind = 0;
+    if (behind > m_nDataSize)
+        behind = m_nDataSize;
+    return behind;
+}
+
+int64_t CSLSRecycleArray::get_max_reader_backlog(bool clear)
+{
+    if (clear)
+        return m_max_reader_backlog.exchange(0, std::memory_order_relaxed);
+    return m_max_reader_backlog.load(std::memory_order_relaxed);
+}
+
+void CSLSRecycleArray::report_viewer_backpressure()
+{
+    m_viewer_backpressure_events.fetch_add(1, std::memory_order_relaxed);
+}
+
+int64_t CSLSRecycleArray::get_viewer_backpressure_events(bool clear)
+{
+    if (clear)
+        return m_viewer_backpressure_events.exchange(0, std::memory_order_relaxed);
+    return m_viewer_backpressure_events.load(std::memory_order_relaxed);
 }

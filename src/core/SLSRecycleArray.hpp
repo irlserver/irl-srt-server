@@ -70,6 +70,30 @@ public:
         return m_overrun_count.load(std::memory_order_relaxed);
     }
 
+    // How many bytes this specific reader is behind the write head right now,
+    // i.e. the backlog it would burst out on its next drain. 0 for a reader
+    // that has not yet anchored (bFirst) or has caught up. Clamped to the
+    // buffer size because a reader further behind than that has already been
+    // (or is about to be) overrun-resynced. Lock-free: m_nDataCount is atomic
+    // and read_id is owned by the calling worker thread. Diagnostic only — this
+    // is the metric that answers "is SLS holding a catch-up burst for a viewer".
+    int64_t get_reader_backlog(const SLSRecycleArrayID *read_id) const;
+
+    // High-water of get_reader_backlog seen across ALL readers since the last
+    // clear. This is the per-stream signal an operator polls to see whether any
+    // viewer fell far enough behind that its eventual catch-up drain is bursty
+    // (visible to that viewer as a time-skip). clear=true resets it so /stats
+    // can report a per-interval peak instead of a lifetime max.
+    int64_t get_max_reader_backlog(bool clear = false);
+
+    // Aggregate egress backpressure across the viewers reading this ring. The
+    // per-role counter lived on the player role, but /stats only enumerates
+    // publishers, so it was never surfaced. Players report here (a shared,
+    // publisher-visible object) on each EASYNCSND so publisher /stats can show
+    // real viewer backpressure instead of the publisher role's always-zero one.
+    void report_viewer_backpressure();
+    int64_t get_viewer_backpressure_events(bool clear = false);
+
 private:
     char *m_arrayData;
     int m_nDataSize;
@@ -90,6 +114,12 @@ private:
     // timing.
     std::atomic<int64_t> m_last_read_time{0};
     std::atomic<int64_t> m_overrun_count;
+
+    // Diagnostic gauges (see the public accessors). Written off the read path in
+    // get() and by viewer roles reporting backpressure; read by the /stats HTTP
+    // thread. Atomic, relaxed — purely observational, no ordering requirements.
+    std::atomic<int64_t> m_max_reader_backlog{0};
+    std::atomic<int64_t> m_viewer_backpressure_events{0};
 
     CSLSRWLock m_rwclock;
 };
