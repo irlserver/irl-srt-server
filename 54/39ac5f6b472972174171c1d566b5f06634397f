@@ -1,0 +1,40 @@
+tests/e2e/stats_snapshot.sh
+  s_28b9c14853b820::t_08ab820710730f 90-91
+  s_28b9c14853b820::t_e62598d254cb85 120,127,134
+CLAUDE.md
+  s_28b9c14853b820::t_8eb20b2118cdfc 36
+tests/e2e/normalize-stats.jq
+  s_28b9c14853b820::t_940158508d96f3 11-13,21
+tests/fuzz/gen_seed_corpus.py
+  s_28b9c14853b820::t_9ccf52cd7c3889 127-129
+  s_28b9c14853b820::t_3111b7f5a54541 9-12
+src/core/SLSRole.hpp
+  s_28b9c14853b820::t_c421735452e02b 311-314
+src/core/SLSMapData.hpp
+  s_28b9c14853b820::t_db10033c551651 34
+ChangeLog.md
+  s_28b9c14853b820::t_59fbc7ce876388 29,31
+tests/fuzz/fuzz_ts_parser.cpp
+  s_28b9c14853b820::t_6bc34fcf2ebaaf 18-20
+  s_28b9c14853b820::t_36ef22803a9248 6-9
+tests/test_ts_parser.cpp
+  s_28b9c14853b820::t_501f809786b06e 156-157
+CONFIGURATION.md
+  s_28b9c14853b820::t_a5af0b9c843101 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "5439ac5f6b472972174171c1d566b5f06634397f",
+  "prompts": {},
+  "sessions": {
+    "s_28b9c14853b820": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7553362-c6ed-43ca-87cf-b8ccf1dae1ed",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
