@@ -91,20 +91,3 @@ TEST_CASE("CSLSMapData::clear zeroes the budget for every freed ring")
     CHECK(m.get_stream_count() == 0);
     CHECK(m.get_total_ring_bytes() == 0);
 }
-
-TEST_CASE("CSLSMapData: audio-gap-fill flag survives a hinted (lazy-style) alloc")
-{
-    CSLSMapData m;
-    m.set_caps(0, 0);
-
-    // Mirror the lazy publisher path: add() with a bitrate + latency hint, then
-    // apply the gap-fill flag (as handler_read_data does via on_map_data_set).
-    char k[] = "app/gap";
-    CHECK(m.add(k, 8000 /*kbps*/, 2000 /*ms*/) == SLS_OK);
-    m.set_audio_gap_fill(k, true);
-
-    CSLSMapData::AudioGapStreamStats stats;
-    bool found = m.get_audio_gap_stats(k, stats);
-    CHECK(found);
-    CHECK(stats.enabled);
-}

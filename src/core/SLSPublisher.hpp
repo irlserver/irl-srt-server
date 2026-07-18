@@ -43,7 +43,6 @@ int max_input_bitrate_violation_timeout;
 int max_input_bitrate_spike_tolerance;
 int max_players_per_stream;
 sls_ip_acl_t ip_actions;
-bool audio_gap_fill;
 int push_destination_max;
 // Allow flags: default false (memset 0) means deny, which is the safe default.
 // Operators must explicitly opt in to push to private/self addresses.
@@ -68,7 +67,6 @@ SLS_SET_CONF(app, string, app_player, "live", 1, STR_MAX_LEN - 1),
     SLS_SET_CONF(app, int, max_players_per_stream, "maximum number of players per stream", -1, 10000),
     SLS_SET_CONF2(app, ipset, ip_actions, allow, "allow address(es) to play/publish a stream", 1, 256),
     SLS_SET_CONF2(app, ipset, ip_actions, deny, "deny address(es) from playing/publishing a stream", 1, 256),
-    SLS_SET_CONF(app, bool, audio_gap_fill, "fill audio gaps with silence to prevent OBS audio breaking", 0, 0),
     SLS_SET_CONF(app, int, push_destination_max, "max push destinations per stream from webhook (0=disabled)", 0, 16),
     SLS_SET_CONF(app, bool, push_destination_allow_internal,
                  "allow push destinations resolving to loopback/RFC1918/link-local/ULA (default: deny)", 0, 0),
@@ -109,8 +107,6 @@ public:
     virtual int uninit() override;
 
     virtual int handler() override;
-    virtual void on_map_data_set() override;
-    virtual bool is_audio_gap_fill_enabled() const override;
     // A live external broadcaster is shielded from takeover by a not-yet-proven
     // newcomer; see CSLSRole::is_takeover_protected and the listener handler.
     bool is_takeover_protected() const override

@@ -66,28 +66,6 @@ std::vector<uint8_t> make_pmt(int pmt_pid, int audio_pid)
     pkt[21] = 0x00; // es_info_length = 0
     return pkt;
 }
-
-// Audio TS packet whose adaptation field pushes the PES payload to offset 178,
-// so the 5-byte PTS read at pkt[187..191] would overrun the 188-byte packet
-// unless the MEM-1 bound (pos + 13 < pkt_len) clamps it.
-std::vector<uint8_t> make_audio_overrun(int audio_pid)
-{
-    std::vector<uint8_t> pkt =
-        make_packet(0x40 | ((audio_pid >> 8) & 0x1F), audio_pid & 0xFF, 0x30); // adaptation+payload
-    pkt[4] = 173; // adaptation_field_length -> pos = 4 + 1 + 173 = 178
-    const int pos = 178;
-    pkt[pos + 0] = 0x00;
-    pkt[pos + 1] = 0x00;
-    pkt[pos + 2] = 0x01; // PES start code
-    pkt[pos + 3] = 0xC0; // audio stream_id
-    pkt[pos + 4] = 0x00;
-    pkt[pos + 5] = 0x00; // PES packet length
-    pkt[pos + 6] = 0x80; // PES header flags 1
-    pkt[pos + 7] = 0x80; // PES header flags 2 -> PTS present
-    pkt[pos + 8] = 0x05; // PES_header_data_length
-    pkt[pos + 9] = 0x21; // first PTS byte (pkt[187]); pkt[188..191] are OOB
-    return pkt;
-}
 } // namespace
 
 TEST_CASE("sls_parse_ts_info: crafted PAT section_length=0xFFF stays in bounds")
@@ -175,39 +153,7 @@ TEST_CASE("CSLSMapData::put parses a well-formed PAT+PMT (length-driven, no regr
     memcpy(buf.data(), pat.data(), TS_PACK_LEN);
     memcpy(buf.data() + TS_PACK_LEN, pmt.data(), TS_PACK_LEN);
 
+    // A real PAT+PMT must parse without any out-of-bounds read (the assertion
+    // under -DSLS_SANITIZE=ON) and without put() reporting failure.
     REQUIRE(m.put(key, buf.data(), (int)buf.size()) >= 0);
-
-    CSLSMapData::AudioGapStreamStats stats;
-    REQUIRE(m.get_audio_gap_stats(key, stats));
-    CHECK(stats.pmt_parsed);
-    CHECK(stats.audio_track_count == 1);
-    REQUIRE(stats.tracks.size() == 1);
-    CHECK(stats.tracks[0].pid == 0x101);
-}
-
-TEST_CASE("CSLSMapData::check_audio_gap bounds the PES/PTS read (MEM-1)")
-{
-    CSLSMapData m;
-    m.set_caps(0, 0);
-    char key[] = "app/mem1";
-    REQUIRE(m.add(key) == SLS_OK);
-    m.set_audio_gap_fill(key, true);
-
-    std::vector<uint8_t> pat = make_pat(0x100);
-    std::vector<uint8_t> pmt = make_pmt(0x100, 0x101);
-    std::vector<uint8_t> aud = make_audio_overrun(0x101);
-
-    // Exact 7-packet buffer: a regression reads aud's PTS at buf[1316..1319],
-    // one past the end, which AddressSanitizer flags.
-    std::vector<char> buf(7 * TS_PACK_LEN, 0);
-    memcpy(buf.data() + 0 * TS_PACK_LEN, pat.data(), TS_PACK_LEN);
-    memcpy(buf.data() + 1 * TS_PACK_LEN, pmt.data(), TS_PACK_LEN);
-    memcpy(buf.data() + 6 * TS_PACK_LEN, aud.data(), TS_PACK_LEN);
-
-    REQUIRE(m.put(key, buf.data(), (int)buf.size()) >= 0);
-
-    CSLSMapData::AudioGapStreamStats stats;
-    REQUIRE(m.get_audio_gap_stats(key, stats));
-    CHECK(stats.pmt_parsed);
-    CHECK(stats.audio_track_count == 1);
 }

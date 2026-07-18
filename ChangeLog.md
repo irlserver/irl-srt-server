@@ -26,9 +26,9 @@ The entries below cover work done in the IRL fork on top of the upstream `rstula
 - `max_input_bitrate_kbps` enforces a publisher ceiling with configurable spike tolerance (`max_input_bitrate_spike_tolerance`) and sustained violation timeout (`max_input_bitrate_violation_timeout`).
 - Publishers that sustain violations past the timeout are disconnected.
 
-**Audio gap filling**
+**Audio gap filling (removed)**
 
-- `audio_gap_fill` inserts silent AAC or Opus frames when audio PTS gaps are detected to prevent OBS audio breaking during packet loss. Stats endpoint reports audio gap counters. Iterated fixes for PES continuation handling and CC rewriting.
+- The `audio_gap_fill` directive and its transport level silent frame insertion were removed. Gap concealment now lives in an OBS media source plugin on the playback side, so the server relays the TS opaquely again. This also drops the per publisher `audioGapFill` object from `/stats`.
 
 **HTTP stats and control API**
 

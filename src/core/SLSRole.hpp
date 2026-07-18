@@ -203,7 +203,6 @@ public:
     {
         m_latency = latency;
     }
-    bool get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear = 0) const;
     // Cumulative overrun count for this publisher's ring buffer. Each
     // overrun means a subscriber fell so far behind the writer that the
     // ring lapped them — visible to viewers as a delivery hiccup that
@@ -239,8 +238,6 @@ public:
     int init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds = 30, float spike_tolerance = 2.0f);
     void cleanup_bitrate_limiter();
     CSLSBitrateLimit::BitrateStats get_bitrate_stats() const;
-    virtual void on_map_data_set();
-    virtual bool is_audio_gap_fill_enabled() const;
 
 protected:
     CSLSSrt *m_srt;
@@ -311,11 +308,10 @@ protected:
     // OOM). Relays add their ring eagerly at connect; for them the lazy add
     // is an idempotent no-op that simply flips this flag.
     //
-    // Flipped in handler_read_data() and read in on_map_data_set(), both on
-    // the role-owning worker; also read on the listener-owning worker via the
-    // accept-time on_map_data_set(). Atomic (release/acquire) keeps the lazy
-    // flag well-defined across that worker boundary without a lock; the
-    // lazy-allocation behaviour is unchanged.
+    // Flipped in handler_read_data() on the role-owning worker after the lazy
+    // ring add; read there to keep the add idempotent. Atomic (release/acquire)
+    // keeps the lazy flag well-defined across the worker boundary without a
+    // lock; the lazy-allocation behaviour is unchanged.
     std::atomic<bool> m_ring_added{false};
 
     char m_data[DATA_BUFF_SIZE];

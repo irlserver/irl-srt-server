@@ -6,10 +6,10 @@ The seeds are committed under tests/fuzz/corpus/{ts,streamid,conf}/ so a short
 (coverage-guided fuzzing converges far faster from a representative corpus than
 from an empty one). This script is the reproducible source of those bytes.
 
-The TS packets mirror the make_pat / make_pmt / make_audio_overrun builders in
-tests/test_ts_parser.cpp byte-for-byte; the streamid and conf seeds mirror the
-fixtures in tests/test_sls_sid.cpp and src/tests/test_conf_validation.cpp. Run
-from anywhere: it writes relative to this file.
+The TS packets mirror the make_pat / make_pmt builders in tests/test_ts_parser.cpp
+byte-for-byte, plus a boundary-case audio PES packet; the streamid and conf seeds
+mirror the fixtures in tests/test_sls_sid.cpp and src/tests/test_conf_validation.cpp.
+Run from anywhere: it writes relative to this file.
 """
 import os
 
@@ -124,8 +124,9 @@ def gen_ts():
     write("ts/pmt.bin", bytes(pmt))
     write("ts/pat_pmt.bin", bytes(pat) + bytes(pmt))
     write("ts/video_pes.bin", bytes(make_video_pes(0x100)))
-    # PAT + PMT + 4 null packets + the MEM-1 audio-overrun packet (the 7-packet
-    # buffer shape from the check_audio_gap test).
+    # PAT + PMT + 4 null packets + an audio PES whose oversized adaptation field
+    # pushes the PES/PTS read to the packet boundary, exercising the parser's
+    # length-driven bounds on a realistic multi-packet buffer.
     null_pkt = make_packet(0x1F, 0xFF, 0x00)
     multi = bytes(pat) + bytes(pmt)
     multi += bytes(null_pkt) * 4

@@ -417,8 +417,6 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear)
     json ret = json::object();
     SRT_TRACEBSTATS stats = {0};
     role->get_statistics(&stats, clear);
-    CSLSMapData::AudioGapStreamStats audio_gap_stats;
-    role->get_audio_gap_stats(audio_gap_stats, clear);
     // Interval
     ret["pktRcvLoss"] = stats.pktRcvLoss;
     ret["pktRcvDrop"] = stats.pktRcvDrop;
@@ -469,32 +467,6 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear)
     int bitrate_kbps = role->get_bitrate();
     ret["maxReaderBacklogMs"] =
         (max_backlog_bytes > 0 && bitrate_kbps > 0) ? (int64_t)(max_backlog_bytes * 8 / bitrate_kbps) : 0;
-
-    ret["audioGapFill"] = json::object();
-    ret["audioGapFill"]["enabled"] = audio_gap_stats.enabled;
-    ret["audioGapFill"]["pmtParsed"] = audio_gap_stats.pmt_parsed;
-    ret["audioGapFill"]["audioTrackCount"] = audio_gap_stats.audio_track_count;
-    ret["audioGapFill"]["gapCount"] = audio_gap_stats.gap_count;
-    ret["audioGapFill"]["silentFramesInserted"] = audio_gap_stats.silent_frames_inserted;
-    ret["audioGapFill"]["silentPacketsInserted"] = audio_gap_stats.silent_packets_inserted;
-    ret["audioGapFill"]["silentBytesInserted"] = audio_gap_stats.silent_bytes_inserted;
-    ret["audioGapFill"]["tracks"] = json::array();
-
-    for (const auto &track_stats : audio_gap_stats.tracks)
-    {
-        ret["audioGapFill"]["tracks"].push_back(json{{"pid", track_stats.pid},
-                                                     {"streamType", track_stats.stream_type},
-                                                     {"streamId", track_stats.stream_id},
-                                                     {"formatDetected", track_stats.format_detected},
-                                                     {"sampleRate", track_stats.sample_rate},
-                                                     {"channels", track_stats.channels},
-                                                     {"gapCount", track_stats.gap_count},
-                                                     {"silentFramesInserted", track_stats.silent_frames_inserted},
-                                                     {"silentPacketsInserted", track_stats.silent_packets_inserted},
-                                                     {"silentBytesInserted", track_stats.silent_bytes_inserted},
-                                                     {"lastGapPtsDelta", track_stats.last_gap_pts_delta},
-                                                     {"lastGapFrames", track_stats.last_gap_frames}});
-    }
 
     return ret;
 }

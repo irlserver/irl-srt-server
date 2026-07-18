@@ -1,31 +1,6 @@
 {
   "publishers": {
     "<STREAM_ID>": {
-      "audioGapFill": {
-        "audioTrackCount": "<number>",
-        "enabled": "<bool>",
-        "gapCount": "<number>",
-        "pmtParsed": "<bool>",
-        "silentBytesInserted": "<number>",
-        "silentFramesInserted": "<number>",
-        "silentPacketsInserted": "<number>",
-        "tracks": [
-          {
-            "channels": "<number>",
-            "formatDetected": "<bool>",
-            "gapCount": "<number>",
-            "lastGapFrames": "<number>",
-            "lastGapPtsDelta": "<number>",
-            "pid": "<number>",
-            "sampleRate": "<number>",
-            "silentBytesInserted": "<number>",
-            "silentFramesInserted": "<number>",
-            "silentPacketsInserted": "<number>",
-            "streamId": "<number>",
-            "streamType": "<number>"
-          }
-        ]
-      },
       "bitrate": "<number>",
       "bytesRcvDrop": "<number>",
       "bytesRcvLoss": "<number>",

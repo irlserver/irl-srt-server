@@ -8,10 +8,9 @@
 #   number  -> "<number>" : every counter/rate/gauge is run-dependent —
 #       pktRcvLoss, pktRcvDrop, bytesRcvLoss, bytesRcvDrop, mbpsRecvRate, rtt,
 #       msRcvBuf, mbpsBandwidth, bitrate, uptime, latency, ringOverruns,
-#       sendBackpressure, the audioGapFill gap/byte/frame counters, and each
-#       track's pid/streamType/streamId/sampleRate/channels/lastGap* values.
-#   boolean -> "<bool>"   : enabled / pmtParsed / formatDetected depend on
-#       config and PMT timing, so only their PRESENCE is part of the contract.
+#       sendBackpressure, and the reader-backlog gauges.
+#   boolean -> "<bool>"   : config/timing-dependent, so only PRESENCE is part
+#       of the contract.
 #   string  -> "<string>" : status text and any string value is content, not
 #       shape.
 #   dynamic publisher map key (the live stream id, e.g. "publish/live/abc123")
@@ -19,7 +18,7 @@
 #       "<STREAM_ID>", so the snapshot never depends on the stream name and a
 #       single live publisher is enough to lock the per-publisher object.
 #   arrays  -> at most ONE normalized element, so the element shape is locked
-#       without depending on the live element count (audioGapFill.tracks[]).
+#       without depending on the live element count.
 # Object KEYS are preserved verbatim: they ARE the shape under test.
 
 def shape:

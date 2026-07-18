@@ -372,7 +372,6 @@ void CSLSRole::set_map_data(const char *map_key, CSLSMapData *map_data)
     {
         strlcpy(m_map_data_key, map_key, sizeof(m_map_data_key));
         m_map_data = map_data;
-        on_map_data_set();
     }
     else
     {
@@ -534,7 +533,6 @@ int CSLSRole::handler_read_data(int64_t *last_read_time)
             return SLS_ERROR;
         }
         m_ring_added.store(true, std::memory_order_release);
-        on_map_data_set();
     }
 
     SPDLOG_TRACE("[{}] CSLSRole::handler_read_data, ok, libsrt_read n={:d}.", fmt::ptr(this), n);
@@ -957,26 +955,6 @@ int CSLSRole::check_http_passed()
     }
 
     return SLS_OK;
-}
-
-void CSLSRole::on_map_data_set() {}
-
-bool CSLSRole::is_audio_gap_fill_enabled() const
-{
-    return false;
-}
-
-bool CSLSRole::get_audio_gap_stats(CSLSMapData::AudioGapStreamStats &stats, int clear) const
-{
-    stats = CSLSMapData::AudioGapStreamStats();
-    stats.enabled = is_audio_gap_fill_enabled();
-
-    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
-        return false;
-
-    bool found = m_map_data->get_audio_gap_stats(m_map_data_key, stats, clear);
-    stats.enabled = is_audio_gap_fill_enabled();
-    return found;
 }
 
 int64_t CSLSRole::get_ring_overrun_count() const

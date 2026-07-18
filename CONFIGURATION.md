@@ -2,7 +2,7 @@
 
 This document catalogs the configuration directives that the IRL fork of `srt-live-server` adds on top of the upstream SLS project, plus the base directives whose behavior changed in this fork. The canonical example with inline comments is `src/sls.conf`.
 
-For directives inherited unchanged from upstream SLS see the upstream wiki at `https://github.com/rstular/srt-live-server/wiki/Directives`. Feature deep dives live in [`AUDIO_GAP_FILLING.md`](AUDIO_GAP_FILLING.md), [`BITRATE_LIMITING.md`](BITRATE_LIMITING.md), and [`PLAYER_KEY_IMPLEMENTATION.md`](PLAYER_KEY_IMPLEMENTATION.md). This file links to those rather than restating them.
+For directives inherited unchanged from upstream SLS see the upstream wiki at `https://github.com/rstular/srt-live-server/wiki/Directives`. Feature deep dives live in [`BITRATE_LIMITING.md`](BITRATE_LIMITING.md) and [`PLAYER_KEY_IMPLEMENTATION.md`](PLAYER_KEY_IMPLEMENTATION.md). This file links to those rather than restating them.
 
 ## Conventions
 
@@ -158,14 +158,6 @@ See [`BITRATE_LIMITING.md`](BITRATE_LIMITING.md) for the algorithm.
 | `max_input_bitrate_violation_timeout` | int (seconds) | `30` | Disconnect after this many seconds of sustained violation. |
 | `max_input_bitrate_spike_tolerance` | int (percent) | `120` | Spike multiplier in percent (`120` means trigger at 1.2x of `max_input_bitrate_kbps`). |
 
-### Audio gap filling
-
-See [`AUDIO_GAP_FILLING.md`](AUDIO_GAP_FILLING.md) for behavior, supported codecs, and the stats fields it exposes.
-
-| Directive | Type | Default | Notes |
-|---|---|---|---|
-| `audio_gap_fill` | bool | `false` | Inserts silent AAC / Opus frames when an audio PTS gap is detected, preventing OBS audio breaks during packet loss. |
-
 ### Push destinations
 
 Push destinations let the publish auth webhook drive per publisher SRT pushers. When `push_destination_max > 0` and the publish auth response includes a JSON body `{ "pushTargets": [{ "url": "srt://..." }, ...] }`, SLS spawns one `CSLSPusher` caller per accepted entry. Each URL is validated again at use time. Aggregate egress per stream is bounded by `push_destination_max * max_input_bitrate_kbps`.
@@ -194,7 +186,6 @@ TODO: confirm whether the static `relay { type push; }` direction is still prefe
 
 ## See also
 
-- [`AUDIO_GAP_FILLING.md`](AUDIO_GAP_FILLING.md). Audio PTS gap detection, silent frame insertion, supported codecs, and stats fields.
 - [`BITRATE_LIMITING.md`](BITRATE_LIMITING.md). Sustained vs spike tolerance, disconnect criteria.
 - [`PLAYER_KEY_IMPLEMENTATION.md`](PLAYER_KEY_IMPLEMENTATION.md). Full player key auth protocol and response schema.
 - [`CLAUDE.md`](CLAUDE.md). Orientation for contributors and agents (build layout, sanitizer guidance, commit conventions).

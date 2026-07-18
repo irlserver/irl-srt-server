@@ -7,7 +7,6 @@ add_executable(sls_tests
     test_recycle_array.cpp
     test_auth_reject_cache.cpp
     test_bitrate_limit.cpp
-    test_audio_gap_filler.cpp
     test_idle.cpp
     test_push_url.cpp
     test_ip_acl.cpp

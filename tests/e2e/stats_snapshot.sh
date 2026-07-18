@@ -87,8 +87,8 @@ check_or_update() {
     fi
 }
 
-# --- synthesise a TS with BOTH video and an AAC audio track (so the snapshot
-#     locks the audioGapFill.tracks[] element shape, not just an empty array) ---
+# --- synthesise a TS with both video and an AAC audio track (a realistic
+#     ingest payload; SLS relays the TS opaquely) ---
 ffmpeg -nostdin -loglevel error \
     -f lavfi -i "testsrc=duration=40:size=320x240:rate=25" \
     -f lavfi -i "sine=frequency=1000:duration=40" \
@@ -117,21 +117,21 @@ sleep 2
 "$SRT_CLIENT" -r "srt://127.0.0.1:${PLAY_PORT}?streamid=${PLAY_SID}" -o "$OUT_TS" >/dev/null 2>&1 &
 PLAY_PID=$!
 
-# --- poll /stats until the publisher is live AND an audio track was parsed ---
+# --- poll /stats until the publisher is live ---
 stats=""
 ready=0
 i=0
 while [ "$i" -lt 60 ]; do
     stats="$(curl -fsS -H "Authorization: $API_KEY" "$HTTP/stats" 2>/dev/null || true)"
     if [ -n "$stats" ] && printf '%s' "$stats" | jq -e \
-        '((.publishers // {}) | length) > 0 and (([.publishers[]?.audioGapFill.audioTrackCount] | add) // 0) > 0' \
+        '((.publishers // {}) | length) > 0' \
         >/dev/null 2>&1; then
         ready=1; break
     fi
     kill -0 "$SERVER_PID" 2>/dev/null || { cat "$SERVER_LOG" >&2; fail "srt_server died while streaming"; }
     i=$((i + 1)); sleep 0.5
 done
-[ "$ready" -eq 1 ] || { echo "--- last /stats ---" >&2; printf '%s\n' "$stats" >&2; fail "no live publisher with an audio track within timeout"; }
+[ "$ready" -eq 1 ] || { echo "--- last /stats ---" >&2; printf '%s\n' "$stats" >&2; fail "no live publisher within timeout"; }
 
 # the live publisher-map key (e.g. publish/live/snap); used for the per-publisher path
 PUB_KEY="$(printf '%s' "$stats" | jq -r '.publishers | keys[0]')"
