@@ -1,0 +1,46 @@
+src/core/SLSRole.hpp
+  s_cd89f5307c3206::t_9748a91b9ce6c1 348-351
+  s_cd89f5307c3206::t_15486648ed21bf 224-232
+  s_cd89f5307c3206::t_1fcba0acef520a 352
+src/core/SLSRecycleArray.hpp
+  s_cd89f5307c3206::t_2d90039f360a87 153
+  s_cd89f5307c3206::t_685d4b437cda9d 117-125
+  s_cd89f5307c3206::t_0190feb63d4ce2 126
+tools/sls-diag-scrape.sh
+  s_cd89f5307c3206::t_dc2e8252f8caa4 64
+  s_cd89f5307c3206::t_1bcfb142fdd1a2 31-34
+  s_cd89f5307c3206::t_e815cbec3f76df 45
+  s_cd89f5307c3206::t_99f8f544737ba8 70,72-73
+src/core/SLSManager.cpp
+  s_cd89f5307c3206::t_d94346b5c69620 456-462
+tests/fixtures/stats-shape.json
+  s_cd89f5307c3206::t_843c8ab283bf8e 22-23
+tests/test_recycle_array.cpp
+  s_cd89f5307c3206::t_ff9aca20eb44e8 152-167
+src/core/SLSPlayer.cpp
+  s_cd89f5307c3206::t_a08a58c57ba1fb 53
+src/core/SLSMapData.cpp
+  s_cd89f5307c3206::t_42a0fe3c4c20ab 219-240
+src/core/SLSMapData.hpp
+  s_cd89f5307c3206::t_e6079535d5c5a2 81-82
+src/core/SLSRole.cpp
+  s_cd89f5307c3206::t_a1a77aeea4f75f 981-1010
+src/core/SLSRecycleArray.cpp
+  s_cd89f5307c3206::t_16147762e3bd16 353-365
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "b733dc1d420daec1526add3b014d0383a731730a",
+  "prompts": {},
+  "sessions": {
+    "s_cd89f5307c3206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55216f27-0f59-434f-bf32-6e8362710c3b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
