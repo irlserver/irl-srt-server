@@ -254,3 +254,132 @@ TEST_CASE("CSLSRecycleArray: bFirst snapshot stays consistent under concurrent p
     CHECK(anchor_ok.load() == N_READERS);
     CHECK(drain_ok.load() == N_READERS);
 }
+
+// Publisher reconnect scenario: the fork keeps player roles (and their
+// SLSRecycleArrayID) alive across a publisher takeover, but the ring is
+// deleted and recreated with the publisher. A reader carrying its old
+// anchor into the new ring must be re-anchored at the live write head —
+// draining from the stale position replays the previous session's bytes
+// out of the recycled allocation to a live viewer.
+TEST_CASE("CSLSRecycleArray: reader surviving ring teardown/recreate re-anchors at live head")
+{
+    const int RING = 4096;
+    auto *ring_a = new CSLSRecycleArray;
+    ring_a->setSize(RING);
+
+    SLSRecycleArrayID id = fresh_reader();
+    anchor(*ring_a, id);
+
+    // Old session: the viewer watches (drains) some content.
+    char old_payload[512];
+    std::memset(old_payload, 'O', sizeof(old_payload));
+    CHECK(ring_a->put(old_payload, sizeof(old_payload)) == (int)sizeof(old_payload));
+    char out[1024];
+    CHECK(ring_a->get(out, sizeof(out), &id, 0) == (int)sizeof(old_payload));
+
+    // Publisher reconnects: old ring destroyed, fresh ring for the same key.
+    delete ring_a;
+    CSLSRecycleArray ring_b;
+    ring_b.setSize(RING);
+
+    // The new session has already written a little before the reader's next
+    // poll. With the stale anchor (nReadPos=512 > write head=256) the old code
+    // computed ~RING bytes of "ready" data and copied from the dead offset.
+    char new_head[256];
+    std::memset(new_head, 'N', sizeof(new_head));
+    CHECK(ring_b.put(new_head, sizeof(new_head)) == (int)sizeof(new_head));
+
+    // First get() against the recreated ring: re-anchor only, no bytes.
+    CHECK(ring_b.get(out, sizeof(out), &id, 0) == SLS_OK);
+
+    // From the rejoin point the viewer receives exactly the live data.
+    char live[128];
+    std::memset(live, 'L', sizeof(live));
+    CHECK(ring_b.put(live, sizeof(live)) == (int)sizeof(live));
+    std::memset(out, 0, sizeof(out));
+    int got = ring_b.get(out, sizeof(out), &id, 0);
+    CHECK(got == (int)sizeof(live));
+    CHECK(std::memcmp(out, live, sizeof(live)) == 0);
+}
+
+// Same scenario but the recreated ring is smaller than the old one, so the
+// stale nReadPos points past the entire new buffer. Without re-anchoring this
+// is a heap overread (caught by ASan), not just a replay.
+TEST_CASE("CSLSRecycleArray: stale reader against a smaller recreated ring cannot overread")
+{
+    auto *big = new CSLSRecycleArray;
+    big->setSize(4096);
+    // Push the write head deep into the big ring before anchoring, so the
+    // anchor lands far beyond the small ring's extent.
+    char fill[3000];
+    std::memset(fill, 'F', sizeof(fill));
+    CHECK(big->put(fill, sizeof(fill)) == (int)sizeof(fill));
+    SLSRecycleArrayID id = fresh_reader();
+    anchor(*big, id); // nReadPos = 3000
+    delete big;
+
+    CSLSRecycleArray small;
+    small.setSize(64);
+    char tiny[16];
+    std::memset(tiny, 't', sizeof(tiny));
+    CHECK(small.put(tiny, sizeof(tiny)) == (int)sizeof(tiny));
+
+    char out[64];
+    CHECK(small.get(out, sizeof(out), &id, 0) == SLS_OK); // re-anchor, no copy
+    CHECK(small.put(tiny, sizeof(tiny)) == (int)sizeof(tiny));
+    CHECK(small.get(out, sizeof(out), &id, 0) == (int)sizeof(tiny));
+    CHECK(std::memcmp(out, tiny, sizeof(tiny)) == 0);
+}
+
+// setSize() replaces the buffer wholesale, which is the same invalidation as a
+// teardown/recreate from a reader's point of view.
+TEST_CASE("CSLSRecycleArray: setSize invalidates readers anchored on the old buffer")
+{
+    CSLSRecycleArray ring;
+    ring.setSize(1024);
+
+    SLSRecycleArrayID id = fresh_reader();
+    anchor(ring, id);
+    char chunk[200];
+    std::memset(chunk, 'A', sizeof(chunk));
+    CHECK(ring.put(chunk, sizeof(chunk)) == (int)sizeof(chunk));
+
+    ring.setSize(2048);
+
+    char out[512];
+    CHECK(ring.get(out, sizeof(out), &id, 0) == SLS_OK); // re-anchor, no copy
+
+    std::memset(chunk, 'B', sizeof(chunk));
+    CHECK(ring.put(chunk, sizeof(chunk)) == (int)sizeof(chunk));
+    CHECK(ring.get(out, sizeof(out), &id, 0) == (int)sizeof(chunk));
+    CHECK(std::memcmp(out, chunk, sizeof(chunk)) == 0);
+}
+
+// Backstop for the generation check: a reader whose byte counter is ahead of
+// the ring's monotonic counter cannot belong to this incarnation. It must be
+// resynced, never used to index the buffer.
+TEST_CASE("CSLSRecycleArray: reader counter ahead of the ring resyncs instead of reading stale bytes")
+{
+    CSLSRecycleArray ring;
+    ring.setSize(1024);
+
+    SLSRecycleArrayID id = fresh_reader();
+    anchor(ring, id);
+
+    char chunk[100];
+    std::memset(chunk, 'D', sizeof(chunk));
+    CHECK(ring.put(chunk, sizeof(chunk)) == (int)sizeof(chunk));
+
+    // Corrupt the reader's counter so the delta goes negative while the
+    // generation still matches.
+    id.nDataCount += 1000000;
+
+    char out[256];
+    CHECK(ring.get(out, sizeof(out), &id, 0) == SLS_OK); // resync, no copy
+    CHECK(ring.get_overrun_count() >= 1);
+
+    std::memset(chunk, 'E', sizeof(chunk));
+    CHECK(ring.put(chunk, sizeof(chunk)) == (int)sizeof(chunk));
+    CHECK(ring.get(out, sizeof(out), &id, 0) == (int)sizeof(chunk));
+    CHECK(std::memcmp(out, chunk, sizeof(chunk)) == 0);
+}

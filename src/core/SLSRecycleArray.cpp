@@ -50,6 +50,11 @@ static void atomic_store_max(std::atomic<int64_t> &slot, int64_t candidate)
     }
 }
 
+// Process-wide source of ring identities. Starts at 1 so the zero-initialised
+// SLSRecycleArrayID::nGeneration of a never-anchored reader can never match a
+// live ring.
+static std::atomic<uint64_t> s_next_generation{1};
+
 CSLSRecycleArray::CSLSRecycleArray()
 {
     m_nDataSize = DEFAULT_MAX_DATA_SIZE;
@@ -58,10 +63,15 @@ CSLSRecycleArray::CSLSRecycleArray()
     m_overrun_count.store(0, std::memory_order_relaxed);
     m_max_reader_backlog.store(0, std::memory_order_relaxed);
     m_viewer_backpressure_events.store(0, std::memory_order_relaxed);
+    m_nGeneration.store(s_next_generation.fetch_add(1, std::memory_order_relaxed), std::memory_order_relaxed);
 
     m_last_read_time.store(sls_gettime_ms(), std::memory_order_relaxed);
 
-    m_arrayData = new char[m_nDataSize];
+    // Value-initialised: a recreated ring frequently gets the just-freed
+    // previous ring's allocation back from the allocator with the prior
+    // session's media bytes intact. Any stale-index bug must leak zeros, not
+    // another session's (or another stream's) video.
+    m_arrayData = new char[m_nDataSize]();
 }
 
 CSLSRecycleArray::~CSLSRecycleArray()
@@ -93,8 +103,11 @@ void CSLSRecycleArray::setSize(int n)
     m_nWritePos = 0;
     // The buffer is being replaced wholesale; the byte counter is meaningful
     // only relative to the live buffer, so reset it alongside the realloc.
+    // A new generation invalidates any reader anchored on the old buffer —
+    // its positions are meaningless against the replacement.
     m_nDataCount.store(0, std::memory_order_relaxed);
-    m_arrayData = new char[m_nDataSize];
+    m_nGeneration.store(s_next_generation.fetch_add(1, std::memory_order_relaxed), std::memory_order_relaxed);
+    m_arrayData = new char[m_nDataSize]();
 }
 
 int CSLSRecycleArray::put(char *data, int len)
@@ -162,12 +175,32 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         CSLSLock lock(&m_rwclock, false);
         read_id->nReadPos = m_nWritePos;
         read_id->nDataCount = m_nDataCount.load(std::memory_order_relaxed);
+        read_id->nGeneration = m_nGeneration.load(std::memory_order_relaxed);
         read_id->bFirst = false;
         SPDLOG_TRACE("[{}] CSLSRecycleArray::get, the first time.", fmt::ptr(this));
         return SLS_OK;
     }
 
     CSLSLock lock(&m_rwclock, false);
+
+    // A generation mismatch means this reader anchored on a different buffer
+    // incarnation: the publisher reconnected (ring deleted + recreated for the
+    // same stream key) while the player role survived, or setSize() replaced
+    // the buffer. The reader's nReadPos/nDataCount describe the dead buffer;
+    // draining with them would hand out whatever the recycled allocation still
+    // holds — the "viewer sees a replay of the previous session" bug. Rejoin
+    // at the live write head instead, exactly like a first anchor.
+    if (read_id->nGeneration != m_nGeneration.load(std::memory_order_relaxed))
+    {
+        spdlog::info("[{}] CSLSRecycleArray::get, reader anchored on a previous ring incarnation "
+                     "(reader_gen={:d}, ring_gen={:d}), re-anchoring at live write head.",
+                     fmt::ptr(this), read_id->nGeneration, m_nGeneration.load(std::memory_order_relaxed));
+        read_id->nReadPos = m_nWritePos;
+        read_id->nDataCount = m_nDataCount.load(std::memory_order_relaxed);
+        read_id->nGeneration = m_nGeneration.load(std::memory_order_relaxed);
+        return SLS_OK;
+    }
+
     int64_t cur_data_count = m_nDataCount.load(std::memory_order_relaxed);
     if (read_id->nReadPos == m_nWritePos && cur_data_count == read_id->nDataCount)
     {
@@ -183,8 +216,14 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
     // reader's logical position — producing corrupt TS / out-of-order
     // delivery to the subscriber. Force the reader to resync to the
     // current write head and count the event for diagnostics.
+    //
+    // A negative delta is equally disqualifying: m_nDataCount is monotonic
+    // for a given ring incarnation, so a reader counter ahead of the ring's
+    // proves the reader's state belongs to some other incarnation. The
+    // generation check above should have caught that; this is the backstop
+    // that keeps a missed case from dereferencing stale positions.
     int64_t bytes_since_last_read = cur_data_count - read_id->nDataCount;
-    if (bytes_since_last_read >= (int64_t)m_nDataSize)
+    if (bytes_since_last_read >= (int64_t)m_nDataSize || bytes_since_last_read < 0)
     {
         int64_t new_count = m_overrun_count.fetch_add(1, std::memory_order_relaxed) + 1;
         spdlog::warn("[{}] CSLSRecycleArray::get, reader overrun: writer advanced {:d}"

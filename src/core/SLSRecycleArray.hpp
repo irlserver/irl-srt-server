@@ -35,6 +35,14 @@ struct SLSRecycleArrayID
     int nReadPos;
     int64_t nDataCount;
     bool bFirst;
+    // Identity of the ring this reader anchored on. Player roles outlive a
+    // publisher reconnect (takeover), but the ring is deleted and recreated
+    // with the publisher; a reader whose generation does not match the ring it
+    // is handed must be re-anchored, or its stale nReadPos/nDataCount would
+    // let it drain bytes from the recycled buffer that the new session never
+    // wrote — seen by viewers as a replay of the previous session. 0 means
+    // "never anchored" and matches no live ring.
+    uint64_t nGeneration;
 };
 
 /**
@@ -120,6 +128,14 @@ private:
     // thread. Atomic, relaxed — purely observational, no ordering requirements.
     std::atomic<int64_t> m_max_reader_backlog{0};
     std::atomic<int64_t> m_viewer_backpressure_events{0};
+
+    // Unique per buffer incarnation (fresh value on construction and on every
+    // setSize() realloc), compared against SLSRecycleArrayID::nGeneration in
+    // get() to detect readers that anchored on a previous incarnation. Atomic
+    // only because setSize() writes it under the write lock while diagnostic
+    // accessors may read lock-free; relaxed ordering is sufficient — the value
+    // is an identity token, not a synchronisation point.
+    std::atomic<uint64_t> m_nGeneration{0};
 
     CSLSRWLock m_rwclock;
 };
