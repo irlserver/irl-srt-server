@@ -1,0 +1,23 @@
+src/core/SLSRecycleArray.hpp
+  s_cd89f5307c3206::t_cc3fb09c7d1a91 90-101
+tests/test_recycle_array.cpp
+  s_cd89f5307c3206::t_ff9aca20eb44e8 152-171
+src/core/SLSMapData.cpp
+  s_cd89f5307c3206::t_966017edcd94fa 360-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "f48771cd6dfe25ff09e6c5f2ce9e21108c241c79",
+  "prompts": {},
+  "sessions": {
+    "s_cd89f5307c3206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55216f27-0f59-434f-bf32-6e8362710c3b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
