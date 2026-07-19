@@ -1,0 +1,31 @@
+src/core/SLSLogRateLimiter.cpp
+  s_cd89f5307c3206::t_3d7405bac83db7 56,72,83-90,92
+  s_cd89f5307c3206::t_c5ff4db1aa7011 27-28
+tests/CMakeLists.txt
+  s_cd89f5307c3206::t_6f1de559b01dce 15
+tests/test_log_rate_limiter.cpp
+  s_cd89f5307c3206::t_2b99c0be99b43e 1-65
+src/core/SLSListenerHandler.cpp
+  s_cd89f5307c3206::t_e6dadd08616cf3 584-586,588-603
+  s_cd89f5307c3206::t_5787af0fc33dea 536-540,543-545
+  s_cd89f5307c3206::t_9668390de0639e 587
+src/core/SLSLogRateLimiter.hpp
+  s_cd89f5307c3206::t_fe44d5edeb2b89 48,56-57,59
+  s_cd89f5307c3206::t_2c6714b1cf4f09 94-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "aaf122676c2018173d46ea082d410313e5c3378d",
+  "prompts": {},
+  "sessions": {
+    "s_cd89f5307c3206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55216f27-0f59-434f-bf32-6e8362710c3b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
