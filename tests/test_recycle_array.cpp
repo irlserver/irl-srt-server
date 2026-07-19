@@ -149,6 +149,22 @@ TEST_CASE("CSLSRecycleArray: viewer backpressure events accumulate and clear")
     CHECK(ring.get_viewer_backpressure_events(false) == 0);
 }
 
+TEST_CASE("CSLSRecycleArray: viewer snd-drop reports accumulate and clear")
+{
+    CSLSRecycleArray ring;
+    ring.setSize(1024);
+
+    CHECK(ring.get_viewer_snd_drops(false) == 0);
+    ring.report_viewer_snd_drops(3);
+    ring.report_viewer_snd_drops(4);
+    ring.report_viewer_snd_drops(0);  // no-op
+    ring.report_viewer_snd_drops(-2); // no-op, never decrements
+    CHECK(ring.get_viewer_snd_drops(false) == 7);
+    // clear=true drains the counter so /stats can report a per-interval delta.
+    CHECK(ring.get_viewer_snd_drops(true) == 7);
+    CHECK(ring.get_viewer_snd_drops(false) == 0);
+}
+
 TEST_CASE("CSLSRecycleArray: is_stale_reader flags cross-incarnation anchors until re-anchor")
 {
     auto *ring_a = new CSLSRecycleArray;

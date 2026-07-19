@@ -28,6 +28,10 @@ OUT="${OUT:-./sls-diag.csv}"
 # per tick (counter differences between two polls).
 BACKLOG_MS_WARN="${BACKLOG_MS_WARN:-750}"
 BACKPRESSURE_WARN="${BACKPRESSURE_WARN:-1}"
+# Sender-side TLPKTDROP toward viewers per tick: each dropped packet is a
+# small skip-forward some viewer saw. Non-zero with pktRcvDrop=0 means the
+# jump happened viewer-side, not at ingest.
+SNDDROP_WARN="${SNDDROP_WARN:-1}"
 
 if ! command -v jq >/dev/null; then echo "need jq" >&2; exit 1; fi
 
@@ -38,7 +42,7 @@ sep='?'; case "$STATS_URL" in *\?*) sep='&';; esac
 POLL_URL="${STATS_URL}${sep}reset=1"
 
 if [ ! -f "$OUT" ]; then
-  echo "ts,stream,bitrateKbps,maxReaderBacklogMs,maxReaderBacklogBytes,sendBackpressure,ringOverruns,pktRcvDrop,msRcvBuf,rtt,uptime" > "$OUT"
+  echo "ts,stream,bitrateKbps,maxReaderBacklogMs,maxReaderBacklogBytes,sendBackpressure,ringOverruns,pktRcvDrop,viewerPktSndDrop,msRcvBuf,rtt,uptime" > "$OUT"
 fi
 
 echo "scraping $POLL_URL every ${INTERVAL}s -> $OUT (backlog warn >${BACKLOG_MS_WARN}ms)" >&2
@@ -57,15 +61,16 @@ while true; do
         (.value.sendBackpressure // 0),
         (.value.ringOverruns // 0),
         (.value.pktRcvDrop // 0),
+        (.value.viewerPktSndDrop // 0),
         (.value.msRcvBuf // 0),
         (.value.rtt // 0),
         (.value.uptime // 0) ] | @csv' >> "$OUT" 2>/dev/null || true
 
     # Stderr alerts on threshold crossings (shows up in docker/journal logs).
-    echo "$body" | jq -r --arg ts "$ts" --argjson bl "$BACKLOG_MS_WARN" --argjson bp "$BACKPRESSURE_WARN" '
+    echo "$body" | jq -r --arg ts "$ts" --argjson bl "$BACKLOG_MS_WARN" --argjson bp "$BACKPRESSURE_WARN" --argjson sd "$SNDDROP_WARN" '
       (.publishers // {}) | to_entries[] |
-      select((.value.maxReaderBacklogMs // 0) >= $bl or (.value.sendBackpressure // 0) >= $bp) |
-      "[\($ts)] SLS-DIAG WARN stream=\(.key) backlogMs=\(.value.maxReaderBacklogMs // 0) backpressure=\(.value.sendBackpressure // 0) overruns=\(.value.ringOverruns // 0) pktRcvDrop=\(.value.pktRcvDrop // 0)"' >&2 2>/dev/null || true
+      select((.value.maxReaderBacklogMs // 0) >= $bl or (.value.sendBackpressure // 0) >= $bp or (.value.viewerPktSndDrop // 0) >= $sd) |
+      "[\($ts)] SLS-DIAG WARN stream=\(.key) backlogMs=\(.value.maxReaderBacklogMs // 0) backpressure=\(.value.sendBackpressure // 0) overruns=\(.value.ringOverruns // 0) pktRcvDrop=\(.value.pktRcvDrop // 0) viewerSndDrop=\(.value.viewerPktSndDrop // 0)"' >&2 2>/dev/null || true
   fi
   sleep "$INTERVAL"
 done

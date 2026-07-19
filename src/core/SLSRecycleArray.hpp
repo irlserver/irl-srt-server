@@ -114,6 +114,16 @@ public:
     void report_viewer_backpressure();
     int64_t get_viewer_backpressure_events(bool clear = false);
 
+    // Aggregate sender-side TLPKTDROP toward the viewers of this stream:
+    // packets libsrt discarded from a player socket's send queue because they
+    // exceeded the viewer's latency window (the per-packet skip-forward a
+    // viewer perceives as a small jump). Player roles push periodic deltas of
+    // their socket's pktSndDropTotal here so publisher /stats can separate
+    // "viewer link can't keep up" (this counter) from "publisher lost content
+    // at ingest" (pktRcvDrop) without per-player enumeration.
+    void report_viewer_snd_drops(int64_t count);
+    int64_t get_viewer_snd_drops(bool clear = false);
+
 private:
     char *m_arrayData;
     int m_nDataSize;
@@ -140,6 +150,7 @@ private:
     // thread. Atomic, relaxed — purely observational, no ordering requirements.
     std::atomic<int64_t> m_max_reader_backlog{0};
     std::atomic<int64_t> m_viewer_backpressure_events{0};
+    std::atomic<int64_t> m_viewer_snd_drops{0};
 
     // Unique per buffer incarnation (fresh value on construction and on every
     // setSize() realloc), compared against SLSRecycleArrayID::nGeneration in

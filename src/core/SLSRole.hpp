@@ -221,6 +221,15 @@ public:
     // the gauge so /stats can report a per-interval peak/delta.
     int64_t get_max_reader_backlog(bool clear = false) const;
     int64_t get_viewer_backpressure_events(bool clear = false) const;
+    // Aggregate sender-side TLPKTDROP toward this stream's viewers (see
+    // CSLSRecycleArray::report_viewer_snd_drops). Read on the publisher role
+    // by /stats; fed by player roles via sample_viewer_snd_drops().
+    int64_t get_viewer_snd_drops(bool clear = false) const;
+
+    // Player-side: push the delta of this role's socket pktSndDropTotal onto
+    // the shared stream ring, rate-limited internally to once per second.
+    // Called from the player handler; a no-op for roles without a ring.
+    void sample_viewer_snd_drops();
 
     // Count of times handler_write_data() hit SRT send-buffer
     // backpressure (errno EASYNCSND) on this role. Each event means a
@@ -335,6 +344,11 @@ protected:
     // monotonic growth for operator dashboards, not happens-before
     // against any other state.
     std::atomic<uint64_t> m_send_backpressure_count{0};
+
+    // sample_viewer_snd_drops() bookkeeping: last pktSndDropTotal pushed to
+    // the ring and the wall-clock of the last sample. Worker-thread only.
+    int64_t m_snd_drops_reported{0};
+    int64_t m_last_snd_drop_sample_ms{0};
 
     // Wall-clock (sls_gettime_ms) of the first EASYNCSND-with-no-progress
     // event in the current stuck streak. Cleared back to 0 on any

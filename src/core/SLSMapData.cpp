@@ -216,6 +216,28 @@ int64_t CSLSMapData::get_viewer_backpressure_events(const char *key, bool clear)
     return it->second->get_viewer_backpressure_events(clear);
 }
 
+void CSLSMapData::report_viewer_snd_drops(const char *key, int64_t count)
+{
+    if (!key || count <= 0)
+        return;
+    CSLSLock lock(&m_rwclock, false);
+    auto it = m_map_array.find(std::string_view{key});
+    if (it == m_map_array.end() || it->second == NULL)
+        return;
+    it->second->report_viewer_snd_drops(count);
+}
+
+int64_t CSLSMapData::get_viewer_snd_drops(const char *key, bool clear)
+{
+    if (!key)
+        return -1;
+    CSLSLock lock(&m_rwclock, false);
+    auto it = m_map_array.find(std::string_view{key});
+    if (it == m_map_array.end() || it->second == NULL)
+        return -1;
+    return it->second->get_viewer_snd_drops(clear);
+}
+
 int CSLSMapData::remove(char *key)
 {
     int ret = SLS_ERROR;

@@ -19,7 +19,8 @@
       "ringOverruns": "<number>",
       "rtt": "<number>",
       "sendBackpressure": "<number>",
-      "uptime": "<number>"
+      "uptime": "<number>",
+      "viewerPktSndDrop": "<number>"
     }
   },
   "status": "<string>"

@@ -978,6 +978,36 @@ int64_t CSLSRole::get_viewer_backpressure_events(bool clear) const
     return m_map_data->get_viewer_backpressure_events(m_map_data_key, clear);
 }
 
+int64_t CSLSRole::get_viewer_snd_drops(bool clear) const
+{
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
+        return -1;
+    return m_map_data->get_viewer_snd_drops(m_map_data_key, clear);
+}
+
+void CSLSRole::sample_viewer_snd_drops()
+{
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0 || NULL == m_srt)
+        return;
+    int64_t now_ms = sls_gettime_ms();
+    if (now_ms - m_last_snd_drop_sample_ms < 1000)
+        return;
+    m_last_snd_drop_sample_ms = now_ms;
+
+    // clear=0: nothing else reads a player socket's stats, and the monotonic
+    // pktSndDropTotal lets us push per-interval deltas without owning the
+    // interval counters.
+    SRT_TRACEBSTATS stats = {0};
+    if (get_statistics(&stats, 0) != SLS_OK)
+        return;
+    int64_t delta = stats.pktSndDropTotal - m_snd_drops_reported;
+    if (delta > 0)
+    {
+        m_map_data->report_viewer_snd_drops(m_map_data_key, delta);
+        m_snd_drops_reported = stats.pktSndDropTotal;
+    }
+}
+
 int CSLSRole::init_bitrate_limiter(int max_bitrate_kbps, int violation_timeout_seconds, float spike_tolerance)
 {
     cleanup_bitrate_limiter();

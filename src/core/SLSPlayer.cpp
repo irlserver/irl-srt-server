@@ -50,5 +50,6 @@ CSLSPlayer::~CSLSPlayer()
 
 int CSLSPlayer::handler()
 {
+    sample_viewer_snd_drops();
     return handler_write_data();
 }

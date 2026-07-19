@@ -350,3 +350,16 @@ int64_t CSLSRecycleArray::get_viewer_backpressure_events(bool clear)
         return m_viewer_backpressure_events.exchange(0, std::memory_order_relaxed);
     return m_viewer_backpressure_events.load(std::memory_order_relaxed);
 }
+
+void CSLSRecycleArray::report_viewer_snd_drops(int64_t count)
+{
+    if (count > 0)
+        m_viewer_snd_drops.fetch_add(count, std::memory_order_relaxed);
+}
+
+int64_t CSLSRecycleArray::get_viewer_snd_drops(bool clear)
+{
+    if (clear)
+        return m_viewer_snd_drops.exchange(0, std::memory_order_relaxed);
+    return m_viewer_snd_drops.load(std::memory_order_relaxed);
+}

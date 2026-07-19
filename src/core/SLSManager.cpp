@@ -453,6 +453,13 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear)
     // Steady growth means viewers are falling behind — under-provisioned links
     // for the stream bitrate, or a viewer latency window that is too small.
     ret["sendBackpressure"] = role->get_viewer_backpressure_events(clear);
+    // Sender-side TLPKTDROP toward this stream's viewers, aggregated across
+    // every player socket: packets libsrt discarded from a viewer's send queue
+    // for exceeding that viewer's latency window — the per-packet skip-forward
+    // a viewer perceives as a small jump. Non-zero here with pktRcvDrop at 0
+    // means the jumps are on the viewer side (link or latency window), not
+    // lost publisher content.
+    ret["viewerPktSndDrop"] = role->get_viewer_snd_drops(clear);
     // Furthest any viewer of this stream fell behind the publisher ring write
     // head (bytes) since the last clear. This is the catch-up burst a viewer
     // will drain when it recovers, which the viewer perceives as a time-skip /

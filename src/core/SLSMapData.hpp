@@ -78,6 +78,8 @@ public:
     int64_t get_max_reader_backlog(const char *key, bool clear = false);
     void report_viewer_backpressure(const char *key);
     int64_t get_viewer_backpressure_events(const char *key, bool clear = false);
+    void report_viewer_snd_drops(const char *key, int64_t count);
+    int64_t get_viewer_snd_drops(const char *key, bool clear = false);
 
     int put(char *key, char *data, int len, int64_t *last_read_time = NULL);
     int get(char *key, char *data, int len, SLSRecycleArrayID *read_id, int aligned = 0);
