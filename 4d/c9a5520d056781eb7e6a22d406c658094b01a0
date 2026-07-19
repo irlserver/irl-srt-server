@@ -1,0 +1,31 @@
+src/core/SLSListenerHandler.cpp
+  s_cd89f5307c3206::t_7a7af8a19fb87e 1102
+src/core/SLSListenerCore.cpp
+  s_cd89f5307c3206::t_0114e5266ce8b7 33
+src/sls.conf
+  s_cd89f5307c3206::t_db8d0293b71353 143-148
+src/core/SLSListenerConfig.cpp
+  s_cd89f5307c3206::t_7db204ceedd528 90-94
+src/core/SLSListener.hpp
+  s_cd89f5307c3206::t_cc1ef1682f5ddb 63-65
+  s_cd89f5307c3206::t_6d160da63b3399 201-205
+  s_cd89f5307c3206::t_25fc8254c8e8b6 103-106
+CONFIGURATION.md
+  s_cd89f5307c3206::t_208993e27445c9 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "4dc9a5520d056781eb7e6a22d406c658094b01a0",
+  "prompts": {},
+  "sessions": {
+    "s_cd89f5307c3206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55216f27-0f59-434f-bf32-6e8362710c3b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
