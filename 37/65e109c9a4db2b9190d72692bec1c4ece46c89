@@ -1,0 +1,25 @@
+.github/workflows/ci.yml
+  s_cd89f5307c3206::t_3d08ad0b766487 570-575
+tests/e2e/sls-reconnect.conf
+  s_cd89f5307c3206::t_e05a29d75c0a2a 1-45
+tests/e2e/reconnect_replay.sh
+  s_cd89f5307c3206::t_e4aa8a046c9c27 148
+  s_cd89f5307c3206::t_1d1ea1373de36c 127,131
+  s_cd89f5307c3206::t_969bf4522f1171 1-126,128-130,132-147,149-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "3765e109c9a4db2b9190d72692bec1c4ece46c89",
+  "prompts": {},
+  "sessions": {
+    "s_cd89f5307c3206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55216f27-0f59-434f-bf32-6e8362710c3b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
