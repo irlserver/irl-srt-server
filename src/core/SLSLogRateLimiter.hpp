@@ -45,6 +45,7 @@ public:
     {
         int64_t first_timestamp_ms; // Timestamp of first event in current window
         int64_t last_timestamp_ms;  // Timestamp of most recent event
+        int64_t last_logged_ms;     // Timestamp of the last event that was actually logged
         int count;                  // Number of events in current window
         int total_suppressed;       // Total events suppressed since first event
     };
@@ -52,9 +53,10 @@ public:
     /**
      * Constructor
      * @param window_ms Time window in milliseconds for rate limiting (default: 60000ms = 1 minute)
-     * @param threshold Log every Nth event (default: 5)
+     * @param threshold First N events per window log verbatim (default: 5)
+     * @param min_interval_ms After the first N, at most one line per this interval (default: 10s)
      */
-    CSLSLogRateLimiter(int64_t window_ms = 60000, int threshold = 5);
+    CSLSLogRateLimiter(int64_t window_ms = 60000, int threshold = 5, int64_t min_interval_ms = 10000);
     ~CSLSLogRateLimiter();
 
     /**
@@ -89,8 +91,9 @@ public:
     }
 
 private:
-    int64_t m_window_ms; // Time window in milliseconds
-    int m_threshold;     // Log every Nth event
+    int64_t m_window_ms;       // Time window in milliseconds
+    int m_threshold;           // First N events per window log verbatim
+    int64_t m_min_interval_ms; // After the first N, minimum ms between logged events
 
     std::unordered_map<std::string, EventStats> m_events;
     std::mutex m_mutex;

@@ -533,12 +533,16 @@ int CSLSListener::handler()
             return client_count;
         }
 
-        // Not cached or stream is online - proceed with normal validation
+        // Not cached or stream is online - proceed with normal validation.
+        // Debug level: this fires once per connection attempt, and reconnect
+        // loops (OBS media source retries with no backoff while a publisher
+        // is offline) made it the loudest line in the log. The accepted path
+        // logs "Player connected" at info and failures log below.
         if (!key_is_cached)
         {
-            spdlog::info("[{}] CSLSListener::handler, [{}:{:d}], detected player connection with configured format "
-                         "'{}/{}', player_key='{}', validating...",
-                         fmt::ptr(this), peer_name, peer_port, domain, app, sls_redact_secret(player_key));
+            spdlog::debug("[{}] CSLSListener::handler, [{}:{:d}], detected player connection with configured format "
+                          "'{}/{}', player_key='{}', validating...",
+                          fmt::ptr(this), peer_name, peer_port, domain, app, sls_redact_secret(player_key));
         }
 
         int validation_result =
@@ -577,8 +581,26 @@ int CSLSListener::handler()
         }
         if (validation_result != SLS_OK)
         {
-            spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], player key validation FAILED for key='{}'",
-                          fmt::ptr(this), peer_name, peer_port, sls_redact_secret(player_key));
+            // Rate-limited: a client with a revoked/over-quota key retries
+            // forever, and every attempt lands here. Keep the error visible
+            // but bounded per peer.
+            CSLSLogRateLimiter::EventStats fail_stats{}; // zeroed: count stays 0 when limiting is disabled
+            std::string fail_key = std::string(peer_name) + ":pkfail";
+            if (!sls_get_log_config().rate_limit_enabled || sls_get_rate_limiter().should_log(fail_key, fail_stats))
+            {
+                if (fail_stats.count > 1)
+                {
+                    spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], player key validation FAILED for key='{}' "
+                                  "({} times in {}s)",
+                                  fmt::ptr(this), peer_name, peer_port, sls_redact_secret(player_key),
+                                  fail_stats.count, sls_get_log_config().rate_limit_window_sec);
+                }
+                else
+                {
+                    spdlog::error("[{}] CSLSListener::handler, [{}:{:d}], player key validation FAILED for key='{}'",
+                                  fmt::ptr(this), peer_name, peer_port, sls_redact_secret(player_key));
+                }
+            }
             srt->libsrt_close();
             delete srt;
             return client_count;
