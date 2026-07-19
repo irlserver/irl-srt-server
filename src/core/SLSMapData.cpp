@@ -134,7 +134,7 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
     {
         data_array->setSize((int)intended_size);
         spdlog::info("[{}] CSLSMapData::add, sized ring for key='{}' to {:d} bytes"
-                     " ({:d} kbps * {:d} ms * 2).",
+                     " ({:d} kbps * max({:d} ms, 1s) window).",
                      fmt::ptr(this), key, (int)intended_size, max_bitrate_kbps, latency_ms);
     }
 
