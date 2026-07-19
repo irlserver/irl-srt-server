@@ -5,6 +5,8 @@
       "bytesRcvDrop": "<number>",
       "bytesRcvLoss": "<number>",
       "latency": "<number>",
+      "maxReaderBacklogBytes": "<number>",
+      "maxReaderBacklogMs": "<number>",
       "mbpsBandwidth": "<number>",
       "mbpsRecvRate": "<number>",
       "msRcvBuf": "<number>",
