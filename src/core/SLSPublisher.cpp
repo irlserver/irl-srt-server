@@ -111,18 +111,38 @@ int CSLSPublisher::uninit()
 
     if (m_map_data)
     {
-        // Flight recorder: the diagnostic gauges live on the ring we are about
-        // to free, so publisher takeover / reconnect would otherwise erase the
-        // one session's data an operator most wants (the streamer got fed up and
-        // reconnected). Flush the ring's final peaks to a single greppable line
-        // (stream=<name>) before remove() drops it. One line per session end, so
-        // it stays quiet even with many concurrent streams.
-        spdlog::info("[{}] CSLSPublisher::uninit, session end stream={}, peakReaderBacklogBytes={}, "
-                     "ringOverruns={}, viewerBackpressure={}.",
-                     fmt::ptr(this), m_map_data_key, get_max_reader_backlog(false), get_ring_overrun_count(),
-                     get_viewer_backpressure_events(false));
-        ret = m_map_data->remove(m_map_data_key);
-        spdlog::info("[{}] CSLSPublisher::uninit, removed publisher from m_map_data, ret={:d}.", fmt::ptr(this), ret);
+        // Ownership check before deleting the ring by key. The takeover flow
+        // (kick incumbent -> reap -> refuse new conn -> re-register) means the
+        // reaped publisher is normally still the registered owner here, but
+        // that is an ordering invariant, not a structural one: if a future
+        // change ever lets a new publisher register before the old one is
+        // reaped, an unconditional remove() would yank the live ring out from
+        // under the new session and every viewer on it. In that case skip the
+        // delete and let the new owner's ring (and its own uninit) manage it.
+        std::shared_ptr<CSLSRole> current_owner =
+            m_map_publisher ? m_map_publisher->get_publisher(m_map_data_key) : nullptr;
+        if (current_owner && current_owner.get() != this)
+        {
+            spdlog::warn("[{}] CSLSPublisher::uninit, stream={} is now owned by publisher [{}], "
+                         "skipping ring removal.",
+                         fmt::ptr(this), m_map_data_key, fmt::ptr(current_owner.get()));
+        }
+        else
+        {
+            // Flight recorder: the diagnostic gauges live on the ring we are about
+            // to free, so publisher takeover / reconnect would otherwise erase the
+            // one session's data an operator most wants (the streamer got fed up and
+            // reconnected). Flush the ring's final peaks to a single greppable line
+            // (stream=<name>) before remove() drops it. One line per session end, so
+            // it stays quiet even with many concurrent streams.
+            spdlog::info("[{}] CSLSPublisher::uninit, session end stream={}, peakReaderBacklogBytes={}, "
+                         "ringOverruns={}, viewerBackpressure={}.",
+                         fmt::ptr(this), m_map_data_key, get_max_reader_backlog(false), get_ring_overrun_count(),
+                         get_viewer_backpressure_events(false));
+            ret = m_map_data->remove(m_map_data_key);
+            spdlog::info("[{}] CSLSPublisher::uninit, removed publisher from m_map_data, ret={:d}.", fmt::ptr(this),
+                         ret);
+        }
     }
 
     if (m_map_publisher)
