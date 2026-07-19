@@ -1,0 +1,19 @@
+src/core/SLSPublisher.cpp
+  s_cd89f5307c3206::t_0d52bf9814db08 114-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "ff4a13c6ffb0f7b8076cfccfb8f5a6c5d35202c3",
+  "prompts": {},
+  "sessions": {
+    "s_cd89f5307c3206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55216f27-0f59-434f-bf32-6e8362710c3b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
