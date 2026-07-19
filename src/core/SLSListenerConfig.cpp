@@ -87,6 +87,11 @@ int CSLSListener::init_conf_app()
 
     m_back_log = conf_server->backlog;
     m_idle_streams_timeout_role = conf_server->idle_streams_timeout;
+    // 0/unset inherits the shared timeout; -1 and positive values are used
+    // as-is (the conf parser already range-checks to [-1, 86400]).
+    m_player_idle_streams_timeout_role = conf_server->player_idle_streams_timeout != 0
+                                             ? conf_server->player_idle_streams_timeout
+                                             : conf_server->idle_streams_timeout;
     // publisher_first_data_grace: 0/unset -> built-in 3s default; -1 ->
     // explicitly disabled; >0 -> use as-is. Kept as a sentinel rather than a
     // plain field default because create_conf() memsets the whole conf struct

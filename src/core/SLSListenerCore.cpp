@@ -30,6 +30,7 @@ CSLSListener::CSLSListener()
     m_port_override = 0;
     m_idle_streams_timeout = UNLIMITED_TIMEOUT;
     m_idle_streams_timeout_role = 0;
+    m_player_idle_streams_timeout_role = 0;
     m_publisher_first_data_grace_role = 0;
     m_stat_info = {};
     memset(m_default_sid, 0, STR_MAX_LEN);

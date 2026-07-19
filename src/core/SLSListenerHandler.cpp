@@ -1099,7 +1099,7 @@ int CSLSListener::finish_player_accept(CSLSSrt *srt, const std::string &app_upli
     CSLSPlayer *player = player_sp.get();
 
     player->init();
-    player->set_idle_streams_timeout(m_idle_streams_timeout_role);
+    player->set_idle_streams_timeout(m_player_idle_streams_timeout_role);
     player->set_srt(srt);
     player->set_map_data(key_stream_name, m_map_data);
     player->set_latency(final_latency);

@@ -60,8 +60,9 @@ char listen_player[SHORT_STR_MAX_LEN];
 int backlog;
 int latency_min;
 int latency_max;
-int idle_streams_timeout;       // unit s; -1: unlimited
-int publisher_first_data_grace; // ms added on top of negotiated latency before a silent new publisher is reaped;
+int idle_streams_timeout;        // unit s; -1: unlimited
+int player_idle_streams_timeout; // unit s; players only; 0 = inherit idle_streams_timeout; -1: unlimited
+int publisher_first_data_grace;  // ms added on top of negotiated latency before a silent new publisher is reaped;
                                 // 0=default(3000), -1=disabled
 char on_event_url[URL_MAX_LEN];
 char player_key_auth_url[URL_MAX_LEN];
@@ -99,6 +100,10 @@ SLS_SET_CONF(server, string, domain_player, "play domain", 1, URL_MAX_LEN - 1),
                  0, 5000),
     SLS_SET_CONF(server, int, latency_max, "maximum allowed latency (ms) - enforced on all connections", 0, 10000),
     SLS_SET_CONF(server, int, idle_streams_timeout, "players idle timeout when no publisher", -1, 86400),
+    SLS_SET_CONF(server, int, player_idle_streams_timeout,
+                 "idle timeout (s) for player roles only, letting viewers ride out publisher outages longer than "
+                 "idle_streams_timeout without disconnecting (0 = inherit idle_streams_timeout, -1 = unlimited)",
+                 -1, 86400),
     SLS_SET_CONF(server, int, publisher_first_data_grace,
                  "ms added on top of a new publisher's negotiated SRT latency to form the deadline by which it must "
                  "deliver its first media packet or be reaped (0 = default 3000ms, -1 = disabled)",
@@ -193,6 +198,11 @@ private:
     CSLSMutex m_mutex;
 
     int m_idle_streams_timeout_role;
+    // Player-specific idle timeout (seconds). Resolved at config time: the
+    // player_idle_streams_timeout directive when set, else the shared
+    // idle_streams_timeout. Publishers keep the shared value so a dead
+    // publisher is still reaped promptly while viewers ride out the outage.
+    int m_player_idle_streams_timeout_role;
     // Probation grace (ms) handed to each accepted publisher: added on top of
     // its negotiated SRT receive latency to form the deadline by which it must
     // deliver a media packet or be reaped. The latency term matters because
