@@ -391,6 +391,55 @@ TEST_CASE("CSLSRecycleArray: setSize invalidates readers anchored on the old buf
     CHECK(std::memcmp(out, chunk, sizeof(chunk)) == 0);
 }
 
+// A reader that is CALLED every cycle but drains less than the writer
+// produces accumulates lag across partial drains. The overrun check compares
+// the writer's counter against bytes CONSUMED, so this lap must be detected
+// even though every per-call writer delta is far below the ring size. (The
+// old code snapped the reader counter to the writer's on every call, so this
+// reader was lapped silently and read wrapped garbage forever.)
+TEST_CASE("CSLSRecycleArray: partially draining reader is overrun-resynced at true lag")
+{
+    const int RING = 64;
+    CSLSRecycleArray ring;
+    ring.setSize(RING);
+
+    SLSRecycleArrayID id = fresh_reader();
+    anchor(ring, id);
+
+    // Writer adds 16/cycle, reader drains at most 8/cycle: true lag grows by
+    // 8 per iteration and passes RING at iteration 8, while each per-call
+    // writer delta stays at 16 (well under RING).
+    char chunk[16];
+    char out[8];
+    bool overran = false;
+    int64_t peak_backlog = 0;
+    for (int i = 0; i < 40 && !overran; i++)
+    {
+        std::memset(chunk, (char)('A' + (i % 26)), sizeof(chunk));
+        CHECK(ring.put(chunk, sizeof(chunk)) == (int)sizeof(chunk));
+        int got = ring.get(out, sizeof(out), &id, 0);
+        CHECK(got >= 0);
+        int64_t backlog = ring.get_max_reader_backlog(false);
+        if (backlog > peak_backlog)
+            peak_backlog = backlog;
+        if (ring.get_overrun_count() > 0)
+            overran = true;
+    }
+    CHECK(overran);
+    // The backlog gauge must have tracked the true accumulated lag, not the
+    // per-call writer delta (which never exceeded 16).
+    CHECK(peak_backlog > 16);
+
+    // After the resync the reader is at the live head and receives exactly
+    // the fresh data.
+    char fresh[16];
+    std::memset(fresh, 'Z', sizeof(fresh));
+    CHECK(ring.put(fresh, sizeof(fresh)) == (int)sizeof(fresh));
+    char big[64] = {0};
+    CHECK(ring.get(big, sizeof(big), &id, 0) == (int)sizeof(fresh));
+    CHECK(std::memcmp(big, fresh, sizeof(fresh)) == 0);
+}
+
 // Backstop for the generation check: a reader whose byte counter is ahead of
 // the ring's monotonic counter cannot belong to this incarnation. It must be
 // resynced, never used to index the buffer.

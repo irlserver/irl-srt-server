@@ -208,14 +208,16 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
         return SLS_OK;
     }
 
-    // Overrun detection: if the writer has produced more than m_nDataSize
-    // bytes since this reader last sampled the buffer, the contents the
-    // reader was about to consume have already been overwritten by newer
-    // data. Without this check we'd silently hand back a wrapped-around
-    // region of the ring containing bytes that don't belong to the
-    // reader's logical position — producing corrupt TS / out-of-order
-    // delivery to the subscriber. Force the reader to resync to the
-    // current write head and count the event for diagnostics.
+    // Overrun detection: read_id->nDataCount tracks bytes CONSUMED by this
+    // reader (advanced by copy_data_len below), so the delta against the
+    // writer's monotonic byte counter is the reader's true accumulated lag —
+    // including lag built up across partial drains, where each get() copies
+    // only a slice of a larger backlog. If that lag reaches the buffer size
+    // the writer has physically overwritten the reader's unread region, and
+    // reading on would hand back a wrapped-around mix of newer bytes at the
+    // reader's stale logical position — corrupt TS / out-of-order delivery.
+    // Force the reader to resync to the current write head and count the
+    // event for diagnostics.
     //
     // A negative delta is equally disqualifying: m_nDataCount is monotonic
     // for a given ring incarnation, so a reader counter ahead of the ring's
@@ -310,7 +312,12 @@ int CSLSRecycleArray::get(char *data, int size, SLSRecycleArrayID *read_id, int 
                      read_id->nReadPos, m_nDataSize);
         read_id->nReadPos = 0;
     }
-    read_id->nDataCount = cur_data_count;
+    // Advance by what was actually consumed, NOT to cur_data_count: snapping
+    // to the writer's counter would silently forgive any backlog this call
+    // didn't drain, letting a persistently under-draining reader be lapped
+    // without the overrun check above ever firing (and making the backlog
+    // gauges undercount in exactly that case).
+    read_id->nDataCount += copy_data_len;
     SPDLOG_TRACE("[{}] CSLSRecycleArray::get, copy_data_lens={:d}.", fmt::ptr(this), copy_data_len);
     return copy_data_len;
 }
