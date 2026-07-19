@@ -567,3 +567,9 @@ jobs:
           SRT_SERVER="$PWD/build/bin/srt_server" \
           SRT_CLIENT="$PWD/build/bin/srt_client" \
             bash tests/e2e/stats_snapshot.sh
+
+      - name: Reconnect-replay (viewer survives publisher restart without replay)
+        run: |
+          SRT_SERVER="$PWD/build/bin/srt_server" \
+          SRT_CLIENT="$PWD/build/bin/srt_client" \
+            bash tests/e2e/reconnect_replay.sh
