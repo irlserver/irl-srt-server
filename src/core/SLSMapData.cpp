@@ -357,7 +357,11 @@ int CSLSMapData::get(char *key, char *data, int len, SLSRecycleArrayID *read_id,
         return SLS_ERROR;
     }
 
-    bool b_first = read_id->bFirst;
+    // A reader rejoining after a ring teardown/recreate (publisher reconnect)
+    // is a first join from the viewer's perspective: it re-anchors at the live
+    // write head, and the new session's PAT/PMT may differ from the old one's,
+    // so send ts_info exactly like the bFirst path.
+    bool b_first = read_id->bFirst || array_data->is_stale_reader(read_id);
     ret = array_data->get(data, len, read_id, aligned);
     if (b_first)
     {

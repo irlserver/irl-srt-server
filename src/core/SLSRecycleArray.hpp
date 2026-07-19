@@ -87,6 +87,18 @@ public:
     // is the metric that answers "is SLS holding a catch-up burst for a viewer".
     int64_t get_reader_backlog(const SLSRecycleArrayID *read_id) const;
 
+    // True when this reader anchored on a different buffer incarnation, i.e.
+    // its next get() will re-anchor at the live write head instead of
+    // returning data. Lets callers treat a rejoin like a first join (e.g.
+    // CSLSMapData::get resends PAT/PMT so the viewer's demuxer re-syncs on
+    // the new session's tables). Lock-free; the generation is an identity
+    // token, so a racy read at worst delays the rejoin treatment one call.
+    bool is_stale_reader(const SLSRecycleArrayID *read_id) const
+    {
+        return read_id != nullptr && !read_id->bFirst &&
+               read_id->nGeneration != m_nGeneration.load(std::memory_order_relaxed);
+    }
+
     // High-water of get_reader_backlog seen across ALL readers since the last
     // clear. This is the per-stream signal an operator polls to see whether any
     // viewer fell far enough behind that its eventual catch-up drain is bursty

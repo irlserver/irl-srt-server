@@ -149,6 +149,26 @@ TEST_CASE("CSLSRecycleArray: viewer backpressure events accumulate and clear")
     CHECK(ring.get_viewer_backpressure_events(false) == 0);
 }
 
+TEST_CASE("CSLSRecycleArray: is_stale_reader flags cross-incarnation anchors until re-anchor")
+{
+    auto *ring_a = new CSLSRecycleArray;
+    ring_a->setSize(1024);
+    SLSRecycleArrayID id = fresh_reader();
+    CHECK_FALSE(ring_a->is_stale_reader(&id)); // unanchored is not stale
+    anchor(*ring_a, id);
+    CHECK_FALSE(ring_a->is_stale_reader(&id));
+    delete ring_a;
+
+    CSLSRecycleArray ring_b;
+    ring_b.setSize(1024);
+    CHECK(ring_b.is_stale_reader(&id)); // anchored on the dead incarnation
+
+    char out[64];
+    CHECK(ring_b.get(out, sizeof(out), &id, 0) == SLS_OK); // re-anchor
+    CHECK_FALSE(ring_b.is_stale_reader(&id));
+    CHECK_FALSE(ring_b.is_stale_reader(nullptr));
+}
+
 TEST_CASE("CSLSRecycleArray: zero-length put is rejected")
 {
     CSLSRecycleArray ring;
