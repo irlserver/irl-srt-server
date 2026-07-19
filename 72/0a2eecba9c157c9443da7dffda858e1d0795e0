@@ -1,0 +1,19 @@
+tests/test_recycle_array.cpp
+  s_cd89f5307c3206::t_6dc43e0e608227 257-385
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "720a2eecba9c157c9443da7dffda858e1d0795e0",
+  "prompts": {},
+  "sessions": {
+    "s_cd89f5307c3206": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55216f27-0f59-434f-bf32-6e8362710c3b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>"
+    }
+  }
+}
