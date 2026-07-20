@@ -345,9 +345,9 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     }
     ti = item_ti->second;
 
-    if (SLS_OK == check_ts_info(data, len, ti))
+    if (SLS_OK !== check_ts_info(data, len, ti))
     {
-        spdlog::info("[{}] CSLSMapData::put, check_spspps ok, key={}.", fmt::ptr(this), key);
+        spdlog::warn("[{}] CSLSMapData::put, check_spspps failed, key={}.", fmt::ptr(this), key);
     }
 
     ret = array_data->put(data, len);
