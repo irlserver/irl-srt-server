@@ -77,7 +77,6 @@ private:
 
     unsigned int m_worker_connections;
     unsigned int m_worker_number;
-    int64_t m_cur_time_microsec;
     bool m_reload;
 
     int64_t m_stat_post_last_tm_ms;
