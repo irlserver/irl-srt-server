@@ -345,10 +345,14 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     }
     ti = item_ti->second;
 
-    if (SLS_OK != check_ts_info(data, len, ti))
-    {
-        spdlog::warn("[{}] CSLSMapData::put, check_spspps failed, key={}.", fmt::ptr(this), key);
-    }
+    // Accumulate SPS/PPS/PAT/PMT into ti for later use by get(). An incomplete
+    // set is not an error worth reporting: it is the normal state until the
+    // first keyframe arrives, and it is the permanent state for a codec whose
+    // parameter sets this parser does not recognise. Reporting it per packet
+    // meant a warning for every put() on such a stream -- thousands per second
+    // on the publisher's data path, which is enough to stall the stream that
+    // the message was supposedly diagnosing.
+    check_ts_info(data, len, ti);
 
     ret = array_data->put(data, len);
     if (ret != len)
