@@ -431,6 +431,15 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear)
     ret["pktRecvNAKTotal"] = stats.pktRecvNAKTotal;
     ret["pktRetransTotal"] = stats.pktRetransTotal;
     ret["pktRcvRetrans"] = stats.pktRcvRetrans;
+#ifdef SRT_HAVE_SRTLA_REORDER_HOLD
+    // How long a gap must persist before this socket calls it lost, measured
+    // from the spread between the bonded links feeding it. Reported alongside
+    // the NAK counters above because it is what governs them: too short and
+    // the retransmit counters climb with packets that were never lost, merely
+    // still in flight on a slower link. Absent when built against a libsrt
+    // without the SRTLA patches, and 0 on a connection that is not bonded.
+    ret["msSrtlaReorderHold"] = stats.msSrtlaReorderHold;
+#endif
     // Instant
     ret["rtt"] = stats.msRTT;
     ret["msRcvBuf"] = stats.msRcvBuf;
