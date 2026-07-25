@@ -89,10 +89,9 @@ public:
 
     // True when this reader anchored on a different buffer incarnation, i.e.
     // its next get() will re-anchor at the live write head instead of
-    // returning data. Lets callers treat a rejoin like a first join (e.g.
-    // CSLSMapData::get resends PAT/PMT so the viewer's demuxer re-syncs on
-    // the new session's tables). Lock-free; the generation is an identity
-    // token, so a racy read at worst delays the rejoin treatment one call.
+    // returning data. Diagnostic / test utility. Lock-free; the generation
+    // is an identity token, so a racy read at worst reports staleness one
+    // call late.
     bool is_stale_reader(const SLSRecycleArrayID *read_id) const
     {
         return read_id != nullptr && !read_id->bFirst &&
@@ -124,6 +123,15 @@ public:
     void report_viewer_snd_drops(int64_t count);
     int64_t get_viewer_snd_drops(bool clear = false);
 
+    // Ingest-side content hole: the publisher's TS arrived with a continuity
+    // break, meaning TLPKTDROP discarded content before it reached the server
+    // and every viewer will see the same glitch. Measurement only (surfaced
+    // as ingestDiscontinuities in /stats) — delivery is deliberately NOT
+    // gated on this: operators preferred brief decoder corruption over a
+    // freeze-to-next-keyframe on every small loss.
+    void note_ingest_discontinuity();
+    int64_t get_ingest_discontinuities(bool clear = false);
+
 private:
     char *m_arrayData;
     int m_nDataSize;
@@ -151,6 +159,7 @@ private:
     std::atomic<int64_t> m_max_reader_backlog{0};
     std::atomic<int64_t> m_viewer_backpressure_events{0};
     std::atomic<int64_t> m_viewer_snd_drops{0};
+    std::atomic<int64_t> m_ingest_discontinuities{0};
 
     // Unique per buffer incarnation (fresh value on construction and on every
     // setSize() realloc), compared against SLSRecycleArrayID::nGeneration in

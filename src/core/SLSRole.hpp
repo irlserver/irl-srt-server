@@ -225,6 +225,9 @@ public:
     // CSLSRecycleArray::report_viewer_snd_drops). Read on the publisher role
     // by /stats; fed by player roles via sample_viewer_snd_drops().
     int64_t get_viewer_snd_drops(bool clear = false) const;
+    // Ingest TS continuity breaks for this stream (content lost before it
+    // reached the server; every viewer shares the glitch). Measurement only.
+    int64_t get_ingest_discontinuities(bool clear = false) const;
 
     // Player-side: push the delta of this role's socket pktSndDropTotal onto
     // the shared stream ring, rate-limited internally to once per second.
@@ -349,6 +352,7 @@ protected:
     // the ring and the wall-clock of the last sample. Worker-thread only.
     int64_t m_snd_drops_reported{0};
     int64_t m_last_snd_drop_sample_ms{0};
+
 
     // Wall-clock (sls_gettime_ms) of the first EASYNCSND-with-no-progress
     // event in the current stuck streak. Cleared back to 0 on any

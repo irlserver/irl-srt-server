@@ -80,6 +80,7 @@ public:
     int64_t get_viewer_backpressure_events(const char *key, bool clear = false);
     void report_viewer_snd_drops(const char *key, int64_t count);
     int64_t get_viewer_snd_drops(const char *key, bool clear = false);
+    int64_t get_ingest_discontinuities(const char *key, bool clear = false);
 
     int put(char *key, char *data, int len, int64_t *last_read_time = NULL);
     int get(char *key, char *data, int len, SLSRecycleArrayID *read_id, int aligned = 0);
@@ -94,6 +95,10 @@ private:
     // saves a per-packet heap allocation per direction.
     std::map<std::string, CSLSRecycleArray *, std::less<>> m_map_array; // uplive_key_stream:data'
     std::map<std::string, ts_info *, std::less<>> m_map_ts_info;        // uplive_key_stream:ts_info'
+    // Per-stream TS continuity tracker (see sls_ts_check_continuity). Same
+    // lifecycle as m_map_ts_info: pre-allocated in add(), freed in remove()
+    // and clear(); mutated only by the stream's single publisher writer.
+    std::map<std::string, ts_cc_state *, std::less<>> m_map_cc_state;
     CSLSRWLock m_rwclock;
 
     // Global ring-budget accounting. Mutated only under m_rwclock's write lock

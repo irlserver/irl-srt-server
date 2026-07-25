@@ -201,3 +201,23 @@ struct ts_info
 };
 void sls_init_ts_info(ts_info *ti);
 int sls_parse_ts_info(const uint8_t *packet, int len, ts_info *ti);
+
+// Per-stream TS continuity-counter tracker. A break in the 4-bit continuity
+// counter of any PID means the ingest socket dropped content (TLPKTDROP on a
+// publisher's bad patch): everything downstream of that hole is mid-GOP data
+// a decoder can only conceal with stale frames. The ingest path feeds every
+// received chunk through sls_ts_check_continuity and, on a break, signals the
+// stream ring so viewers re-arm their keyframe gates.
+#define TS_CC_MAX_PIDS 16
+struct ts_cc_state
+{
+    int n_pids;
+    int pid[TS_CC_MAX_PIDS];
+    uint8_t last_cc[TS_CC_MAX_PIDS];
+};
+void sls_init_ts_cc_state(ts_cc_state *st);
+// Returns the number of continuity breaks detected in this chunk and updates
+// the tracker. Duplicate packets (same CC re-sent) and packets carrying the
+// adaptation-field discontinuity_indicator are not breaks.
+int sls_ts_check_continuity(const uint8_t *data, int len, ts_cc_state *st);
+

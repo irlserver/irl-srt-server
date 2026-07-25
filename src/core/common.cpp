@@ -965,6 +965,68 @@ static int sls_parse_pat(const uint8_t *pat_data, int len, ts_info *ti)
     return SLS_OK;
 }
 
+void sls_init_ts_cc_state(ts_cc_state *st)
+{
+    if (st != nullptr)
+    {
+        st->n_pids = 0;
+    }
+}
+
+int sls_ts_check_continuity(const uint8_t *data, int len, ts_cc_state *st)
+{
+    if (data == nullptr || st == nullptr)
+        return 0;
+
+    int breaks = 0;
+    for (int i = 0; i + TS_PACK_LEN <= len; i += TS_PACK_LEN)
+    {
+        const uint8_t *p = data + i;
+        if (p[0] != 0x47)
+            continue;
+        int pid = ((p[1] & 0x1F) << 8) | p[2];
+        if (pid == 0x1FFF)
+            continue; // null packets carry no meaningful CC
+
+        int afc = (p[3] >> 4) & 0x3;
+        bool has_payload = (afc & 0x1) != 0;
+        uint8_t cc = p[3] & 0x0F;
+        bool declared_discontinuity = (afc & 0x2) && p[4] > 0 && (p[5] & 0x80) != 0;
+
+        int slot = -1;
+        for (int s = 0; s < st->n_pids; s++)
+        {
+            if (st->pid[s] == pid)
+            {
+                slot = s;
+                break;
+            }
+        }
+        if (slot < 0)
+        {
+            // First sight of this PID: record, nothing to compare against.
+            if (st->n_pids < TS_CC_MAX_PIDS)
+            {
+                slot = st->n_pids++;
+                st->pid[slot] = pid;
+                st->last_cc[slot] = cc;
+            }
+            continue;
+        }
+
+        if (has_payload)
+        {
+            uint8_t expected = (st->last_cc[slot] + 1) & 0x0F;
+            // Equal CC = spec-legal duplicate packet, not a break.
+            if (cc != expected && cc != st->last_cc[slot] && !declared_discontinuity)
+                breaks++;
+            st->last_cc[slot] = cc; // resync tracker to the stream either way
+        }
+        // Payload-less packets do not increment CC; nothing to check.
+    }
+    return breaks;
+}
+
 int sls_parse_ts_info(const uint8_t *packet, int len, ts_info *ti)
 {
     // Every read below indexes within a single 188-byte TS packet, so require a

@@ -469,6 +469,10 @@ json CSLSManager::create_json_stats_for_publisher(CSLSRole *role, int clear)
     // means the jumps are on the viewer side (link or latency window), not
     // lost publisher content.
     ret["viewerPktSndDrop"] = role->get_viewer_snd_drops(clear);
+    // TS continuity breaks detected at ingest: content TLPKTDROP discarded
+    // before it reached the server, so every viewer shares the glitch.
+    // Complements pktRcvDrop (packets) with a content-level event count.
+    ret["ingestDiscontinuities"] = role->get_ingest_discontinuities(clear);
     // Furthest any viewer of this stream fell behind the publisher ring write
     // head (bytes) since the last clear. This is the catch-up burst a viewer
     // will drain when it recovers, which the viewer perceives as a time-skip /

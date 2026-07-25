@@ -157,6 +157,12 @@ int CSLSMapData::add(char *key, int max_bitrate_kbps, int latency_ms)
         ti->need_spspps = true;
         m_map_ts_info[strKey] = ti;
     }
+    if (m_map_cc_state.find(strKey) == m_map_cc_state.end())
+    {
+        ts_cc_state *cc = new ts_cc_state;
+        sls_init_ts_cc_state(cc);
+        m_map_cc_state[strKey] = cc;
+    }
 
     spdlog::info("[{}] CSLSMapData::add ok, key='{}', ring_size={:d}, streams={:d}, total_ring_bytes={:d}.",
                  fmt::ptr(this), key, data_array->get_data_size(), m_stream_count.load(std::memory_order_relaxed),
@@ -238,6 +244,17 @@ int64_t CSLSMapData::get_viewer_snd_drops(const char *key, bool clear)
     return it->second->get_viewer_snd_drops(clear);
 }
 
+int64_t CSLSMapData::get_ingest_discontinuities(const char *key, bool clear)
+{
+    if (!key)
+        return -1;
+    CSLSLock lock(&m_rwclock, false);
+    auto it = m_map_array.find(std::string_view{key});
+    if (it == m_map_array.end() || it->second == NULL)
+        return -1;
+    return it->second->get_ingest_discontinuities(clear);
+}
+
 int CSLSMapData::remove(char *key)
 {
     int ret = SLS_ERROR;
@@ -254,6 +271,13 @@ int CSLSMapData::remove(char *key)
             delete ti;
         }
         m_map_ts_info.erase(item_ti);
+    }
+
+    auto item_cc = m_map_cc_state.find(strKey);
+    if (item_cc != m_map_cc_state.end())
+    {
+        delete item_cc->second;
+        m_map_cc_state.erase(item_cc);
     }
 
     auto item = m_map_array.find(strKey);
@@ -354,6 +378,18 @@ int CSLSMapData::put(char *key, char *data, int len, int64_t *last_read_time)
     // the message was supposedly diagnosing.
     check_ts_info(data, len, ti);
 
+    // Ingest continuity accounting: a break here means TLPKTDROP discarded
+    // content upstream of the server, so every viewer of this stream shares
+    // the resulting glitch. Counter only — see note_ingest_discontinuity for
+    // why delivery is not gated on it.
+    auto item_cc = m_map_cc_state.find(keyView);
+    if (item_cc != m_map_cc_state.end() && item_cc->second != NULL)
+    {
+        int breaks = sls_ts_check_continuity((const uint8_t *)data, len, item_cc->second);
+        if (breaks > 0)
+            array_data->note_ingest_discontinuity();
+    }
+
     ret = array_data->put(data, len);
     if (ret != len)
     {
@@ -438,6 +474,12 @@ void CSLSMapData::clear()
         item_ti++;
     }
     m_map_ts_info.clear();
+    for (auto item_cc = m_map_cc_state.begin(); item_cc != m_map_cc_state.end();)
+    {
+        delete item_cc->second;
+        item_cc++;
+    }
+    m_map_cc_state.clear();
 }
 
 int CSLSMapData::check_ts_info(char *data, int len, ts_info *ti)

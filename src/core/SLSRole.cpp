@@ -985,6 +985,13 @@ int64_t CSLSRole::get_viewer_snd_drops(bool clear) const
     return m_map_data->get_viewer_snd_drops(m_map_data_key, clear);
 }
 
+int64_t CSLSRole::get_ingest_discontinuities(bool clear) const
+{
+    if (m_map_data == NULL || strlen(m_map_data_key) == 0)
+        return -1;
+    return m_map_data->get_ingest_discontinuities(m_map_data_key, clear);
+}
+
 void CSLSRole::sample_viewer_snd_drops()
 {
     if (m_map_data == NULL || strlen(m_map_data_key) == 0 || NULL == m_srt)

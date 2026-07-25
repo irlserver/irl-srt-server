@@ -4,6 +4,7 @@
       "bitrate": "<number>",
       "bytesRcvDrop": "<number>",
       "bytesRcvLoss": "<number>",
+      "ingestDiscontinuities": "<number>",
       "latency": "<number>",
       "maxReaderBacklogBytes": "<number>",
       "maxReaderBacklogMs": "<number>",

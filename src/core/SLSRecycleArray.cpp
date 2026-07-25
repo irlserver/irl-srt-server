@@ -370,3 +370,15 @@ int64_t CSLSRecycleArray::get_viewer_snd_drops(bool clear)
         return m_viewer_snd_drops.exchange(0, std::memory_order_relaxed);
     return m_viewer_snd_drops.load(std::memory_order_relaxed);
 }
+
+void CSLSRecycleArray::note_ingest_discontinuity()
+{
+    m_ingest_discontinuities.fetch_add(1, std::memory_order_relaxed);
+}
+
+int64_t CSLSRecycleArray::get_ingest_discontinuities(bool clear)
+{
+    if (clear)
+        return m_ingest_discontinuities.exchange(0, std::memory_order_relaxed);
+    return m_ingest_discontinuities.load(std::memory_order_relaxed);
+}
