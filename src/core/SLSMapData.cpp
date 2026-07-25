@@ -383,19 +383,17 @@ int CSLSMapData::get(char *key, char *data, int len, SLSRecycleArrayID *read_id,
         return SLS_ERROR;
     }
 
-    // A reader rejoining after a ring teardown/recreate (publisher reconnect)
-    // is a first join from the viewer's perspective: it re-anchors at the live
-    // write head, and the new session's PAT/PMT may differ from the old one's,
-    // so send ts_info exactly like the bFirst path.
-    bool b_first = read_id->bFirst || array_data->is_stale_reader(read_id);
-    ret = array_data->get(data, len, read_id, aligned);
-    if (b_first)
-    {
-        // get sps and pps
-        ret = get_ts_info(key, data, len);
-        spdlog::info("[{}] CSLSMapData::get, get sps pps ok, key={}, len={:d}.", fmt::ptr(this), key, ret);
-    }
-    return ret;
+    // Historically the first get() for a reader injected a synthesized
+    // PAT/PMT/SPS-PPS packet (get_ts_info), captured ONCE at session start,
+    // so a joining decoder could initialise before the stream repeated its
+    // tables. On long sessions that packet is minutes-to-hours stale — its
+    // capture-time timestamp regresses the demuxer clock, and with adaptive
+    // encoders (moblin changes parameters mid-session) its SPS can describe
+    // a different resolution than the live stream, flashing corrupt or stale
+    // frames on every join and rejoin. Streams repeat their tables inline
+    // (PAT/PMT every <=100ms, parameter sets at each keyframe), so the safe
+    // behavior is to relay ring bytes untouched and inject nothing.
+    return array_data->get(data, len, read_id, aligned);
 }
 
 int CSLSMapData::get_ts_info(char *key, char *data, int len)
